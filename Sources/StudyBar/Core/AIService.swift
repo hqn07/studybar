@@ -275,10 +275,12 @@ struct AIAction: Identifiable {
     }
 }
 
-/// A single assistant turn: prose to show + zero or more proposed actions.
+/// A single assistant turn: prose to show + proposed write actions + optional
+/// read requests (executed immediately, results fed back for another round).
 struct AITurn {
     let reply: String
     let actions: [AIAction]
+    var reads: [AIAction] = []
 }
 
 // MARK: - Orchestrator
@@ -322,12 +324,37 @@ enum AIService {
         }
     }
 
-    /// Run one assistant turn over the current conversation.
+    /// Max model round-trips per turn (reads are allowed in all but the last).
+    private static let maxRounds = 4
+
+    /// Run one assistant turn. The model may first request read-only data (which we
+    /// execute and feed back) before returning its final reply + write actions.
     static func send(history: [AIMessage], state: AppState) async throws -> AITurn {
         guard let provider = makeProvider() else { throw AIError.notConfigured }
         let system = systemPrompt(state: state)
-        let raw = try await provider.complete(system: system, messages: history)
-        return AIProtocol.parse(raw)
+        var convo = history
+        var last = AITurn(reply: "", actions: [])
+
+        for round in 0..<maxRounds {
+            let raw = try await provider.complete(system: system, messages: convo)
+            let turn = AIProtocol.parse(raw)
+            last = turn
+            // If it asked for data and rounds remain, fetch it and continue.
+            if !turn.reads.isEmpty && round < maxRounds - 1 {
+                let results = AIReader.run(turn.reads, state: state)
+                convo.append(.init(role: .assistant, text: raw))
+                convo.append(.init(role: .user,
+                    text: "DATA (results of your reads — use these to answer; only read again if truly necessary):\n\(results)"))
+                continue
+            }
+            return present(turn)
+        }
+        return present(last)
+    }
+
+    private static func present(_ turn: AITurn) -> AITurn {
+        let reply = turn.reply.isEmpty ? (turn.actions.isEmpty ? "Done." : "Here's what I can set up:") : turn.reply
+        return AITurn(reply: reply, actions: turn.actions)
     }
 
     // MARK: System prompt (guardrail + protocol + scoped context)
@@ -351,19 +378,26 @@ enum AIService {
         So "make flashcards from this note: …" should always produce make_flashcards — never
         a refusal.
 
-        HOW TO REPLY: Always answer with a single JSON object and nothing else:
-        {
-          "reply": "one or two short sentences to show the student",
-          "actions": [ { "tool": "<name>", "label": "<what tapping this will do>", "args": { ... } } ]
-        }
-        Use "actions" for anything that changes StudyBar; leave it [] for a plain answer.
-        The student confirms every action before it happens, so propose freely but keep
-        each action's "label" concrete. Never invent data you weren't given.
+        HOW TO REPLY: respond with ONE JSON object and nothing else — with these exact keys
+        "reads", "reply", "actions" — using REAL tool names from the lists below (never the
+        literal words "read"/"write"/placeholders).
 
-        TOOLS:
+        Two-step pattern. If you need the student's data, FIRST return only reads:
+          {"reads":[{"tool":"get_note","args":{"query":"Cell Biology"}}],"reply":"","actions":[]}
+        You'll receive the data, THEN respond with the result and any write actions:
+          {"reads":[],"reply":"Made cards from your note.","actions":[{"tool":"make_flashcards","label":"Add 3 cards","args":{"cards":[{"front":"What makes ATP?","back":"Mitochondria"}]}}]}
+
+        Once you have what you need, set "reads":[]. Reads run instantly and privately;
+        every write action is confirmed by the student. Never invent data you didn't read
+        or the student didn't give you.
+
+        READ TOOLS (free, no confirmation — use these to look things up):
+        \(AIProtocol.readCatalog)
+
+        WRITE TOOLS (proposed as confirm cards):
         \(AIProtocol.toolCatalog)
 
-        CURRENT STUDYBAR STATE (read-only context):
+        CURRENT STATE (a summary — use reads for detail):
         \(StudyContext.snapshot(state: state))
         """
     }
@@ -372,14 +406,38 @@ enum AIService {
 // MARK: - Wire protocol (parse the model's JSON)
 
 enum AIProtocol {
+    static let readCatalog = """
+    - get_note            args: { "query": string }   → title + body of the best-matching note
+    - list_notes          args: {}                      → all note titles
+    - list_assignments    args: { "include"?: "done" }  → assignments w/ status, due, urgency
+    - list_todos          args: {}                      → open to-dos
+    - list_reading        args: {}                      → books with page progress
+    - list_decks          args: {}                      → flashcard decks + card counts
+    - list_citations      args: {}                      → saved references
+    - list_classes        args: {}                      → weekly class schedule
+    - list_links          args: {}                      → quick links
+    - get_grades          args: { "course"?: string }   → GPA + current standing / what-if
+    - search              args: { "query": string }     → matches across notes, tasks, reading, citations
+    """
+
     static let toolCatalog = """
-    - add_task        args: { "text": string, "course"?: string, "dueInDays"?: int }
-    - add_note        args: { "title"?: string, "text": string, "course"?: string }
-    - create_assignment args: { "title": string, "course"?: string, "dueInDays"?: int, "points"?: number }
-    - prioritize_assignments  args: {}   (StudyBar computes urgency from due date × weight × submission — do not guess ranks)
-    - plan_study_block  args: { "sessions": [ { "title": string, "dueInDays": int, "minutes"?: int, "course"?: string } ] }
-    - make_flashcards args: { "deck"?: string, "course"?: string, "cards": [ { "front": string, "back": string } ] }
-    - start_pomodoro  args: { "minutes"?: int, "label"?: string }
+    - add_task            args: { "text": string, "course"?: string, "dueInDays"?: int }
+    - add_note            args: { "title"?: string, "text": string, "course"?: string }
+    - create_assignment   args: { "title": string, "course"?: string, "dueInDays"?: int, "points"?: number }
+    - complete_assignment args: { "title": string }
+    - update_assignment   args: { "title": string, "dueInDays"?: int, "submitted"?: bool, "done"?: bool }
+    - prioritize_assignments args: {}   (StudyBar computes urgency from due × weight × submission — don't guess ranks)
+    - plan_study_block    args: { "sessions": [ { "title": string, "dueInDays": int, "minutes"?: int, "course"?: string } ] }
+    - make_flashcards     args: { "deck"?: string, "course"?: string, "cards": [ { "front": string, "back": string } ] }
+    - start_pomodoro      args: { "minutes"?: int, "label"?: string }
+    - add_reading         args: { "title": string, "author"?: string, "totalPages"?: int, "course"?: string }
+    - log_reading         args: { "title": string, "toPage": int }
+    - add_citation        args: { "title": string, "authors"?: [string], "year"?: string, "doi"?: string, "url"?: string, "container"?: string }
+    - add_link            args: { "title": string, "url": string, "course"?: string }
+    - add_snippet         args: { "keyword": string, "title": string, "body": string }
+    - add_class           args: { "title": string, "weekday": int(1=Sun..7=Sat), "start": "HH:MM", "end": "HH:MM", "course"?: string, "room"?: string }
+    - add_grade_item      args: { "course": string, "name": string, "weight": number, "score"?: number, "graded"?: bool }
+    - create_course       args: { "name": string, "code"?: string }
     """
 
     /// Extract the model's JSON object (tolerating prose or ``` fences around it).
@@ -389,14 +447,18 @@ enum AIProtocol {
             return AITurn(reply: raw.trimmingCharacters(in: .whitespacesAndNewlines), actions: [])
         }
         let reply = (obj["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let rawActions = obj["actions"] as? [[String: Any]] ?? []
-        let actions: [AIAction] = rawActions.compactMap { a in
+        return AITurn(reply: reply, actions: actions(obj["actions"]), reads: actions(obj["reads"]))
+    }
+
+    private static func actions(_ value: Any?) -> [AIAction] {
+        (value as? [[String: Any]] ?? []).compactMap { a in
             guard let tool = a["tool"] as? String else { return nil }
-            let label = (a["label"] as? String) ?? tool
-            let args = (a["args"] as? [String: Any]) ?? [:]
-            return AIAction(tool: tool, label: label, args: args)
+            var args = (a["args"] as? [String: Any]) ?? [:]
+            // Some models (esp. small local ones) flatten params to the top level
+            // instead of nesting them under "args" — accept that too.
+            if args.isEmpty { args = a.filter { !["tool", "label", "args"].contains($0.key) } }
+            return AIAction(tool: tool, label: (a["label"] as? String) ?? tool, args: args)
         }
-        return AITurn(reply: reply.isEmpty ? "Done." : reply, actions: actions)
     }
 
     /// First balanced { … } run in the string.
@@ -464,6 +526,114 @@ enum StudyContext {
         lines.append("Library: \(d.notes.count) notes, \(d.decks.count) decks, \(d.flashcards.count) cards, \(d.reading.count) books, \(d.todos.filter { !$0.done }.count) open to-dos.")
         return lines.joined(separator: "\n")
     }
+}
+
+// MARK: - Read tools (run immediately, no confirmation — read-only)
+
+@MainActor
+enum AIReader {
+    static func run(_ reads: [AIAction], state: AppState) -> String {
+        reads.map { one($0, state: state) }.joined(separator: "\n")
+    }
+
+    private static func one(_ r: AIAction, state: AppState) -> String {
+        let d = state.data
+        switch r.tool {
+        case "get_note":
+            let q = (r.str("query") ?? r.str("title") ?? "").trimmingCharacters(in: .whitespaces)
+            let hit = d.notes.first { $0.title.localizedCaseInsensitiveContains(q) || $0.body.localizedCaseInsensitiveContains(q) }
+                ?? (q.isEmpty ? d.notes.sorted { $0.updatedAt > $1.updatedAt }.first : nil)
+            guard let n = hit else { return "get_note: no matching note." }
+            return "NOTE “\(n.title)”: \(n.body.prefix(1600))"
+
+        case "list_notes":
+            return "NOTES: " + (d.notes.isEmpty ? "none" : d.notes.prefix(50).map { $0.title.isEmpty ? "(untitled)" : $0.title }.joined(separator: "; "))
+
+        case "list_assignments":
+            let includeDone = (r.str("include") ?? "").localizedCaseInsensitiveContains("done")
+            let list = d.assignments.filter { includeDone || $0.status != .done }
+                .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+            return "ASSIGNMENTS: " + (list.isEmpty ? "none" : list.prefix(40).map { a in
+                let due = a.due.map { " due \($0.dayMonth)" } ?? ""
+                let u = a.urgencyLabel.map { " · \($0)" } ?? ""
+                return "\(a.title) [\(a.status.rawValue)]\(due)\(a.submitted ? " · submitted" : "")\(u)"
+            }.joined(separator: "; "))
+
+        case "list_todos":
+            let open = d.todos.filter { !$0.done }
+            return "OPEN TODOS: " + (open.isEmpty ? "none" : open.map { t in t.text + (t.due.map { " (due \($0.dayMonth))" } ?? "") }.joined(separator: "; "))
+
+        case "list_reading":
+            return "READING: " + (d.reading.isEmpty ? "none" : d.reading.map { b in
+                "\(b.title)\(b.author.isEmpty ? "" : " by \(b.author)") — \(b.currentPage)/\(b.totalPages)p\(b.done ? " ✓" : "")"
+            }.joined(separator: "; "))
+
+        case "list_decks":
+            return "DECKS: " + (d.decks.isEmpty ? "none" : d.decks.map { dk in "\(dk.name) (\(d.flashcards.filter { $0.deckID == dk.id }.count) cards)" }.joined(separator: "; "))
+
+        case "list_citations":
+            return "CITATIONS: " + (d.references.isEmpty ? "none" : d.references.prefix(40).map { $0.title }.joined(separator: "; "))
+
+        case "list_classes":
+            let cs = d.classes.sorted { ($0.weekday, $0.startMinutes) < ($1.weekday, $1.startMinutes) }
+            return "CLASSES: " + (cs.isEmpty ? "none" : cs.map { c in
+                "\(weekday(c.weekday)) \(c.startString) \(state.course(c.courseID)?.code ?? (c.title.isEmpty ? "Class" : c.title))\(c.room.isEmpty ? "" : " @\(c.room)")"
+            }.joined(separator: "; "))
+
+        case "list_links":
+            return "LINKS: " + (d.links.isEmpty ? "none" : d.links.prefix(40).map { "\($0.title) → \($0.url)" }.joined(separator: "; "))
+
+        case "get_grades":
+            return grades(state, courseQuery: r.str("course"))
+
+        case "search":
+            return search(r.str("query") ?? "", state: state)
+
+        default:
+            return "\(r.tool): unknown read tool."
+        }
+    }
+
+    static func grades(_ state: AppState, courseQuery: String?) -> String {
+        let graded = state.data.courses.filter { $0.gradePoints != nil }
+        var parts: [String] = []
+        if graded.isEmpty {
+            parts.append("GPA: n/a (no letter grades set on courses)")
+        } else {
+            let num = graded.reduce(0.0) { $0 + ($1.gradePoints ?? 0) * $1.credits }
+            let den = graded.reduce(0.0) { $0 + $1.credits }
+            parts.append(den > 0 ? String(format: "GPA: %.2f", num / den) : "GPA: n/a")
+        }
+        if let q = courseQuery,
+           let c = state.data.courses.first(where: { $0.name.localizedCaseInsensitiveContains(q) || $0.code.localizedCaseInsensitiveContains(q) }) {
+            let items = state.gradeItems.filter { $0.courseID == c.id && $0.graded }
+            let gw = items.reduce(0.0) { $0 + $1.weight }
+            let earned = items.reduce(0.0) { $0 + $1.weight * $1.score / 100 }
+            if gw > 0 { parts.append("\(c.code.isEmpty ? c.name : c.code): \(String(format: "%.1f%%", earned / gw * 100)) on \(Int(gw))% graded") }
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    static func search(_ query: String, state: AppState) -> String {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return "search: empty query." }
+        let d = state.data
+        var hits: [String] = []
+        for n in d.notes where n.title.localizedCaseInsensitiveContains(q) || n.body.localizedCaseInsensitiveContains(q) { hits.append("note: \(n.title)") }
+        for a in d.assignments where a.title.localizedCaseInsensitiveContains(q) { hits.append("assignment: \(a.title)") }
+        for t in d.todos where t.text.localizedCaseInsensitiveContains(q) { hits.append("todo: \(t.text)") }
+        for b in d.reading where b.title.localizedCaseInsensitiveContains(q) { hits.append("book: \(b.title)") }
+        for c in d.references where c.title.localizedCaseInsensitiveContains(q) { hits.append("citation: \(c.title)") }
+        return "SEARCH “\(q)”: " + (hits.isEmpty ? "no matches" : hits.prefix(20).joined(separator: "; "))
+    }
+
+    static func weekday(_ w: Int) -> String {
+        ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][safe: w] ?? "Day\(w)"
+    }
+}
+
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
 // MARK: - Apply proposed actions (only on user confirmation)
@@ -543,9 +713,92 @@ enum AIActionRunner {
             AppActions.startFocus(minutes: a.int("minutes"), label: a.str("label"))
             return "Started a focus session."
 
+        case "complete_assignment":
+            guard let i = matchAssignment(a.str("title"), state) else { return "No matching assignment." }
+            AppActions.completeAssignment(id: state.data.assignments[i].id)
+            return "Marked “\(state.data.assignments[i].title)” done."
+
+        case "update_assignment":
+            guard let i = matchAssignment(a.str("title"), state) else { return "No matching assignment." }
+            if let d = a.int("dueInDays") { state.data.assignments[i].due = Calendar.current.date(byAdding: .day, value: d, to: .now) }
+            if let sub = a.args["submitted"] as? Bool { state.data.assignments[i].submitted = sub }
+            if let done = a.args["done"] as? Bool { state.data.assignments[i].status = done ? .done : .todo }
+            return "Updated “\(state.data.assignments[i].title)”."
+
+        case "add_reading":
+            guard let title = a.str("title"), !title.isEmpty else { return "Skipped: no title." }
+            var item = ReadingItem(title: title, courseID: AppActions.courseID(named: a.str("course")))
+            item.author = a.str("author") ?? ""
+            item.totalPages = a.int("totalPages") ?? 0
+            state.data.reading.append(item)
+            return "Added “\(title)” to Reading."
+
+        case "log_reading":
+            guard let i = state.data.reading.firstIndex(where: { $0.title.localizedCaseInsensitiveContains(a.str("title") ?? "\u{0}") }) else { return "No matching book." }
+            if let page = a.int("toPage") { state.setReadingPage(state.data.reading[i].id, to: page) }
+            return "Logged reading for “\(state.data.reading[i].title)”."
+
+        case "add_citation":
+            guard let title = a.str("title"), !title.isEmpty else { return "Skipped: no title." }
+            var ref = Reference(type: .article, title: title, year: a.str("year") ?? "")
+            ref.authors = (a.args["authors"] as? [String]) ?? []
+            ref.doi = a.str("doi") ?? ""
+            ref.url = a.str("url") ?? ""
+            ref.container = a.str("container") ?? ""
+            state.data.references.append(ref)
+            return "Added citation “\(title.prefix(40))”."
+
+        case "add_link":
+            guard let title = a.str("title"), let url = a.str("url"), !url.isEmpty else { return "Skipped: need title + url." }
+            state.data.links.append(QuickLink(title: title, url: url, courseID: AppActions.courseID(named: a.str("course"))))
+            return "Added link “\(title)”."
+
+        case "add_snippet":
+            guard let title = a.str("title"), let body = a.str("body"), !body.isEmpty else { return "Skipped: need title + body." }
+            state.data.snippets.append(Snippet(keyword: a.str("keyword") ?? "", title: title, body: body))
+            return "Added snippet “\(title)”."
+
+        case "add_class":
+            guard let title = a.str("title") else { return "Skipped: no title." }
+            var cls = ClassSession(courseID: AppActions.courseID(named: a.str("course")))
+            cls.title = title
+            cls.weekday = min(7, max(1, a.int("weekday") ?? 2))
+            cls.startMinutes = minutes(a.str("start")) ?? 9 * 60
+            cls.endMinutes = minutes(a.str("end")) ?? (cls.startMinutes + 60)
+            cls.room = a.str("room") ?? ""
+            state.data.classes.append(cls)
+            return "Added class “\(title)”."
+
+        case "add_grade_item":
+            guard let name = a.str("name"), let cid = AppActions.courseID(named: a.str("course")) else { return "Skipped: need course + name." }
+            var g = GradeItem(courseID: cid, name: name, weight: a.double("weight") ?? 0)
+            g.score = a.double("score") ?? 0
+            g.graded = (a.args["graded"] as? Bool) ?? (a.double("score") != nil)
+            state.gradeItems.append(g)
+            return "Added grade component “\(name)”."
+
+        case "create_course":
+            guard let name = a.str("name"), !name.isEmpty else { return "Skipped: no name." }
+            state.data.courses.append(Course(name: name, code: a.str("code") ?? ""))
+            return "Created course “\(name)”."
+
         default:
             return "Unknown action “\(a.tool)”."
         }
+    }
+
+    /// Find the index of the best-matching open-or-any assignment by title.
+    private static func matchAssignment(_ title: String?, _ state: AppState) -> Int? {
+        guard let t = title?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+        return state.data.assignments.firstIndex { $0.title.localizedCaseInsensitiveContains(t) }
+    }
+
+    /// Parse "HH:MM" → minutes from midnight.
+    private static func minutes(_ s: String?) -> Int? {
+        guard let s, s.contains(":") else { return s.flatMap { Int($0).map { $0 * 60 } } }
+        let p = s.split(separator: ":")
+        guard let h = Int(p[0]), let m = Int(p.count > 1 ? p[1] : "0") else { return nil }
+        return h * 60 + m
     }
 
     /// Deterministic urgency ranking — StudyBar computes it, the model never guesses.
