@@ -16,24 +16,29 @@ Native SwiftUI · macOS 14+ · single `.app` · MIT licensed
 
 ## Install
 
-### Homebrew (recommended — no Gatekeeper warning)
+> **Heads up — the app isn't notarized.** Notarization needs a paid Apple Developer ID
+> ($99/yr); this is a free project, so it's skipped. macOS therefore shows a
+> "can't be checked for malicious software" warning on first launch. It's a one-time
+> step to get past it, whichever way you install.
+
+### Homebrew
 
 ```bash
-brew install --cask hqn07/studybar/studybar
+brew install --cask --no-quarantine hqn07/studybar/studybar
 ```
+
+The `--no-quarantine` flag skips the Gatekeeper warning entirely. Without it, install
+still works — you'll just do the one-time right-click → Open below.
 
 ### Download
 
 Grab `StudyBar-1.0.0.dmg` from the [latest release](https://github.com/hqn07/studybar/releases/latest),
-open it, and drag **StudyBar** to Applications.
+open it, and drag **StudyBar** to Applications. Then, once:
 
-> The app is **not** notarized with an Apple Developer ID (that costs $99/yr — this is
-> a free project). So on first launch macOS may warn it "can't be checked". To open it:
-> **right-click the app → Open**, or run once:
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/StudyBar.app
-> ```
-> The Homebrew install above handles this for you automatically.
+- **right-click the app → Open** (and confirm), or
+- ```bash
+  xattr -dr com.apple.quarantine /Applications/StudyBar.app
+  ```
 
 ### Build from source
 
