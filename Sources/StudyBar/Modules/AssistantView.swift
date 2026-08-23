@@ -83,6 +83,22 @@ private struct AssistantChat: View {
             }
             .frame(maxWidth: .infinity).padding(.vertical, 6)
 
+            Button { SyllabusImport.pickAndTriage() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text.viewfinder").frame(width: 22).foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Import a syllabus file…").font(.callout.weight(.medium))
+                        Text("Read a PDF or text syllabus and organize it").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "square.and.arrow.down").font(.caption2).foregroundStyle(.tertiary)
+                }
+                .padding(10).contentShape(Rectangle())
+                .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint.opacity(0.4), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
             ForEach(Starters.suggestions(state: state)) { s in
                 Button { Task { await chat.send(s.prompt, state: state) } } label: {
                     HStack(spacing: 10) {
