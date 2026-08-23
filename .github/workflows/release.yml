@@ -1,0 +1,68 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#   git tag v1.1.0 && git push origin v1.1.0
+# This builds the .dmg, publishes a GitHub Release with it, and (if the
+# HOMEBREW_TAP_TOKEN secret is set) bumps the Homebrew cask.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write        # needed to create the release
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using $LATEST"
+          sudo xcode-select -s "$LATEST/Contents/Developer"
+          xcodebuild -version
+          # On-device AI (Apple Foundation Models) is compiled in only when the
+          # runner's SDK is macOS 26+. Otherwise the build still succeeds and the
+          # app falls back to Ollama / Claude / ChatGPT. Log the SDKs for clarity:
+          xcodebuild -showsdks | grep -i macos || true
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build + package .dmg
+        run: ./scripts/package.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" dist/StudyBar-*.dmg \
+            --title "StudyBar $VERSION" \
+            --generate-notes \
+          || gh release upload "$GITHUB_REF_NAME" dist/StudyBar-*.dmg --clobber
+
+      - name: Bump Homebrew cask (optional)
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${TAP_TOKEN}" ]; then
+            echo "No HOMEBREW_TAP_TOKEN secret set — skipping cask bump."
+            echo "Add a PAT with write access to hqn07/homebrew-studybar as the"
+            echo "HOMEBREW_TAP_TOKEN repo secret to auto-update the cask."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG="dist/StudyBar-${VERSION}.dmg"
+          SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/hqn07/homebrew-studybar.git" tap
+          cd tap
+          sed -i '' -E "s/version \"[^\"]*\"/version \"${VERSION}\"/" Casks/studybar.rb
+          sed -i '' -E "s/sha256 \"[^\"]*\"/sha256 \"${SHA}\"/" Casks/studybar.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "studybar ${VERSION}"
+          git push
