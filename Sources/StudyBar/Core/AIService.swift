@@ -273,6 +273,32 @@ struct AIAction: Identifiable {
         if let s = args[k] as? String { return Double(s) }
         return nil
     }
+
+    /// A human-readable label derived from tool + args, for when the model omits "label".
+    var autoLabel: String {
+        func t(_ k: String) -> String { String((str(k) ?? "").trimmingCharacters(in: .whitespaces).prefix(48)) }
+        func count(_ k: String) -> Int { (args[k] as? [Any])?.count ?? 0 }
+        switch tool {
+        case "add_task":              return "Add task: \(t("text"))"
+        case "add_note":              return "Save note: \(t("title").isEmpty ? t("text") : t("title"))"
+        case "create_assignment":     return "Add assignment: \(t("title"))"
+        case "complete_assignment":   return "Mark done: \(t("title"))"
+        case "update_assignment":     return "Update: \(t("title"))"
+        case "prioritize_assignments":return "Rank assignments by urgency"
+        case "plan_study_block":      let n = count("sessions"); return "Add \(n) study block\(n == 1 ? "" : "s")"
+        case "make_flashcards":       let n = count("cards"); return "Add \(n) flashcard\(n == 1 ? "" : "s")" + (str("deck").map { " to \($0)" } ?? "")
+        case "start_pomodoro":        return "Start a focus session"
+        case "add_reading":           return "Add to Reading: \(t("title"))"
+        case "log_reading":           return "Log reading: \(t("title"))"
+        case "add_citation":          return "Add citation: \(t("title"))"
+        case "add_link":              return "Add link: \(t("title"))"
+        case "add_snippet":           return "Add snippet: \(t("title"))"
+        case "add_class":             return "Add class: \(t("title"))"
+        case "add_grade_item":        return "Add grade item: \(t("name"))"
+        case "create_course":         return "Create course: \(t("name"))"
+        default:                      return tool.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
 }
 
 /// A single assistant turn: prose to show + proposed write actions + optional
@@ -457,7 +483,11 @@ enum AIProtocol {
             // Some models (esp. small local ones) flatten params to the top level
             // instead of nesting them under "args" — accept that too.
             if args.isEmpty { args = a.filter { !["tool", "label", "args"].contains($0.key) } }
-            return AIAction(tool: tool, label: (a["label"] as? String) ?? tool, args: args)
+            let provided = (a["label"] as? String)?.trimmingCharacters(in: .whitespaces)
+            // Derive a readable label when the model omits one (or echoes the tool name).
+            let base = AIAction(tool: tool, label: "", args: args)
+            let label = (provided?.isEmpty == false && provided != tool) ? provided! : base.autoLabel
+            return AIAction(tool: tool, label: label, args: args)
         }
     }
 

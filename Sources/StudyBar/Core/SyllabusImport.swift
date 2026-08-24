@@ -17,25 +17,30 @@ enum SyllabusImport {
         NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let text = extractText(url)
-            // Surface the assistant in the window so the result is visible even though
-            // opening the panel dismissed the menu-bar popover.
-            WindowOpener.open?("main")
-            guard text.count > 40 else {
-                AppActions.assistant("I couldn't read text from “\(url.lastPathComponent)” — it may be a scanned image. Try a text-based PDF, or paste the syllabus text here.")
-                return
-            }
-            let clipped = String(text.prefix(8000))
-            AppActions.assistant("""
-            Organize this syllabus into StudyBar. Extract the course, its assignments \
-            (with due dates and point values), required readings, and class meeting times, \
-            and propose them using create_course, create_assignment, add_reading and add_class. \
-            Today is \(Date().formatted(date: .abbreviated, time: .omitted)).
-
-            SYLLABUS (“\(url.lastPathComponent)”):
-            \(clipped)
-            """)
+            triage(url: url)
         }
+    }
+
+    /// Extract text from a file (picked or dropped) and hand it to the assistant.
+    static func triage(url: URL) {
+        let text = extractText(url)
+        // Surface the assistant in the window so the result is visible even if the
+        // menu-bar popover dismissed (e.g. the file panel took focus).
+        WindowOpener.open?("main")
+        guard text.count > 40 else {
+            AppActions.assistant("I couldn't read text from “\(url.lastPathComponent)” — it may be a scanned image. Try a text-based PDF, or paste the syllabus text here.")
+            return
+        }
+        let clipped = String(text.prefix(8000))
+        AppActions.assistant("""
+        Organize this syllabus into StudyBar. Extract the course, its assignments \
+        (with due dates and point values), required readings, and class meeting times, \
+        and propose them using create_course, create_assignment, add_reading and add_class. \
+        Today is \(Date().formatted(date: .abbreviated, time: .omitted)).
+
+        SYLLABUS (“\(url.lastPathComponent)”):
+        \(clipped)
+        """)
     }
 
     static func extractText(_ url: URL) -> String {

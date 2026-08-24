@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The AI Assistant module: a chat pane that turns plain-English intent into
 /// proposed StudyBar actions. Every action is confirmed inline (no sheets/alerts —
@@ -46,6 +47,7 @@ private struct AssistantChat: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var chat: AIChat
     @State private var input = ""
+    @State private var dropActive = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -66,6 +68,32 @@ private struct AssistantChat: View {
             Divider()
             composer
         }
+        .onDrop(of: [.fileURL], isTargeted: $dropActive) { providers in handleDrop(providers) }
+        .overlay {
+            if dropActive {
+                ZStack {
+                    Color.accentColor.opacity(0.08)
+                    VStack(spacing: 6) {
+                        Image(systemName: "doc.text.viewfinder").font(.largeTitle).foregroundStyle(.tint)
+                        Text("Drop a syllabus (PDF or text) to import").font(.callout.weight(.medium))
+                    }
+                }
+                .allowsHitTesting(false)
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint, style: StrokeStyle(lineWidth: 2, dash: [6])).padding(6))
+            }
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            var url: URL?
+            if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
+            else if let u = item as? URL { url = u }
+            guard let url else { return }
+            Task { @MainActor in SyllabusImport.triage(url: url) }
+        }
+        return true
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy) {
@@ -88,7 +116,7 @@ private struct AssistantChat: View {
                     Image(systemName: "doc.text.viewfinder").frame(width: 22).foregroundStyle(.tint)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Import a syllabus file…").font(.callout.weight(.medium))
-                        Text("Read a PDF or text syllabus and organize it").font(.caption2).foregroundStyle(.secondary)
+                        Text("Pick or drop a PDF / text syllabus to organize it").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
                     Image(systemName: "square.and.arrow.down").font(.caption2).foregroundStyle(.tertiary)
