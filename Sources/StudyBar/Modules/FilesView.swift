@@ -8,6 +8,11 @@ struct FilesView: View {
     @State private var matches: [FolderAccess.PDFMatch] = []
     @State private var searching = false
     @State private var typeFilter = "all"
+    @State private var collapsed: Set<String> = []
+    @State private var groupPrompt: GroupPrompt? = nil
+
+    /// Inline "name a group" prompt. `url == nil` means pick files afterward.
+    private struct GroupPrompt: Identifiable { let id = UUID(); var name: String; var url: URL? }
 
     private let fileTypes: [(String, String, Set<String>)] = [
         ("all", "All", []),
@@ -23,8 +28,13 @@ struct FilesView: View {
 
     var body: some View {
         ModulePane(title: "Files") {
-            Button { addFolder() } label: { Image(systemName: "folder.badge.plus") }
-                .help("Add a folder")
+            HStack(spacing: 8) {
+                Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
+                    Image(systemName: "pin.badge.plus")
+                }.help("Pin files into a group")
+                Button { addFolder() } label: { Image(systemName: "folder.badge.plus") }
+                    .help("Add a folder")
+            }
         } content: {
             VStack(spacing: 0) {
                 folderBar
@@ -33,9 +43,9 @@ struct FilesView: View {
                     Text("Recent").tag(0); Text("Search PDFs").tag(1)
                 }.pickerStyle(.segmented).labelsHidden().padding(8)
                 Divider()
-                if state.data.folders.isEmpty {
-                    EmptyState(symbol: "folder", title: "No folders",
-                               subtitle: "Add a course or Downloads folder to list recent files and search inside PDFs.")
+                if state.data.folders.isEmpty && state.fileRefs.isEmpty {
+                    EmptyState(symbol: "folder", title: "No folders or pinned files",
+                               subtitle: "Add a folder to list recent files and search PDFs, or pin files into a group for quick access.")
                 } else if mode == 0 {
                     recentList
                 } else {
@@ -44,6 +54,118 @@ struct FilesView: View {
             }
         }
         .onAppear { loadRecent() }
+        .overlay { if let gp = groupPrompt { groupPromptCard(gp) } }
+    }
+
+    // MARK: Pinned-file groups
+
+    @ViewBuilder private var groupsSection: some View {
+        if !state.fileRefs.isEmpty {
+            let groups = Dictionary(grouping: state.fileRefs, by: { $0.group })
+            let names = groups.keys.sorted { ($0.isEmpty ? "~" : $0.lowercased()) < ($1.isEmpty ? "~" : $1.lowercased()) }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(names, id: \.self) { g in
+                    DisclosureGroup(isExpanded: expansion(g)) {
+                        VStack(spacing: 4) {
+                            ForEach(groups[g] ?? []) { pinnedRow($0) }
+                        }.padding(.top, 4)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "tag.fill").font(.caption2).foregroundStyle(.tint)
+                            Text(g.isEmpty ? "Ungrouped" : g).font(.caption.bold())
+                            Text("\(groups[g]?.count ?? 0)").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func addToGroupMenu(_ url: URL) -> some View {
+        Menu("Add to group") {
+            ForEach(existingGroups, id: \.self) { name in
+                Button(name) { state.fileRefs.append(FolderAccess.fileRef(for: url, group: name)) }
+            }
+            if !existingGroups.isEmpty { Divider() }
+            Button("New group…") { groupPrompt = GroupPrompt(name: "Syllabus", url: url) }
+        }
+    }
+
+    private func pinnedRow(_ ref: FileRef) -> some View {
+        let url = FolderAccess.resolveFile(ref)
+        return HStack(spacing: 8) {
+            Image(nsImage: url.map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSWorkspace.shared.icon(forFileType: "public.data"))
+                .resizable().frame(width: 18, height: 18)
+            Text(ref.name).font(.caption).lineLimit(1).foregroundStyle(url == nil ? .secondary : .primary)
+            if url == nil { Text("missing").font(.caption2).foregroundStyle(.orange) }
+            Spacer()
+            if let url {
+                Button { preview(url) } label: { Image(systemName: "eye") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Open in Preview")
+                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Reveal in Finder")
+            }
+            Button { state.fileRefs.removeAll { $0.id == ref.id } } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Remove from group")
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private func expansion(_ g: String) -> Binding<Bool> {
+        Binding(get: { !collapsed.contains(g) },
+                set: { open in if open { collapsed.remove(g) } else { collapsed.insert(g) } })
+    }
+
+    private func groupPromptCard(_ gp: GroupPrompt) -> some View {
+        ZStack {
+            Color.black.opacity(0.28).ignoresSafeArea().onTapGesture { groupPrompt = nil }
+            VStack(spacing: 12) {
+                Text(gp.url == nil ? "Pin files into a group" : "Add to group").font(.headline)
+                Text("Name a group — it doubles as a quick-access tag.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                TextField("Group name", text: Binding(
+                    get: { groupPrompt?.name ?? "" },
+                    set: { groupPrompt?.name = $0 }))
+                    .textFieldStyle(.roundedBorder).frame(width: 220)
+                    .onSubmit { commitGroup(gp.url) }
+                if !existingGroups.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(existingGroups, id: \.self) { name in
+                                Button { groupPrompt?.name = name } label: {
+                                    Text(name).font(.caption2).padding(.horizontal, 7).padding(.vertical, 2)
+                                        .background(.background.secondary, in: Capsule())
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }.frame(maxWidth: 220)
+                }
+                HStack(spacing: 10) {
+                    Button("Cancel") { groupPrompt = nil }.keyboardShortcut(.cancelAction)
+                    Button(gp.url == nil ? "Choose files…" : "Add") { commitGroup(gp.url) }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20).frame(maxWidth: 280)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(.separator)).shadow(radius: 20)
+        }
+    }
+
+    private var existingGroups: [String] {
+        Array(Set(state.fileRefs.map { $0.group }.filter { !$0.isEmpty })).sorted()
+    }
+
+    private func commitGroup(_ url: URL?) {
+        let group = (groupPrompt?.name ?? "").trimmingCharacters(in: .whitespaces)
+        if let url {
+            state.fileRefs.append(FolderAccess.fileRef(for: url, group: group))
+            groupPrompt = nil
+        } else {
+            groupPrompt = nil
+            state.fileRefs.append(contentsOf: FolderAccess.pickFiles(group: group))
+        }
     }
 
     private var folderBar: some View {
@@ -66,29 +188,44 @@ struct FilesView: View {
 
     private var recentList: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(fileTypes, id: \.0) { t in
-                        Button { typeFilter = t.0 } label: {
-                            Text(t.1).font(.caption)
-                                .padding(.horizontal, 9).padding(.vertical, 3)
-                                .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.background.secondary), in: Capsule())
-                                .foregroundStyle(typeFilter == t.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(.horizontal, 10).padding(.vertical, 6)
+            if !recent.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(fileTypes, id: \.0) { t in
+                            Button { typeFilter = t.0 } label: {
+                                Text(t.1).font(.caption)
+                                    .padding(.horizontal, 9).padding(.vertical, 3)
+                                    .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.background.secondary), in: Capsule())
+                                    .foregroundStyle(typeFilter == t.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding(.horizontal, 10).padding(.vertical, 6)
+                }
+                Divider()
             }
-            Divider()
-            if filteredRecent.isEmpty {
-                EmptyState(symbol: "clock", title: "No recent files", subtitle: "Nothing matching in these folders.")
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 4) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    groupsSection
+                    if !state.fileRefs.isEmpty && !filteredRecent.isEmpty {
+                        Divider().padding(.vertical, 2)
+                        Text("RECENT").font(.caption2.bold()).foregroundStyle(.secondary)
+                    }
+                    if filteredRecent.isEmpty {
+                        if recent.isEmpty {
+                            Text(state.data.folders.isEmpty
+                                 ? "Add a folder to list recent files here."
+                                 : "No recent files in these folders.")
+                                .font(.caption).foregroundStyle(.secondary).padding(.vertical, 6)
+                        } else {
+                            Text("No recent files match this filter.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 6)
+                        }
+                    } else {
                         ForEach(filteredRecent) { f in
                             fileRow(f.url, sub: "\(f.modified.relativeShort) · \(size(f.size))")
+                                .contextMenu { addToGroupMenu(f.url) }
                         }
-                    }.padding(10)
-                }
+                    }
+                }.padding(10)
             }
         }
     }
@@ -109,7 +246,7 @@ struct FilesView: View {
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(matches) { m in
-                            Button { NSWorkspace.shared.open(m.url) } label: {
+                            Button { preview(m.url) } label: {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(m.url.lastPathComponent).fontWeight(.medium).lineLimit(1)
                                     Text("…\(m.snippet)…").font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -133,8 +270,8 @@ struct FilesView: View {
                 Text(sub).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            Button { quickLook(url) } label: { Image(systemName: "eye") }
-                .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Quick Look")
+            Button { preview(url) } label: { Image(systemName: "eye") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Open in Preview")
             Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Reveal in Finder")
             Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right.square") }
@@ -143,13 +280,19 @@ struct FilesView: View {
         .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func quickLook(_ url: URL) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
-        p.arguments = ["-p", url.path]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
+    /// Open in Apple Preview for docs/images (resizable, annotatable — nicer than a
+    /// transient Quick Look panel, and as an external app it won't dismiss the popover);
+    /// fall back to the default app for other types.
+    private func preview(_ url: URL) {
+        let previewable: Set<String> = ["pdf", "png", "jpg", "jpeg", "gif", "tiff", "tif",
+                                        "heic", "bmp", "webp", "icns", "eps", "ps", "ai"]
+        if previewable.contains(url.pathExtension.lowercased()),
+           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
+            NSWorkspace.shared.open([url], withApplicationAt: app,
+                                    configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func addFolder() {

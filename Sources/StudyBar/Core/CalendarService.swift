@@ -48,6 +48,31 @@ final class CalendarService: ObservableObject {
         load(days: days)
     }
 
+    /// Calendars we're allowed to add events to.
+    var writableCalendars: [EKCalendar] {
+        store.calendars(for: .event).filter { $0.allowsContentModifications }
+            .sorted { $0.title < $1.title }
+    }
+    var defaultCalendar: EKCalendar? { store.defaultCalendarForNewEvents }
+
+    /// Create a new event in the macOS Calendar. Returns false if not authorized
+    /// or the save failed.
+    @discardableResult
+    func createEvent(title: String, start: Date, end: Date, allDay: Bool,
+                     calendar: EKCalendar?, notes: String? = nil, days: Int) -> Bool {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return false }
+        guard let target = calendar ?? store.defaultCalendarForNewEvents ?? writableCalendars.first else { return false }
+        let ev = EKEvent(eventStore: store)
+        ev.title = title
+        ev.isAllDay = allDay
+        ev.startDate = start
+        ev.endDate = allDay ? start : max(end, start.addingTimeInterval(60))
+        if let notes, !notes.isEmpty { ev.notes = notes }
+        ev.calendar = target
+        do { try store.save(ev, span: .thisEvent); load(days: days); return true }
+        catch { return false }
+    }
+
     /// Fetch + parse a subscribed iCal feed (Canvas / Google / school).
     func fetchFeed(_ raw: String) async -> [ICSEvent]? {
         var s = raw.trimmingCharacters(in: .whitespaces)

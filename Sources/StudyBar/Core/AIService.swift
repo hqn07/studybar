@@ -307,6 +307,10 @@ struct AITurn {
     let reply: String
     let actions: [AIAction]
     var reads: [AIAction] = []
+    /// True when the model clearly *tried* to emit the JSON envelope but produced
+    /// something unparseable even after repair — so we show a friendly message
+    /// instead of leaking raw braces into the chat.
+    var parseFailed: Bool = false
 }
 
 // MARK: - Orchestrator
@@ -379,6 +383,9 @@ enum AIService {
     }
 
     private static func present(_ turn: AITurn) -> AITurn {
+        if turn.parseFailed {
+            return AITurn(reply: "⚠️ I got a garbled response from the model. Try rephrasing, or ask for fewer changes at once.", actions: [])
+        }
         let reply = turn.reply.isEmpty ? (turn.actions.isEmpty ? "Done." : "Here's what I can set up:") : turn.reply
         return AITurn(reply: reply, actions: turn.actions)
     }
@@ -468,12 +475,70 @@ enum AIProtocol {
 
     /// Extract the model's JSON object (tolerating prose or ``` fences around it).
     static func parse(_ raw: String) -> AITurn {
-        guard let json = extractJSONObject(raw),
-              let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
-            return AITurn(reply: raw.trimmingCharacters(in: .whitespacesAndNewlines), actions: [])
+        if let obj = jsonEnvelope(raw) {
+            let reply = (obj["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return AITurn(reply: reply, actions: actions(obj["actions"]), reads: actions(obj["reads"]))
         }
-        let reply = (obj["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return AITurn(reply: reply, actions: actions(obj["actions"]), reads: actions(obj["reads"]))
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The model tried to emit the JSON envelope but produced something unparseable
+        // even after repair — flag it so the UI shows a friendly retry, not raw braces.
+        if looksLikeEnvelope(trimmed) {
+            return AITurn(reply: "", actions: [], reads: [], parseFailed: true)
+        }
+        // Genuine plain-prose reply (model chatted off-protocol) — show it as-is.
+        return AITurn(reply: trimmed, actions: [])
+    }
+
+    /// True if the string is clearly an attempted action-envelope (so a parse
+    /// failure should be hidden, not dumped to the user as raw text).
+    private static func looksLikeEnvelope(_ s: String) -> Bool {
+        guard s.hasPrefix("{") else { return false }
+        return s.contains("\"actions\"") || s.contains("\"reply\"") || s.contains("\"reads\"")
+    }
+
+    /// Extract the JSON envelope from a raw model response. Tries the clean
+    /// balanced-object first; on failure, repairs common small-model mistakes
+    /// (missing/extra/swapped closers, trailing commas) and retries.
+    private static func jsonEnvelope(_ raw: String) -> [String: Any]? {
+        guard let start = raw.firstIndex(of: "{") else { return nil }
+        if let clean = extractJSONObject(raw),
+           let obj = try? JSONSerialization.jsonObject(with: Data(clean.utf8)) as? [String: Any] {
+            return obj
+        }
+        let repaired = sanitizeJSON(String(raw[start...]))
+        return try? JSONSerialization.jsonObject(with: Data(repaired.utf8)) as? [String: Any]
+    }
+
+    /// Best-effort JSON repair for weak local models. Walks the text tracking a
+    /// bracket/brace stack (ignoring string contents): drops stray closers,
+    /// rewrites a closer to match what it actually closes (fixes `]` written as
+    /// `}` and vice-versa), and appends any missing closers for a truncated
+    /// response. Finally strips trailing commas before a closer.
+    static func sanitizeJSON(_ s: String) -> String {
+        var out = ""
+        var stack: [Character] = []
+        var inString = false, escaped = false
+        for c in s {
+            if inString {
+                out.append(c)
+                if escaped { escaped = false }
+                else if c == "\\" { escaped = true }
+                else if c == "\"" { inString = false }
+                continue
+            }
+            switch c {
+            case "\"": inString = true; out.append(c)
+            case "{", "[": stack.append(c); out.append(c)
+            case "}", "]":
+                guard let top = stack.popLast() else { continue } // drop stray closer
+                out.append(top == "{" ? "}" : "]")               // match the opener
+            default: out.append(c)
+            }
+        }
+        if inString { out.append("\"") }   // close a value cut off mid-string (truncation)
+        while let top = stack.popLast() { out.append(top == "{" ? "}" : "]") }
+        return out.replacingOccurrences(of: #",(\s*[}\]])"#, with: "$1",
+                                        options: .regularExpression)
     }
 
     private static func actions(_ value: Any?) -> [AIAction] {
@@ -876,10 +941,13 @@ final class AIChat: ObservableObject {
 
     @Published var messages: [Msg] = []
     @Published var sending = false
+    /// Rough token estimate of the conversation actually sent to the model
+    /// (system prompt + non-error history), refreshed each turn. ~chars/4.
+    @Published var approxTokens = 0
 
     var isEmpty: Bool { messages.isEmpty }
 
-    func clear() { messages.removeAll() }
+    func clear() { messages.removeAll(); approxTokens = 0 }
 
     func send(_ text: String, state: AppState) async {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -889,6 +957,8 @@ final class AIChat: ObservableObject {
         // History excludes error bubbles so a failed turn doesn't poison context.
         let history = messages.filter { !$0.isError }
             .map { AIMessage(role: $0.role == .user ? .user : .assistant, text: $0.text) }
+        approxTokens = (AIService.systemPrompt(state: state).count
+                        + history.reduce(0) { $0 + $1.text.count }) / 4
         do {
             let turn = try await AIService.send(history: history, state: state)
             messages.append(Msg(role: .assistant, text: turn.reply, actions: turn.actions))

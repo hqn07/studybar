@@ -92,6 +92,9 @@ struct ReadingView: View {
                                                     Label(item.done ? "Mark unread" : "Mark done",
                                                           systemImage: item.done ? "arrow.uturn.left" : "checkmark.circle")
                                                 }
+                                                Button { state.addToReadingList(item) } label: {
+                                                    Label("Add to Reading List", systemImage: "bookmark")
+                                                }
                                                 Divider()
                                                 Button(role: .destructive) { state.data.reading.removeAll { $0.id == item.id } } label: {
                                                     Label("Delete book", systemImage: "trash")
@@ -309,6 +312,17 @@ struct ReadingDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader(item?.title ?? "Book") {
+                if let item {
+                    let inList = state.data.readingList.contains {
+                        (!item.url.isEmpty && $0.url == item.url)
+                        || $0.title.caseInsensitiveCompare(item.title) == .orderedSame
+                    }
+                    Button { state.addToReadingList(item) } label: {
+                        Image(systemName: inList ? "bookmark.fill" : "bookmark")
+                    }
+                    .buttonStyle(.borderless).disabled(inList)
+                    .help(inList ? "Already in Reading List" : "Add to Reading List")
+                }
                 Button { editing = true } label: { Image(systemName: "pencil") }.buttonStyle(.borderless)
                 Button(role: .destructive) { deleteBook() } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless).foregroundStyle(.red)

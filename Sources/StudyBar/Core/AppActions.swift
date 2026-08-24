@@ -54,7 +54,9 @@ enum AppActions {
         guard let s = AppState.current else { return }
         NSApp.activate(ignoringOtherApps: true)
         WindowOpener.open?("main")
-        s.selectedModuleID = id
+        // Legacy ids from before Pomodoro/Stopwatch/Focus/Sessions merged into one module.
+        let legacy: Set<String> = ["pomodoro", "stopwatch", "focus", "sessions"]
+        s.selectedModuleID = legacy.contains(id) ? "timefocus" : id
         s.globalSearch = ""
     }
 

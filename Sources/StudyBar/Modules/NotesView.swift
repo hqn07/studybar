@@ -134,6 +134,7 @@ struct NoteEditor: View {
     @State private var draft: Note
     @State private var tagText: String
     @State private var showPreview = false
+    @State private var saveTask: Task<Void, Never>?
 
     init(note: Note) {
         _draft = State(initialValue: note)
@@ -163,7 +164,7 @@ struct NoteEditor: View {
             }
             if showPreview {
                 ScrollView {
-                    MarkdownText(text: draft.body.isEmpty ? "_Nothing to preview yet._" : draft.body)
+                    RichText(text: draft.body.isEmpty ? "_Nothing to preview yet._" : draft.body)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 }
             } else {
@@ -207,9 +208,29 @@ struct NoteEditor: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
         .toolbar(.hidden, for: .windowToolbar)
+        // Autosave: debounce while typing, and always flush when the editor goes
+        // away — including when the user switches modules from the sidebar (which
+        // tears the editor down without hitting Back/Done).
+        .onChange(of: draft.body)          { _, _ in scheduleAutosave() }
+        .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
+        .onChange(of: tagText)             { _, _ in scheduleAutosave() }
+        .onChange(of: draft.pinned)        { _, _ in scheduleAutosave() }
+        .onChange(of: draft.courseID)      { _, _ in scheduleAutosave() }
+        .onChange(of: draft.assignmentID)  { _, _ in scheduleAutosave() }
+        .onDisappear { saveTask?.cancel(); persist() }
     }
 
-    private func save() { persist(); dismiss() }
+    /// Persist ~0.7s after the last edit (coalesces keystrokes).
+    private func scheduleAutosave() {
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            persist()
+        }
+    }
+
+    private func save() { saveTask?.cancel(); persist(); dismiss() }
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
     private func persist() {

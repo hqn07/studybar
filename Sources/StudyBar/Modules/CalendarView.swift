@@ -35,6 +35,7 @@ struct CalendarView: View {
     @State private var feedEvents: [UUID: [ICSEvent]] = [:]
     @State private var loadingFeeds = false
     @State private var showSources = false
+    @State private var showNewEvent = false
 
     private let refreshTimer = Timer.publish(every: 3600, on: .main, in: .common).autoconnect()
 
@@ -52,6 +53,8 @@ struct CalendarView: View {
                     } label: { Image(systemName: "calendar.badge.clock") }
                         .help("Range: next \(rangeDays) days")
                     Button { reload() } label: { Image(systemName: "arrow.clockwise") }
+                    Button { showNewEvent = true } label: { Image(systemName: "calendar.badge.plus") }
+                        .help("New calendar event")
                     Button { showSources = true } label: { Image(systemName: "slider.horizontal.3") }
                         .help("Sources & filters")
                 }
@@ -75,6 +78,9 @@ struct CalendarView: View {
                 SourcesView(cal: cal, rangeDays: rangeDays,
                             showAssignments: $showAssignments, showClasses: $showClasses, showFeeds: $showFeeds,
                             reloadFeeds: { await loadFeeds() })
+            }
+            .navigationDestination(isPresented: $showNewEvent) {
+                NewEventView(cal: cal, rangeDays: rangeDays)
             }
             .onAppear { if cal.authorized { cal.load(days: rangeDays) } }
             .task { await loadFeeds() }
@@ -367,5 +373,118 @@ struct CalendarView: View {
     private func open(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"
         if let url = URL(string: u) { NSWorkspace.shared.open(url) }
+    }
+}
+
+// MARK: - Create a macOS Calendar event (EventKit write)
+
+struct NewEventView: View {
+    @ObservedObject var cal: CalendarService
+    let rangeDays: Int
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var day = Date()
+    @State private var start = NewEventView.defaultStart()
+    @State private var end = NewEventView.defaultStart().addingTimeInterval(3600)
+    @State private var allDay = false
+    @State private var notes = ""
+    @State private var calID = ""
+    @State private var error: String?
+
+    private var writable: [EKCalendar] { cal.writableCalendars }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubHeader("New Event")
+            Divider()
+            if !cal.authorized {
+                VStack(spacing: 14) {
+                    EmptyState(symbol: "calendar.badge.exclamationmark", title: "Calendar access needed",
+                               subtitle: "Grant access to add events to your macOS Calendar.")
+                    Button("Grant Calendar access") { cal.requestAndLoad(days: rangeDays) }
+                        .buttonStyle(.borderedProminent)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity).padding()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        field("Title") {
+                            TextField("Event title", text: $title).textFieldStyle(.roundedBorder)
+                        }
+                        field("Day") {
+                            DatePicker("", selection: $day, displayedComponents: [.date]).labelsHidden()
+                        }
+                        Toggle("All-day", isOn: $allDay).font(.callout)
+                        if !allDay {
+                            HStack(spacing: 12) {
+                                field("Start") { DatePicker("", selection: $start, displayedComponents: [.hourAndMinute]).labelsHidden() }
+                                field("End") { DatePicker("", selection: $end, displayedComponents: [.hourAndMinute]).labelsHidden() }
+                            }
+                        }
+                        field("Calendar") {
+                            Picker("", selection: $calID) {
+                                ForEach(writable, id: \.calendarIdentifier) { c in
+                                    Text(c.title).tag(c.calendarIdentifier)
+                                }
+                            }.labelsHidden()
+                        }
+                        field("Notes") {
+                            TextField("Optional", text: $notes, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...3)
+                        }
+                        if let error {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }.padding(14)
+                }
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Cancel") { dismiss() }
+                    Button("Create") { create() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }.padding(12)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .onAppear { if calID.isEmpty { calID = cal.defaultCalendar?.calendarIdentifier ?? writable.first?.calendarIdentifier ?? "" } }
+    }
+
+    @ViewBuilder private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased()).font(.caption2.bold()).foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private func create() {
+        let calendar = writable.first { $0.calendarIdentifier == calID }
+        let (s, e) = resolvedTimes()
+        let ok = cal.createEvent(title: title.trimmingCharacters(in: .whitespaces),
+                                 start: s, end: e, allDay: allDay,
+                                 calendar: calendar, notes: notes, days: rangeDays)
+        if ok { dismiss() } else { error = "Couldn't save the event. Check Calendar permissions." }
+    }
+
+    /// Combine the chosen day with the start/end times.
+    private func resolvedTimes() -> (Date, Date) {
+        let calr = Calendar.current
+        let dayStart = calr.startOfDay(for: day)
+        if allDay { return (dayStart, dayStart) }
+        func combine(_ time: Date) -> Date {
+            let t = calr.dateComponents([.hour, .minute], from: time)
+            return calr.date(bySettingHour: t.hour ?? 9, minute: t.minute ?? 0, second: 0, of: day) ?? day
+        }
+        var s = combine(start), e = combine(end)
+        if e <= s { e = s.addingTimeInterval(3600) }
+        return (s, e)
+    }
+
+    private static func defaultStart() -> Date {
+        let calr = Calendar.current
+        let next = calr.date(bySettingHour: (calr.component(.hour, from: .now) + 1), minute: 0, second: 0, of: .now)
+        return next ?? .now
     }
 }

@@ -48,15 +48,9 @@ enum ModuleRegistry {
         .init(id: "snippets", title: "Snippets", symbol: "text.badge.plus",
               category: .capture) { AnyView(SnippetsView()) },
 
-        // Time & Focus
-        .init(id: "pomodoro", title: "Pomodoro", symbol: "timer",
-              category: .time) { AnyView(PomodoroView()) },
-        .init(id: "stopwatch", title: "Stopwatch", symbol: "stopwatch",
-              category: .time) { AnyView(StopwatchView()) },
-        .init(id: "focus", title: "Focus", symbol: "moon.stars",
-              category: .time) { AnyView(FocusView()) },
-        .init(id: "sessions", title: "Sessions", symbol: "clock.arrow.circlepath",
-              category: .time) { AnyView(SessionsView()) },
+        // Time & Focus (unified: Pomodoro · Stopwatch · Focus · History + ambient noise)
+        .init(id: "timefocus", title: "Time & Focus", symbol: "timer",
+              category: .time) { AnyView(TimeFocusView()) },
 
         // Schedule & Calendar
         .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",

@@ -124,8 +124,8 @@ struct TodayView: View {
 
     private var statRow: some View {
         HStack(spacing: 10) {
-            statTile("\(todayMin)m", "studied today", "clock", "pomodoro")
-            statTile("\(StudyStats.pomodorosToday(state.data))", "pomodoros", "timer", "pomodoro")
+            statTile("\(todayMin)m", "studied today", "clock", "timefocus")
+            statTile("\(StudyStats.pomodorosToday(state.data))", "pomodoros", "timer", "timefocus")
             statTile("\(state.data.assignments.filter { $0.status != .done }.count)", "open tasks", "checklist", "assignments")
         }
     }
@@ -150,7 +150,7 @@ struct TodayView: View {
             Button { state.pendingNew = "notes"; state.selectedModuleID = "notes" } label: {
                 Image(systemName: "note.text.badge.plus")
             }.buttonStyle(.borderless).help("New note")
-            Button { state.selectedModuleID = "pomodoro" } label: {
+            Button { state.selectedModuleID = "timefocus" } label: {
                 Image(systemName: "timer")
             }.buttonStyle(.borderless).help("Start a timer")
             if AIConfig.isReady {

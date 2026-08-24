@@ -24,6 +24,32 @@ enum FolderAccess {
         return try? URL(resolvingBookmarkData: ref.bookmark, bookmarkDataIsStale: &stale)
     }
 
+    // MARK: Pinned individual files (grouped)
+
+    /// Prompt the user to pick one or more files to pin into a group.
+    @MainActor static func pickFiles(group: String) -> [FileRef] {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Pin"
+        guard panel.runModal() == .OK else { return [] }
+        return panel.urls.map { fileRef(for: $0, group: group) }
+    }
+
+    /// Bookmark an already-known file URL (e.g. from the recent list) into a group.
+    static func fileRef(for url: URL, group: String) -> FileRef {
+        let data = (try? url.bookmarkData(options: .withSecurityScope)) ?? (try? url.bookmarkData()) ?? Data()
+        return FileRef(name: url.lastPathComponent, bookmark: data, group: group)
+    }
+
+    static func resolveFile(_ ref: FileRef) -> URL? {
+        var stale = false
+        if let url = try? URL(resolvingBookmarkData: ref.bookmark, options: [.withSecurityScope],
+                              relativeTo: nil, bookmarkDataIsStale: &stale) { return url }
+        return try? URL(resolvingBookmarkData: ref.bookmark, bookmarkDataIsStale: &stale)
+    }
+
     struct FileItem: Identifiable, Hashable, Sendable {
         var id: String { url.path }
         let url: URL

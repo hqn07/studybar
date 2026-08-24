@@ -144,6 +144,10 @@ final class AppState: ObservableObject {
         get { data.rssFeeds ?? [] }
         set { data.rssFeeds = newValue }
     }
+    var fileRefs: [FileRef] {
+        get { data.fileRefs ?? [] }
+        set { data.fileRefs = newValue }
+    }
 
     // MARK: Derived / badges
 
@@ -199,6 +203,20 @@ final class AppState: ObservableObject {
     func bumpReading(_ id: UUID, by delta: Int) {
         guard let cur = data.reading.first(where: { $0.id == id })?.currentPage else { return }
         setReadingPage(id, to: cur + delta)
+    }
+    /// Cross-link a book from the Reading tracker into the Reading List (links).
+    /// De-dupes on matching URL, else title. Returns false if it was already there.
+    @discardableResult
+    func addToReadingList(_ book: ReadingItem) -> Bool {
+        let exists = data.readingList.contains {
+            (!book.url.isEmpty && $0.url == book.url)
+            || $0.title.caseInsensitiveCompare(book.title) == .orderedSame
+        }
+        guard !exists else { return false }
+        data.readingList.insert(
+            ReadingListItem(title: book.title, url: book.url, courseID: book.courseID),
+            at: 0)
+        return true
     }
     func toggleReadingDone(_ id: UUID) {
         guard let i = data.reading.firstIndex(where: { $0.id == id }) else { return }

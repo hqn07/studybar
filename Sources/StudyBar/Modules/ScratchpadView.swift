@@ -24,7 +24,7 @@ struct ScratchpadView: View {
             VStack(spacing: 0) {
                 if showPreview {
                     ScrollView {
-                        MarkdownText(text: empty ? "_Nothing to preview yet._" : state.data.scratchpad)
+                        RichText(text: empty ? "_Nothing to preview yet._" : state.data.scratchpad)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     }
                 } else {

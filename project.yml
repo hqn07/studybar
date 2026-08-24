@@ -18,7 +18,14 @@ targets:
     type: application
     platform: macOS
     sources:
-      - Sources/StudyBar
+      - path: Sources/StudyBar
+        excludes:
+          - "Resources/katex/**"
+      # KaTeX bundled as a folder reference so katex.min.css can resolve fonts/ at a
+      # relative path inside the app bundle (offline LaTeX rendering).
+      - path: Sources/StudyBar/Resources/katex
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.studybar.StudyBar

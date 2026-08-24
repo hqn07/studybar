@@ -87,7 +87,8 @@ struct DeckView: View {
     let deck: Deck
     @State private var front = ""
     @State private var back = ""
-    @State private var tagText = ""
+    @State private var selectedTags: Set<String> = []
+    @State private var composerFlipped = false
     @State private var cardFilter = ""
     @State private var studying = false
     @State private var practiceAll = false
@@ -167,16 +168,25 @@ struct DeckView: View {
         }.frame(maxWidth: .infinity)
     }
 
+    /// Distinct tags across all decks — the pool the reusable tag chips draw from.
+    private var allTags: [String] {
+        Array(Set(state.data.flashcards.flatMap { $0.tags })).sorted { $0.localizedCompare($1) == .orderedAscending }
+    }
+    private var canAdd: Bool {
+        !front.trimmingCharacters(in: .whitespaces).isEmpty
+        && (!back.trimmingCharacters(in: .whitespaces).isEmpty || front.contains("{{"))
+    }
+
     private var addCardForm: some View {
-        VStack(spacing: 6) {
-            TextField("Front  (use {{cloze}} to blank a word)", text: $front).textFieldStyle(.roundedBorder)
+        VStack(spacing: 8) {
+            FlipCardComposer(front: $front, back: $back, flipped: $composerFlipped)
+            TagChips(suggestions: allTags, selected: $selectedTags)
             HStack {
-                TextField(front.contains("{{") ? "Back (optional for cloze)" : "Back", text: $back)
-                    .textFieldStyle(.roundedBorder)
-                Button("Add", action: addCard)
-                    .disabled(front.isEmpty || (back.isEmpty && !front.contains("{{")))
+                Text("Tip: wrap a word in {{ }} for a cloze blank").font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                Button { addCard() } label: { Label("Add card", systemImage: "plus") }
+                    .buttonStyle(.borderedProminent).disabled(!canAdd)
             }
-            TextField("Tags (comma separated, optional)", text: $tagText).textFieldStyle(.roundedBorder)
         }.padding(10)
     }
 
@@ -233,11 +243,12 @@ struct DeckView: View {
     }
 
     private func addCard() {
-        let tags = tagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         state.data.flashcards.append(Flashcard(deckID: deck.id,
                                                front: front.trimmingCharacters(in: .whitespaces),
-                                               back: back.trimmingCharacters(in: .whitespaces), tags: tags))
-        front = ""; back = ""; tagText = ""
+                                               back: back.trimmingCharacters(in: .whitespaces),
+                                               tags: selectedTags.sorted()))
+        front = ""; back = ""; composerFlipped = false
+        // selectedTags intentionally kept — consecutive cards reuse the same tags.
     }
     private func deleteDeck() {
         state.data.flashcards.removeAll { $0.deckID == deck.id }
@@ -264,16 +275,126 @@ struct DeckView: View {
     }
 }
 
+// MARK: - Flip-card composer + reusable tags
+
+/// A card-shaped authoring surface: write the front, tap Flip (or the card) to
+/// write the back, with a 3D flip. Replaces the old plain front/back text fields.
+struct FlipCardComposer: View {
+    @Binding var front: String
+    @Binding var back: String
+    @Binding var flipped: Bool
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                face(text: $front, side: "FRONT", placeholder: "Question or term")
+                    .opacity(flipped ? 0 : 1)
+                face(text: $back, side: "BACK", placeholder: "Answer")
+                    .rotation3DEffect(.degrees(180), axis: (0, 1, 0))
+                    .opacity(flipped ? 1 : 0)
+            }
+            .frame(height: 118)
+            .rotation3DEffect(.degrees(flipped ? 180 : 0), axis: (0, 1, 0))
+            .animation(.spring(response: 0.45, dampingFraction: 0.82), value: flipped)
+
+            HStack {
+                Text(flipped ? "Back side" : "Front side").font(.caption2.bold()).foregroundStyle(.secondary)
+                Spacer()
+                Button { flipped.toggle() } label: {
+                    Label(flipped ? "Front" : "Flip to back", systemImage: "arrow.2.squarepath")
+                        .font(.caption)
+                }.buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+    }
+
+    private func face(text: Binding<String>, side: String, placeholder: String) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.tint.opacity(0.35), lineWidth: 1))
+                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(side).font(.system(size: 9, weight: .heavy)).foregroundStyle(.tint).tracking(0.6)
+                ZStack(alignment: .topLeading) {
+                    if text.wrappedValue.isEmpty {
+                        Text(placeholder).foregroundStyle(.tertiary).font(.callout).padding(.top, 2).padding(.leading, 5)
+                    }
+                    TextEditor(text: text).scrollContentBackground(.hidden).font(.callout)
+                }
+            }
+            .padding(10)
+        }
+    }
+}
+
+/// Reusable tag picker — toggle chips for existing tags (so tags don't get
+/// retyped per card) plus a field to add a new one.
+struct TagChips: View {
+    let suggestions: [String]
+    @Binding var selected: Set<String>
+    @State private var newTag = ""
+
+    private var ordered: [String] {
+        selected.sorted { $0.localizedCompare($1) == .orderedAscending }
+        + suggestions.filter { !selected.contains($0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "tag").font(.caption2).foregroundStyle(.secondary)
+                TextField("Add tag…", text: $newTag).textFieldStyle(.plain).font(.caption).onSubmit(addNew)
+                if !newTag.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button(action: addNew) { Image(systemName: "plus.circle.fill") }
+                        .buttonStyle(.borderless).font(.caption)
+                }
+            }
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(.background.secondary, in: Capsule())
+
+            if !ordered.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) { ForEach(ordered, id: \.self) { chip($0) } }.padding(.vertical, 1)
+                }
+            }
+        }
+    }
+
+    private func chip(_ t: String) -> some View {
+        let on = selected.contains(t)
+        return Button {
+            if on { selected.remove(t) } else { selected.insert(t) }
+        } label: {
+            HStack(spacing: 3) {
+                if on { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)) }
+                Text(t).font(.caption2)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
+            .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        }.buttonStyle(.plain)
+    }
+
+    private func addNew() {
+        let t = newTag.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        selected.insert(t); newTag = ""
+    }
+}
+
 // MARK: - Card editor
 
 struct CardEditor: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Flashcard
-    @State private var tagText: String
+    @State private var selectedTags: Set<String>
     init(card: Flashcard) {
         _draft = State(initialValue: card)
-        _tagText = State(initialValue: card.tags.joined(separator: ", "))
+        _selectedTags = State(initialValue: Set(card.tags))
+    }
+    private var allTags: [String] {
+        Array(Set(state.data.flashcards.flatMap { $0.tags })).sorted { $0.localizedCompare($1) == .orderedAscending }
     }
 
     var body: some View {
@@ -295,7 +416,7 @@ struct CardEditor: View {
                         .scrollContentBackground(.hidden)
                         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
                 }
-                labeled("Tags") { TextField("comma separated", text: $tagText).textFieldStyle(.roundedBorder) }
+                labeled("Tags") { TagChips(suggestions: allTags, selected: $selectedTags) }
                 labeled("Deck") {
                     Picker("", selection: $draft.deckID) {
                         ForEach(state.data.decks) { Text($0.name.isEmpty ? "Deck" : $0.name).tag($0.id) }
@@ -316,7 +437,7 @@ struct CardEditor: View {
         VStack(alignment: .leading, spacing: 4) { Text(l).font(.caption).foregroundStyle(.secondary); c() }
     }
     private func save() {
-        draft.tags = tagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        draft.tags = selectedTags.sorted()
         if draft.front.trimmingCharacters(in: .whitespaces).isEmpty {
             state.data.flashcards.removeAll { $0.id == draft.id }
         } else if let i = state.data.flashcards.firstIndex(where: { $0.id == draft.id }) {
@@ -412,13 +533,11 @@ struct StudyView: View {
             if let card = currentCard {
                 Spacer()
                 VStack(spacing: 14) {
-                    Text(card.isCloze ? Cloze.question(card.front) : card.front)
-                        .font(.title2.bold()).multilineTextAlignment(.center)
+                    faceText(card.isCloze ? Cloze.question(card.front) : card.front, font: .title2.bold())
                     if revealed {
                         Divider().frame(width: 120)
-                        Text(card.isCloze ? Cloze.answer(card.front) : card.back)
-                            .font(.title3).multilineTextAlignment(.center)
-                            .foregroundStyle(card.isCloze ? .primary : .secondary)
+                        faceText(card.isCloze ? Cloze.answer(card.front) : card.back, font: .title3,
+                                 color: card.isCloze ? .primary : .secondary)
                         if !card.tags.isEmpty {
                             Text(card.tags.map { "#\($0)" }.joined(separator: " "))
                                 .font(.caption2).foregroundStyle(.tint)
@@ -465,6 +584,15 @@ struct StudyView: View {
                     .map(\.id).shuffled()
                 initialCount = queue.count
             }
+        }
+    }
+
+    /// Render a card face: math (LaTeX) via RichText, otherwise a centered Text.
+    @ViewBuilder private func faceText(_ text: String, font: Font, color: Color = .primary) -> some View {
+        if MathMarkdown.hasMath(text) {
+            RichText(text: text).frame(maxWidth: .infinity)
+        } else {
+            Text(text).font(font).multilineTextAlignment(.center).foregroundStyle(color)
         }
     }
 

@@ -323,6 +323,16 @@ struct FolderRef: Identifiable, Codable, Hashable, Sendable {
     var bookmark: Data = Data()      // security-scoped bookmark
 }
 
+/// A pinned individual file, organized into a named (collapsible) group that
+/// doubles as a quick-access tag.
+struct FileRef: Identifiable, Codable, Hashable, Sendable {
+    var id = UUID()
+    var name: String = ""
+    var bookmark: Data = Data()      // security-scoped bookmark
+    var group: String = ""           // collapsible group / tag ("" = Ungrouped)
+    var addedAt: Date = .now
+}
+
 // MARK: - RSS / Atom feed subscription (news, journal TOC, professor blogs)
 
 struct RSSFeed: Identifiable, Codable, Hashable {
@@ -372,4 +382,5 @@ struct AppData: Codable {
     // Grade what-if calculator (optional → tolerant of older data files)
     var gradeItems: [GradeItem]? = nil
     var rssFeeds: [RSSFeed]? = nil
+    var fileRefs: [FileRef]? = nil     // pinned files grouped into collapsible tags
 }

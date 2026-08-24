@@ -12,11 +12,19 @@ struct AssistantView: View {
             ModulePane(title: "Assistant") {
                 HStack(spacing: 8) {
                     if !state.aiChat.isEmpty {
-                        Button { state.aiChat.clear() } label: { Image(systemName: "square.and.pencil") }
-                            .help("New chat")
+                        ContextPill(tokens: state.aiChat.approxTokens)
+                        Button { state.aiChat.clear() } label: {
+                            Label("New chat", systemImage: "square.and.pencil")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("New chat — clears this conversation")
                     }
                     Menu {
                         Label("Engine: \(AIConfig.mode.title)", systemImage: "sparkles")
+                        if !state.aiChat.isEmpty {
+                            Text("Context: ~\(ContextPill.format(state.aiChat.approxTokens)) tokens")
+                            Button("New chat (clear conversation)") { state.aiChat.clear() }
+                        }
                         Button("Intelligence settings…") { state.selectedModuleID = "settings" }
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
@@ -40,6 +48,35 @@ struct AssistantView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+}
+
+/// Compact indicator of how much conversation context is being sent to the model.
+/// Grows as the chat gets longer; nudges the user toward "New chat" when large.
+struct ContextPill: View {
+    let tokens: Int
+    /// Soft "getting long" threshold — comfortably under a small local model's window.
+    private var long: Bool { tokens >= 6000 }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: long ? "gauge.with.dots.needle.67percent" : "gauge.with.dots.needle.33percent")
+                .font(.caption2)
+            Text("~\(Self.format(tokens))")
+                .font(.caption2.monospacedDigit())
+        }
+        .foregroundStyle(long ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(long ? AnyShapeStyle(.orange.opacity(0.12)) : AnyShapeStyle(.background.secondary),
+                    in: Capsule())
+        .help(long
+              ? "This conversation is getting long (~\(Self.format(tokens)) tokens). Start a New chat to keep the assistant fast and focused."
+              : "Approx. context used this conversation (~\(Self.format(tokens)) tokens).")
+    }
+
+    /// 950 → "950", 1240 → "1.2k".
+    static func format(_ n: Int) -> String {
+        n < 1000 ? "\(n)" : String(format: "%.1fk", Double(n) / 1000)
     }
 }
 
@@ -210,8 +247,12 @@ private struct MessageView: View {
                         Image(systemName: msg.isError ? "exclamationmark.triangle.fill" : "sparkles")
                             .font(.caption).foregroundStyle(msg.isError ? AnyShapeStyle(.orange) : AnyShapeStyle(.tint))
                             .padding(.top, 2)
-                        Text(msg.text).font(.callout)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Group {
+                            if msg.isError { Text(msg.text) }
+                            else { RichText(text: msg.text).textSelection(.enabled) }
+                        }
+                        .font(.callout)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 if !msg.actions.isEmpty { actionCards }
