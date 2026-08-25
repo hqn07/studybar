@@ -37,6 +37,16 @@ final class RichTextController: ObservableObject {
 
     static let baseFont = NSFont.systemFont(ofSize: 13)
 
+    /// Resolve the dynamic label color to a concrete color for a view's appearance —
+    /// so rendered math matches the text (white in dark mode, not a dynamic gray).
+    static func resolvedLabel(_ view: NSView) -> NSColor {
+        var c = NSColor.labelColor
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            c = NSColor.labelColor.usingColorSpace(.sRGB) ?? NSColor.labelColor
+        }
+        return c
+    }
+
     /// The contiguous run tagged as a given fold's revealed body, or nil.
     static func memberRange(_ uuid: String, from: Int, in s: NSAttributedString) -> NSRange? {
         guard from < s.length,
@@ -163,6 +173,19 @@ final class RichTextController: ObservableObject {
         }
         guard let ts = tv.textStorage else { return }
         ts.beginEditing()
+        // Foreground color also re-renders any math in the selection (the image bakes
+        // its color, so a color attribute alone wouldn't change it).
+        if key == .foregroundColor {
+            var maths: [(NSRange, MathAttachment)] = []
+            ts.enumerateAttribute(.attachment, in: range) { val, r, _ in
+                if let ma = val as? MathAttachment { maths.append((r, ma)) }
+            }
+            for (r, ma) in maths.reversed() {
+                let n = MathAttachment(latex: ma.latex, display: ma.display,
+                                       color: color ?? .labelColor, userColored: color != nil)
+                ts.replaceCharacters(in: r, with: NSAttributedString(attachment: n))
+            }
+        }
         if let color { ts.addAttribute(key, value: color, range: range) }
         else { ts.removeAttribute(key, range: range) }
         ts.endEditing()
@@ -279,7 +302,7 @@ struct RichTextEditor: NSViewRepresentable {
         tv.drawsBackground = false
         tv.delegate = context.coordinator
         tv.mathController = controller
-        let installed = initial.installingFolds().installingMath()
+        let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv))
         if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor]
@@ -307,7 +330,7 @@ struct RichTextEditor: NSViewRepresentable {
                   let ts = tv.textStorage else { return }
             if MathSupport.caretInsideMath(tv.string, tv.selectedRange().location) { return }
             let caret = tv.selectedRange().location
-            let rebuilt = tv.attributedString().installingMath()
+            let rebuilt = tv.attributedString().installingMath(defaultColor: RichTextController.resolvedLabel(tv))
             if rebuilt.length != ts.length {           // something rendered → apply
                 ts.setAttributedString(rebuilt)
                 tv.setSelectedRange(NSRange(location: min(caret, rebuilt.length), length: 0))
@@ -511,16 +534,20 @@ extension NSAttributedString {
 final class MathAttachment: NSTextAttachment {
     let latex: String
     let display: Bool
-    init(latex: String, display: Bool) {
-        self.latex = latex; self.display = display
+    let color: NSColor
+    /// True when the color is a deliberate user choice (persist it); false = follow
+    /// the current text color (re-resolved on each load, so it adapts to the theme).
+    let userColored: Bool
+    init(latex: String, display: Bool, color: NSColor, userColored: Bool) {
+        self.latex = latex; self.display = display; self.color = color; self.userColored = userColored
         super.init(data: nil, ofType: nil)
         render()
     }
-    required init?(coder: NSCoder) { latex = ""; display = false; super.init(coder: coder) }
+    required init?(coder: NSCoder) { latex = ""; display = false; color = .labelColor; userColored = false; super.init(coder: coder) }
 
     private func render() {
         var mi = MathImage(latex: latex, fontSize: display ? 19 : 15,
-                           textColor: NSColor.labelColor, labelMode: display ? .display : .text)
+                           textColor: color, labelMode: display ? .display : .text)
         let (_, img, layout) = mi.asImage()
         guard let img else { return }
         image = img
@@ -546,8 +573,10 @@ enum MathSupport {
 }
 
 extension NSAttributedString {
-    /// `$…$` / `$$…$$` spans → rendered math attachments, in place.
-    func installingMath() -> NSAttributedString {
+    /// `$…$` / `$$…$$` spans → rendered math attachments, in place. Spans that carry
+    /// an explicit `.foregroundColor` render in that color (persisted); others follow
+    /// `defaultColor` (the current text color).
+    func installingMath(defaultColor: NSColor = .labelColor) -> NSAttributedString {
         let m = NSMutableAttributedString(attributedString: self)
         func pass(_ re: NSRegularExpression, display: Bool) {
             let ns = m.string as NSString
@@ -556,8 +585,10 @@ extension NSAttributedString {
                 if m.attributedSubstring(from: match.range).string.contains("\u{FFFC}") { continue }
                 let latex = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
                 guard !latex.isEmpty else { continue }
-                m.replaceCharacters(in: match.range,
-                                    with: NSAttributedString(attachment: MathAttachment(latex: latex, display: display)))
+                let explicit = m.attribute(.foregroundColor, at: match.range.location, effectiveRange: nil) as? NSColor
+                let att = MathAttachment(latex: latex, display: display,
+                                         color: explicit ?? defaultColor, userColored: explicit != nil)
+                m.replaceCharacters(in: match.range, with: NSAttributedString(attachment: att))
             }
         }
         pass(MathSupport.displayRE, display: true)
@@ -565,12 +596,16 @@ extension NSAttributedString {
         return m
     }
 
-    /// Math attachments → `$…$` source text (for save / preview / search).
+    /// Math attachments → `$…$` source text (for save / preview / search). A
+    /// user-chosen color is preserved on the source run so it round-trips.
     func expandingMath() -> NSAttributedString {
         let out = NSMutableAttributedString()
         enumerateAttribute(.attachment, in: NSRange(location: 0, length: length)) { val, range, _ in
             if let ma = val as? MathAttachment {
-                out.append(NSAttributedString(string: ma.display ? "$$\(ma.latex)$$" : "$\(ma.latex)$"))
+                let src = ma.display ? "$$\(ma.latex)$$" : "$\(ma.latex)$"
+                var attrs: [NSAttributedString.Key: Any] = [.font: RichTextController.baseFont]
+                if ma.userColored { attrs[.foregroundColor] = ma.color }
+                out.append(NSAttributedString(string: src, attributes: attrs))
             } else {
                 out.append(attributedSubstring(from: range))
             }
