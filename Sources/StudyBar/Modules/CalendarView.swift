@@ -229,7 +229,7 @@ struct CalendarView: View {
                 }
             }
             .padding(10).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 10)

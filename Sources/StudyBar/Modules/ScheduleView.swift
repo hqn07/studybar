@@ -108,7 +108,7 @@ struct ClassRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, 10)
     }
     private func open(_ s: String) {

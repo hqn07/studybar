@@ -78,7 +78,7 @@ struct SemesterView: View {
                                 }
                                 Text("\(c.credits, specifier: "%g") cr").font(.caption).foregroundStyle(.secondary)
                             }
-                            .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                            .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                         }
                     }
                 }.padding(12)
@@ -97,7 +97,7 @@ struct SemesterView: View {
             Text(v).font(.title3.bold())
             Text(l).font(.caption2).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 }
 

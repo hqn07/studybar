@@ -384,7 +384,7 @@ struct NoteEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }.frame(maxHeight: 130)
         }
-        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, 8).padding(.top, 6)
     }
 

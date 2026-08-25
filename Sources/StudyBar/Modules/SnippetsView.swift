@@ -204,7 +204,7 @@ struct SnippetRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func copy() {

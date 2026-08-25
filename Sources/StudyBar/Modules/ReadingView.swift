@@ -153,8 +153,8 @@ struct ReadingView: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(bookSearchFocused ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear)))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).stroke(bookSearchFocused ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear)))
         .padding(.horizontal, 10).padding(.top, 8)
     }
 
@@ -183,7 +183,7 @@ struct ReadingView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(8).contentShape(Rectangle())
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
@@ -364,7 +364,7 @@ struct ReadingDetailView: View {
                         .font(.caption).foregroundStyle(.tertiary)
                 }
                 if !item.tags.isEmpty {
-                    Text(item.tags.map { "#\($0)" }.joined(separator: " ")).font(.caption2).foregroundStyle(.tint)
+                    HStack(spacing: DS.Space.xs) { ForEach(item.tags, id: \.self) { Chip($0, .tag) } }
                 }
                 CourseChip(course: state.course(item.courseID))
                 if !item.url.isEmpty {
@@ -448,7 +448,7 @@ struct ReadingDetailView: View {
                         Button { deleteUnit(u) } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                     }
-                    .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+                    .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 }
             } else {
                 Text("Reading by chapter or topic? Add them here to track progress instead of pages.")
@@ -513,7 +513,7 @@ struct ReadingDetailView: View {
                     Button { deleteHighlight(h) } label: { Image(systemName: "xmark") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                 }
-                .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             }
             HStack(spacing: 6) {
                 TextField("p#", text: $hlPage).textFieldStyle(.roundedBorder).frame(width: 44)
@@ -619,7 +619,7 @@ struct BookLookupView: View {
                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
             }
             .padding(8).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 

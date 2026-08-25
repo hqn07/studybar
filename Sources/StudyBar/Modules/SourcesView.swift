@@ -100,7 +100,7 @@ struct SourcesView: View {
                             CourseChip(course: state.course(feed.courseID))
                             Image(systemName: "pencil").foregroundStyle(.secondary).font(.caption)
                         }
-                        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                     }.buttonStyle(.plain)
                 }
             }

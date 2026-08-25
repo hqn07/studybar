@@ -566,7 +566,7 @@ private struct SessionsSection: View {
                 Button("Delete", role: .destructive) { state.data.timeEntries.removeAll { $0.id == e.id } }
             } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, 10)
     }
 

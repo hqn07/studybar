@@ -124,7 +124,7 @@ struct GradeCalcView: View {
                 Toggle("Taken", isOn: b.graded).toggleStyle(.button).controlSize(.small).font(.caption)
             }
         }
-        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func field(_ label: String, _ value: Binding<Double>, suffix: String) -> some View {

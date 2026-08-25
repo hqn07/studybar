@@ -565,7 +565,7 @@ struct CSVImportView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 160).scrollContentBackground(.hidden)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 Text("\(parsed.count) cards detected").font(.caption).foregroundStyle(.tint)
             }.padding(14)
             Divider()

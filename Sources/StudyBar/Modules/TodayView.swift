@@ -87,7 +87,7 @@ struct TodayView: View {
             Button { state.bumpReading(item.id, by: 1) } label: { Image(systemName: "plus") }.buttonStyle(.bordered)
             Button { state.bumpReading(item.id, by: 10) } label: { Text("+10") }.buttonStyle(.bordered).font(.caption)
         }
-        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func eventCard(_ e: EKEvent) -> some View {
@@ -103,7 +103,7 @@ struct TodayView: View {
                 Spacer()
                 Image(systemName: "calendar").font(.caption2).foregroundStyle(.tertiary)
             }
-            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -191,7 +191,7 @@ struct TodayView: View {
                     Image(systemName: "video").foregroundStyle(.tint)
                 }
             }
-            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -211,7 +211,7 @@ struct TodayView: View {
                 }
                 Spacer()
             }
-            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 }

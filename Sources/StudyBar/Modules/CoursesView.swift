@@ -72,7 +72,7 @@ struct CourseRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 }
 
@@ -123,7 +123,7 @@ struct CourseDetailView: View {
                                 ForEach(notes.prefix(5)) { n in
                                     Text(n.title.isEmpty ? "Untitled" : n.title).font(.callout)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                                        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                                 }
                                 Button("Open in Notes") { state.selectedModuleID = "notes" }.font(.caption).buttonStyle(.borderless)
                             }
@@ -177,7 +177,7 @@ struct CourseDetailView: View {
             }.buttonStyle(.plain)
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
     private func classRow(_ cl: ClassSession) -> some View {
         HStack {
@@ -185,13 +185,13 @@ struct CourseDetailView: View {
             Text("\(cl.startString) – \(cl.endString)").font(.caption)
             if !cl.room.isEmpty { Text("· \(cl.room)").font(.caption2).foregroundStyle(.secondary) }
             Spacer()
-        }.padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        }.padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
     private func linkRow(_ l: QuickLink) -> some View {
         Button { openURL(l.url) } label: {
             HStack { Image(systemName: l.symbol.isEmpty ? "link" : l.symbol).foregroundStyle(.tint)
                 Text(l.title.isEmpty ? l.url : l.title); Spacer(); Image(systemName: "arrow.up.right.square").font(.caption) }
-                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
     private func readingRow(_ r: ReadingItem) -> some View {
@@ -199,7 +199,7 @@ struct CourseDetailView: View {
             Text(r.title).fontWeight(.medium).lineLimit(1)
             Spacer()
             Text("\(Int(r.progress * 100))%").font(.caption2).foregroundStyle(.secondary)
-        }.padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        }.padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {

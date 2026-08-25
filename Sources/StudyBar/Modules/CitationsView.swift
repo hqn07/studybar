@@ -160,7 +160,7 @@ struct CitationsView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(9).contentShape(Rectangle())
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
