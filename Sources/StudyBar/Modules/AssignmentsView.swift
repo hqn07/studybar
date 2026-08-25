@@ -55,11 +55,11 @@ struct AssignmentsView: View {
                                subtitle: "Add homework, papers and exams with due dates.")
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 6) {
+                        LazyVStack(spacing: DS.Space.s) {
                             ForEach(list) { a in
                                 AssignmentRow(assignment: a) { editing = a }
                             }
-                        }.padding(10)
+                        }.padding(DS.Space.m)
                     }
                 }
             }
@@ -82,75 +82,73 @@ struct AssignmentRow: View {
     let assignment: Assignment
     let onEdit: () -> Void
 
+    private var done: Bool { assignment.status == .done }
+
+    // Course · points · subtasks — the one clean secondary line.
+    private var subtitle: String {
+        var parts: [String] = []
+        if let c = state.course(assignment.courseID) { parts.append(c.code.isEmpty ? c.name : c.code) }
+        if let p = assignment.points, p > 0 { parts.append("\(Int(p)) pts") }
+        if !assignment.checklist.isEmpty {
+            parts.append("\(assignment.checklist.filter(\.done).count)/\(assignment.checklist.count) subtasks")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(spacing: DS.Space.l) {
             Button { toggleDone() } label: {
-                Image(systemName: assignment.status == .done ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(assignment.status == .done ? .green : .secondary)
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
+                    .foregroundStyle(done ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
             }.buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(assignment.title.isEmpty ? "Untitled" : assignment.title)
-                    .fontWeight(.medium)
-                    .strikethrough(assignment.status == .done)
-                HStack(spacing: 8) {
-                    if assignment.status != .done, let label = assignment.urgencyLabel {
-                        urgencyPill(label, level: assignment.urgency ?? 0)
-                    }
-                    CourseChip(course: state.course(assignment.courseID))
-                    if let due = assignment.due {
-                        dueBadge(due)
-                    }
-                    if !assignment.checklist.isEmpty {
-                        let done = assignment.checklist.filter(\.done).count
-                        Text("\(done)/\(assignment.checklist.count)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    if assignment.submitted && assignment.status != .done {
-                        Label("Submitted", systemImage: "checkmark.seal.fill")
-                            .labelStyle(.titleAndIcon).font(.caption2).foregroundStyle(.green)
-                    }
-                    if !assignment.link.isEmpty {
-                        Button { open(assignment.link) } label: {
-                            Image(systemName: "arrow.up.right.square")
-                        }.buttonStyle(.borderless).font(.caption)
-                    }
+                    .font(.callout.weight(.medium)).strikethrough(done).lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer()
+
+            Spacer(minLength: DS.Space.s)
+
+            statusChip
+            dueText
+            if !assignment.link.isEmpty {
+                Button { open(assignment.link) } label: { Image(systemName: "arrow.up.right.square") }
+                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+            }
             Button { onEdit() } label: { Image(systemName: "pencil") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
-        .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(DS.Space.m)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
-    private func urgencyPill(_ label: String, level: Int) -> some View {
-        let color: Color = level >= 2 ? .red : (level == 1 ? .orange : .secondary)
-        return Text(label.uppercased())
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    @ViewBuilder private func dueBadge(_ due: Date) -> some View {
-        let days = assignment.daysUntilDue ?? 0
-        let overdue = assignment.isOverdue
-        let color: Color = overdue ? .red : (days <= 1 ? .orange : (days <= 3 ? .yellow : .secondary))
-        Text(label(days: days, overdue: overdue, due: due))
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-    }
-
-    private func label(days: Int, overdue: Bool, due: Date) -> String {
-        if overdue { return "Overdue · \(due.dayMonth)" }
-        switch days {
-        case 0: return "Due today"
-        case 1: return "Due tomorrow"
-        default: return "Due \(due.dayMonth) · \(days)d"
+    @ViewBuilder private var statusChip: some View {
+        if !done {
+            if assignment.submitted {
+                Chip("Submitted", .status(.done), systemImage: "checkmark.seal.fill")
+            } else if let label = assignment.urgencyLabel {
+                Chip(label, .status(urgencyStatus(assignment.urgency ?? 0)))
+            }
         }
+    }
+    private func urgencyStatus(_ level: Int) -> Chip.Status { level >= 2 ? .now : (level == 1 ? .week : .neutral) }
+
+    @ViewBuilder private var dueText: some View {
+        if let due = assignment.due {
+            let days = assignment.daysUntilDue ?? 0
+            let color: Color = assignment.isOverdue ? .dsNow : (days <= 1 ? .dsWeek : (days <= 3 ? .orange : .secondary))
+            Text(dueLabel(days: days, overdue: assignment.isOverdue))
+                .font(.caption2.weight(.semibold)).foregroundStyle(color)
+                .help(due.formatted(date: .abbreviated, time: .omitted))
+        }
+    }
+    private func dueLabel(days: Int, overdue: Bool) -> String {
+        if overdue { return "Overdue" }
+        switch days { case 0: return "Today"; case 1: return "1d"; default: return "\(days)d" }
     }
 
     private func toggleDone() {
