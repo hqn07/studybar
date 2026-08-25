@@ -46,8 +46,14 @@ struct TodayView: View {
 
     // MARK: hero resolution — the single "what do I do now"
 
+    private func inSession(_ c: ClassSession) -> Bool { c.startMinutes <= nowMinutes && c.endMinutes >= nowMinutes }
+    private var overdueFirst: Assignment? { dueToday.first(where: { $0.isOverdue }) }
+
     private enum Hero { case cls(ClassSession), assignment(Assignment), reading(ReadingItem), caughtUp }
+    /// "What do I do now" — attention order, not just chronology.
     private var hero: Hero {
+        if let c = nextClass, inSession(c) { return .cls(c) }   // you're literally in class
+        if let a = overdueFirst { return .assignment(a) }        // overdue beats an upcoming class
         if let c = nextClass { return .cls(c) }
         if let a = dueToday.first { return .assignment(a) }
         if let a = dueSoon.first { return .assignment(a) }
