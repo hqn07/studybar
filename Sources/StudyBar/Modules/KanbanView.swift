@@ -14,7 +14,11 @@ struct KanbanView: View {
     var body: some View {
         NavigationStack {
             ModulePane(title: "Board") {
-                Text("\(state.data.assignments.count) tasks").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet") }
+                        .help("List view — same assignments")
+                    Text("\(state.data.assignments.count) tasks").font(.caption).foregroundStyle(.secondary)
+                }
             } content: {
                 if state.data.assignments.isEmpty {
                     EmptyState(symbol: "rectangle.split.3x1", title: "Board is empty",
@@ -40,6 +44,12 @@ struct KanbanView: View {
     private func card(_ a: Assignment) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(a.title.isEmpty ? "Untitled" : a.title).fontWeight(.medium).lineLimit(2)
+            if let u = a.urgency, u > 0, a.status != .done {
+                Text(urgencyText(u)).font(.caption2.weight(.bold))
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(urgencyColor(u).opacity(0.15), in: Capsule())
+                    .foregroundStyle(urgencyColor(u))
+            }
             HStack(spacing: 6) {
                 CourseChip(course: state.course(a.courseID))
                 if let d = a.due {
@@ -58,6 +68,10 @@ struct KanbanView: View {
         .onTapGesture { editing = a }
         .draggable(a.id.uuidString)
     }
+
+    // Mirrors the urgency pill from the Assignments list (same computed urgency).
+    private func urgencyText(_ level: Int) -> String { level >= 2 ? "NOW" : "THIS WEEK" }
+    private func urgencyColor(_ level: Int) -> Color { level >= 2 ? .red : .orange }
 
     private func addCard(_ status: AssignmentStatus) {
         var a = Assignment(title: "", due: nil)

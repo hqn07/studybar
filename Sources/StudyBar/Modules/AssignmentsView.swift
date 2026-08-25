@@ -34,6 +34,8 @@ struct AssignmentsView: View {
         NavigationStack {
             ModulePane(title: "Assignments") {
                 HStack(spacing: 8) {
+                    Button { state.selectedModuleID = "board" } label: { Image(systemName: "rectangle.split.3x1") }
+                        .help("Board view — same assignments")
                     if anyRanked {
                         Menu {
                             ForEach(AssignmentSort.allCases) { s in
