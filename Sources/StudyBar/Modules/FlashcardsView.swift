@@ -556,6 +556,7 @@ struct CSVImportView: View {
     let deckID: UUID
     @State private var text = ""
     @State private var choosing = false
+    @State private var importError = ""
 
     private var parsed: [AnkiText.Card] { AnkiText.parse(text) }
     private var existingFronts: Set<String> {
@@ -576,13 +577,15 @@ struct CSVImportView: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                Text("Paste cards, or choose an Anki export (.txt) / CSV file. Front, back, optional tags — Anki `{{c1::cloze}}` and HTML are handled.")
+                Text("Paste cards, or choose an Anki deck (.apkg) / export (.txt) / CSV file. Front, back, optional tags — Anki `{{c1::cloze}}` and HTML are handled.")
                     .font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 160).scrollContentBackground(.hidden)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 HStack(spacing: DS.Space.s) {
-                    if !parsed.isEmpty {
+                    if !importError.isEmpty {
+                        Text(importError).font(.caption).foregroundStyle(Color.dsNow)
+                    } else if !parsed.isEmpty {
                         Chip("\(newCards.count) new", .status(.done))
                         if dupeCount > 0 { Chip("\(dupeCount) duplicate\(dupeCount == 1 ? "" : "s")", .status(.neutral)) }
                     } else if !text.isEmpty {
@@ -600,12 +603,20 @@ struct CSVImportView: View {
         .fileImporter(isPresented: $choosing,
                       allowedContentTypes: [.plainText, .commaSeparatedText,
                                             UTType(filenameExtension: "tsv") ?? .plainText,
-                                            UTType(filenameExtension: "txt") ?? .plainText]) { result in
+                                            UTType(filenameExtension: "txt") ?? .plainText,
+                                            UTType(filenameExtension: "apkg") ?? .data]) { result in
             if case .success(let url) = result { loadFile(url) }
         }
     }
 
     private func loadFile(_ url: URL) {
+        importError = ""
+        if url.pathExtension.lowercased() == "apkg" {
+            let r = ApkgImport.read(url)
+            if let e = r.error { importError = e; text = "" }
+            else { text = AnkiText.export(r.cards) }   // funnel through the shared preview/dedup path
+            return
+        }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         if let s = try? String(contentsOf: url, encoding: .utf8) { text = s }

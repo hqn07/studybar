@@ -57,7 +57,7 @@ enum AnkiText {
             let contentIdx = fields.indices.filter { $0 != tagIdx && $0 != deckIdx }
             guard let fi = contentIdx.first else { continue }
 
-            let front = clean(fields[fi], html: html)
+            let front = normalizeField(fields[fi], html: html)
             guard !front.isEmpty else { continue }
             let back = contentIdx.count > 1 ? clean(fields[contentIdx[1]], html: html) : ""
 
@@ -68,9 +68,15 @@ enum AnkiText {
                 // Legacy CSV with no header: 3rd field = tags.
                 tags = splitTags(fields[contentIdx[2]])
             }
-            cards.append(Card(front: fromAnkiCloze(front), back: back, tags: tags))
+            cards.append(Card(front: front, back: back, tags: tags))
         }
         return cards
+    }
+
+    /// Normalize one raw Anki field to StudyBar text: strip HTML/entities, then
+    /// convert Anki cloze to StudyBar cloze. Shared by the text and `.apkg` importers.
+    static func normalizeField(_ raw: String, html: Bool) -> String {
+        fromAnkiCloze(clean(raw, html: html))
     }
 
     // MARK: - Export (Anki-round-trippable)
