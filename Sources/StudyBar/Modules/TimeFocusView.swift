@@ -3,15 +3,15 @@ import AppKit
 import Combine
 
 /// (D1) Unified **Time & Focus** module — Pomodoro, Stopwatch, Focus and session
-/// History in one place, with an always-available ambient-noise bar so you can
-/// start a timer *and* play background noise without switching modules.
+/// History in one place, with an always-available ambient-noise bar.
 ///
-/// Replaces the four separate modules (pomodoro/stopwatch/focus/sessions).
+/// The three timers share one clock hero — `TickDial` (bold task headline, big
+/// rounded-mono digits, phase line, a row of depleting segment ticks) — so the
+/// module reads as one system.
 struct TimeFocusView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("timeFocusTab") private var tabRaw = TimeTab.timer.rawValue
-    // Stopwatch lives on the parent so switching tabs doesn't reset a running clock.
-    @StateObject private var stopwatch = StopwatchModel()
+    @StateObject private var stopwatch = StopwatchModel()   // hoisted so tab switches don't reset it
 
     private var tab: TimeTab { TimeTab(rawValue: tabRaw) ?? .timer }
 
@@ -26,7 +26,7 @@ struct TimeFocusView: View {
                     }
                 }
                 .pickerStyle(.segmented).labelStyle(.iconOnly)
-                .padding(.horizontal, 10).padding(.vertical, 7)
+                .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
                 Divider()
 
                 Group {
@@ -57,10 +57,79 @@ enum TimeTab: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Shared clock hero: TickDial
+
+/// Bold task headline (optional) · big rounded-mono digits · phase line · a row of
+/// segment ticks. `progress` (0…1) is how much of the row stays lit — pass the
+/// fraction *remaining* for a depleting countdown, or the fill fraction for a count-up.
+struct TickDial: View {
+    var title: String = ""
+    let time: String
+    var subtitle: String = ""
+    var progress: Double
+    var tint: Color = .accentColor
+    var digitSize: CGFloat = 44
+    var ticks: Int = 24
+
+    var body: some View {
+        VStack(spacing: DS.Space.s) {
+            if !title.isEmpty {
+                Text(title).font(.headline).multilineTextAlignment(.center).lineLimit(2)
+            }
+            Text(time)
+                .font(.system(size: digitSize, weight: .bold, design: .rounded))
+                .monospacedDigit().foregroundStyle(.primary)
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            TickRow(progress: progress, tint: tint, count: ticks).frame(height: 26)
+        }
+    }
+}
+
+/// A row of segment ticks; the leftmost `progress` share is lit and full-height.
+private struct TickRow: View {
+    var progress: Double
+    var tint: Color
+    var count: Int = 24
+
+    var body: some View {
+        let lit = Int((Double(count) * max(0, min(1, progress))).rounded())
+        GeometryReader { geo in
+            HStack(spacing: 2) {
+                ForEach(0..<count, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(i < lit ? AnyShapeStyle(tint) : AnyShapeStyle(.quaternary))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: i < lit ? geo.size.height : geo.size.height * 0.55)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .animation(.easeOut(duration: 0.3), value: lit)
+        }
+    }
+}
+
+/// Round icon control shared by the timers. `main` = filled accent hero button.
+private func circleButton(_ icon: String, main: Bool = false, tint: Color = .accentColor,
+                          disabled: Bool = false, help: String,
+                          action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        Image(systemName: icon)
+            .font(.system(size: main ? 17 : 14, weight: .semibold))
+            .frame(width: main ? 46 : 38, height: main ? 46 : 38)
+            .background(main ? AnyShapeStyle(tint) : AnyShapeStyle(.background.secondary), in: Circle())
+            .overlay { if !main { Circle().strokeBorder(.separator, lineWidth: 0.5) } }
+            .foregroundStyle(main ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .opacity(disabled ? 0.4 : 1)
+    .help(help)
+}
+
 // MARK: - Ambient noise (shared across tabs; owns FocusSounds)
 
-/// Compact ambient-sound bar pinned to the bottom of the module. Independent of
-/// the Pomodoro/Focus lifecycle so noise keeps playing while you switch tabs.
 private struct AmbientBar: View {
     @AppStorage("focusSound") private var soundRaw = FocusSounds.Kind.none.rawValue
     @AppStorage("focusVolume") private var volume = 0.5
@@ -68,7 +137,7 @@ private struct AmbientBar: View {
     private var kind: FocusSounds.Kind { FocusSounds.Kind(rawValue: soundRaw) ?? .none }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.m) {
             Image(systemName: kind == .none ? "speaker.slash" : "speaker.wave.2.fill")
                 .font(.caption).foregroundStyle(kind == .none ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
                 .frame(width: 16)
@@ -83,7 +152,7 @@ private struct AmbientBar: View {
                     .onChange(of: volume) { _, v in FocusSounds.shared.setVolume(Float(v)) }
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
     }
 
     private func apply() {
@@ -92,7 +161,6 @@ private struct AmbientBar: View {
     }
 }
 
-/// Header speaker toggle — quick mute/unmute of the ambient bar's current sound.
 private struct AmbientButton: View {
     @AppStorage("focusSound") private var soundRaw = FocusSounds.Kind.none.rawValue
     @AppStorage("focusVolume") private var volume = 0.5
@@ -138,61 +206,52 @@ private struct PomodoroSection: View {
     @AppStorage("focusStrict") private var strict = false
 
     private var p: PomodoroEngine { state.pomodoro }
+    private var idle: Bool { p.phase == .idle }
     private var todaySeconds: Int {
         state.data.timeEntries.filter { Calendar.current.isDateInToday($0.date) }.reduce(0) { $0 + $1.seconds }
     }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: DS.Space.l) {
                 HStack {
-                    Text(p.phase == .idle ? "Ready" : p.phase.rawValue).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }
                         .buttonStyle(.borderless).help("Timer settings")
                 }
                 if showSettings { settingsPanel }
 
-                ZStack {
-                    Circle().stroke(.quaternary, lineWidth: 10)
-                    Circle().trim(from: 0, to: progress)
-                        .stroke(phaseColor, style: .init(lineWidth: 10, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.3), value: p.remaining)
-                    VStack(spacing: 2) {
-                        Text(p.mmss).font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
-                        Text(p.phase == .idle ? "Ready" : p.phase.rawValue).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(width: 150, height: 150)
+                TickDial(title: idle ? "" : p.label, time: p.mmss, subtitle: phaseSub,
+                         progress: fractionRemaining, tint: phaseTint, digitSize: 44)
+                    .padding(.horizontal, DS.Space.s)
 
-                cycleDots
-
-                VStack(spacing: 6) {
-                    TextField("What are you working on?", text: $label)
-                        .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
-                    HStack(spacing: 10) {
-                        CoursePicker(courseID: $courseID)
-                        Divider().frame(height: 14)
-                        AssignmentPicker(assignmentID: $assignmentID)
+                if idle {
+                    VStack(spacing: DS.Space.s) {
+                        TextField("What are you working on?", text: $label)
+                            .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                        HStack(spacing: DS.Space.m) {
+                            CoursePicker(courseID: $courseID)
+                            Divider().frame(height: 14)
+                            AssignmentPicker(assignmentID: $assignmentID)
+                        }
                     }
                 }
 
-                HStack(spacing: 14) {
-                    labeledButton("End", "stop.fill", 24, prominent: false, disabled: p.phase == .idle) { resetPressed() }
-                    labeledButton(p.running ? "Pause" : (p.phase == .idle ? "Start" : "Resume"),
-                                  p.running ? "pause.fill" : "play.fill", 30, prominent: true, disabled: false) { toggle() }
-                    labeledButton("Skip", "forward.fill", 24, prominent: false, disabled: p.phase == .idle) { p.skip() }
+                HStack(spacing: DS.Space.l) {
+                    circleButton("stop.fill", disabled: idle, help: "End") { resetPressed() }
+                    circleButton(p.running ? "pause.fill" : "play.fill", main: true, tint: phaseTint,
+                                 help: p.running ? "Pause" : (idle ? "Start" : "Resume")) { toggle() }
+                    circleButton("forward.fill", disabled: idle, help: "Skip") { p.skip() }
                 }
 
                 goalBar
 
-                HStack(spacing: 24) {
-                    stat("\(p.completedFocus)", "session")
+                HStack(spacing: DS.Space.xl + DS.Space.m) {
+                    stat("\(p.completedFocus)", "sessions")
                     stat(timeStr(todaySeconds), "today")
                 }
             }
-            .frame(maxWidth: .infinity).padding(16)
+            .frame(maxWidth: .infinity).padding(DS.Space.l)
         }
         .onAppear(perform: applyConfig)
         .overlay {
@@ -205,26 +264,41 @@ private struct PomodoroSection: View {
         }
     }
 
-    private func labeledButton(_ title: String, _ icon: String, _ w: CGFloat, prominent: Bool, disabled: Bool, action: @escaping () -> Void) -> some View {
-        VStack(spacing: 3) {
-            Button(action: action) { Image(systemName: icon).frame(width: w) }
-                .controlSize(.large).disabled(disabled)
-                .modifier(ProminentIf(on: prominent))
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+    private var phaseSub: String {
+        switch p.phase {
+        case .idle: return "Ready"
+        case .focus: return "focus · \((p.completedFocus % max(1, cycles)) + 1) of \(cycles)"
+        case .shortBreak: return "short break"
+        case .longBreak: return "long break"
         }
+    }
+    private var phaseTint: Color {
+        switch p.phase { case .shortBreak, .longBreak: return .dsDone; default: return .accentColor }
+    }
+    private var fractionRemaining: Double {
+        let total: Int
+        switch p.phase {
+        case .focus, .idle: total = p.focusMinutes * 60
+        case .shortBreak: total = p.shortBreakMinutes * 60
+        case .longBreak: total = p.longBreakMinutes * 60
+        }
+        guard total > 0 else { return 0 }
+        return Double(p.remaining) / Double(total)
     }
 
     private var goalBar: some View {
         let done = StudyStats.pomodorosToday(state.data)
+        let hit = done >= dailyGoal
         return VStack(spacing: 3) {
             HStack {
                 Text("Daily goal").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Text("\(done)/\(dailyGoal)").font(.caption2.bold())
-                    .foregroundStyle(done >= dailyGoal ? .green : .secondary)
-                if done >= dailyGoal { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.green) }
+                    .foregroundStyle(hit ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
+                if hit { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(Color.dsDone) }
             }
             ProgressView(value: Double(min(done, dailyGoal)), total: Double(max(1, dailyGoal)))
+                .tint(hit ? Color.dsDone : .accentColor)
         }.frame(maxWidth: 240)
     }
 
@@ -233,7 +307,7 @@ private struct PomodoroSection: View {
     }
 
     private var settingsPanel: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: DS.Space.m) {
             Stepper("Focus: \(focusMin) min", value: $focusMin, in: 5...90, step: 5).font(.caption)
             Stepper("Short break: \(shortMin) min", value: $shortMin, in: 1...30, step: 1).font(.caption)
             Stepper("Long break: \(longMin) min", value: $longMin, in: 5...45, step: 5).font(.caption)
@@ -242,22 +316,13 @@ private struct PomodoroSection: View {
             Toggle("Auto-start next phase", isOn: $autostart).font(.caption)
             Toggle("Strict mode (confirm before ending)", isOn: $strict).font(.caption)
         }
-        .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .padding(DS.Space.l)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .onChange(of: focusMin) { _, _ in applyConfig() }
         .onChange(of: shortMin) { _, _ in applyConfig() }
         .onChange(of: longMin) { _, _ in applyConfig() }
         .onChange(of: cycles) { _, _ in applyConfig() }
         .onChange(of: autostart) { _, _ in applyConfig() }
-    }
-
-    private var cycleDots: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<max(1, cycles), id: \.self) { i in
-                Circle().fill(i < (p.completedFocus % cycles) ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
-                    .frame(width: 7, height: 7)
-            }
-        }
     }
 
     private func applyConfig() {
@@ -271,20 +336,9 @@ private struct PomodoroSection: View {
         }
     }
     private func toggle() {
-        if p.phase == .idle { p.focusMinutes = focusMin; p.startFocus(label: label, courseID: courseID, assignmentID: assignmentID) }
+        if idle { p.focusMinutes = focusMin; p.startFocus(label: label, courseID: courseID, assignmentID: assignmentID) }
         else { p.toggle() }
     }
-    private var progress: CGFloat {
-        let total: Int
-        switch p.phase {
-        case .focus, .idle: total = p.focusMinutes * 60
-        case .shortBreak: total = p.shortBreakMinutes * 60
-        case .longBreak: total = p.longBreakMinutes * 60
-        }
-        guard total > 0 else { return 0 }
-        return 1 - CGFloat(p.remaining) / CGFloat(total)
-    }
-    private var phaseColor: Color { switch p.phase { case .focus, .idle: .accentColor; default: .green } }
     private func stat(_ v: String, _ l: String) -> some View {
         VStack(spacing: 1) {
             Text(v).font(.title3.bold().monospacedDigit())
@@ -292,13 +346,6 @@ private struct PomodoroSection: View {
         }
     }
     private func timeStr(_ s: Int) -> String { let h = s/3600, m = (s%3600)/60; return h > 0 ? "\(h)h \(m)m" : "\(m)m" }
-}
-
-private struct ProminentIf: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        if on { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
-    }
 }
 
 // MARK: - Stopwatch (state hoisted to survive tab switches)
@@ -339,60 +386,58 @@ private struct StopwatchSection: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text(format(model.elapsed))
-                .font(.system(size: 46, weight: .bold, design: .rounded)).monospacedDigit()
-                .padding(.top, 20)
-            TextField("Label (e.g. Chem problem set)", text: $model.label)
-                .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-            HStack(spacing: 10) {
-                CoursePicker(courseID: $model.courseID)
-                Divider().frame(height: 14)
-                AssignmentPicker(assignmentID: $model.assignmentID)
-            }
-            if !recentPresets.isEmpty && model.elapsed < 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(recentPresets, id: \.self) { preset in
-                            Button {
-                                model.label = preset.label; model.courseID = preset.courseID; model.assignmentID = preset.assignmentID
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.counterclockwise").font(.caption2)
-                                    Text(preset.label).font(.caption).lineLimit(1)
-                                }
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(.background.secondary, in: Capsule())
-                            }.buttonStyle(.plain)
-                        }
-                    }.padding(.horizontal, 14)
+        ScrollView {
+            VStack(spacing: DS.Space.l) {
+                TickDial(title: model.label, time: format(model.elapsed), subtitle: model.running ? "recording" : "",
+                         progress: model.elapsed.truncatingRemainder(dividingBy: 60) / 60, tint: .accentColor, digitSize: 42)
+                    .padding(.top, DS.Space.m)
+
+                TextField("Label (e.g. Chem problem set)", text: $model.label)
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
+                HStack(spacing: DS.Space.m) {
+                    CoursePicker(courseID: $model.courseID)
+                    Divider().frame(height: 14)
+                    AssignmentPicker(assignmentID: $model.assignmentID)
                 }
-            }
-            HStack(spacing: 14) {
-                Button { model.lap() } label: { Text("Lap").frame(width: 44) }
-                    .controlSize(.large).disabled(!model.running)
-                Button { model.toggle() } label: {
-                    Image(systemName: model.running ? "pause.fill" : "play.fill").frame(width: 30)
-                }.controlSize(.large).buttonStyle(.borderedProminent)
-                Button { saveAndReset() } label: { Text("Save").frame(width: 44) }
-                    .controlSize(.large).disabled(model.elapsed < 1)
-            }
-            if !model.laps.isEmpty {
-                ScrollView {
+
+                if !recentPresets.isEmpty && model.elapsed < 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: DS.Space.s) {
+                            ForEach(recentPresets, id: \.self) { preset in
+                                Button {
+                                    model.label = preset.label; model.courseID = preset.courseID; model.assignmentID = preset.assignmentID
+                                } label: {
+                                    Chip(preset.label, .tag, systemImage: "arrow.counterclockwise")
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(.horizontal, DS.Space.l)
+                    }
+                }
+
+                HStack(spacing: DS.Space.l) {
+                    Button { model.lap() } label: { Text("Lap").frame(width: 42) }
+                        .controlSize(.large).disabled(!model.running)
+                    circleButton(model.running ? "pause.fill" : "play.fill", main: true,
+                                 help: model.running ? "Pause" : "Start") { model.toggle() }
+                    Button { saveAndReset() } label: { Text("Save").frame(width: 42) }
+                        .controlSize(.large).disabled(model.elapsed < 1)
+                }
+
+                if !model.laps.isEmpty {
                     VStack(spacing: 3) {
                         ForEach(Array(model.laps.enumerated().reversed()), id: \.offset) { i, t in
                             HStack {
                                 Text("Lap \(i + 1)").foregroundStyle(.secondary)
                                 Spacer()
                                 Text(format(t)).monospacedDigit()
-                            }.font(.caption).padding(.horizontal, 12).padding(.vertical, 2)
+                            }.font(.caption)
+                            .padding(.horizontal, DS.Space.l).padding(.vertical, 2)
                         }
-                    }
-                }.frame(maxHeight: 120)
+                    }.frame(maxHeight: 120)
+                }
             }
-            Spacer()
+            .frame(maxWidth: .infinity).padding(DS.Space.l)
         }
-        .frame(maxWidth: .infinity)
     }
 
     private func saveAndReset() {
@@ -429,29 +474,29 @@ private struct FocusSection: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: DS.Space.l) {
                 if active {
-                    Spacer(minLength: 20)
-                    Text(p.mmss).font(.system(size: 60, weight: .bold, design: .rounded)).monospacedDigit()
-                    if !p.label.isEmpty { Text(p.label).font(.title3).foregroundStyle(.secondary) }
+                    Spacer(minLength: DS.Space.l)
+                    TickDial(title: p.label.isEmpty ? "Focus" : p.label, time: p.mmss, subtitle: "focus",
+                             progress: Double(p.remaining) / Double(max(1, minutes * 60)), tint: .accentColor, digitSize: 54)
                     Text("Stay on task. You've got this.").font(.callout).foregroundStyle(.secondary)
                     Button(role: .destructive) { endPressed() } label: {
                         Label("End focus", systemImage: "stop.fill")
                     }.buttonStyle(.borderedProminent).controlSize(.large)
                 } else {
-                    Image(systemName: "moon.stars.fill").font(.system(size: 38)).foregroundStyle(.tint).padding(.top, 8)
+                    Image(systemName: "moon.stars.fill").font(.system(size: 38)).foregroundStyle(.tint).padding(.top, DS.Space.m)
                     Text("Focus Session").font(.title2.bold())
                     TextField("What are you focusing on?", text: $task)
                         .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-                    HStack(spacing: 10) {
+                    HStack(spacing: DS.Space.m) {
                         CoursePicker(courseID: $courseID)
                         Divider().frame(height: 14)
                         AssignmentPicker(assignmentID: $assignmentID)
                     }
-                    HStack(spacing: 8) {
+                    HStack(spacing: DS.Space.s) {
                         ForEach([25, 50, 90], id: \.self) { m in
-                            Button("\(m)m") { minutes = m }.buttonStyle(.bordered)
-                                .tint(minutes == m ? .accentColor : .secondary)
+                            Button { minutes = m } label: { Chip("\(m)m", .filter, selected: minutes == m) }
+                                .buttonStyle(.plain)
                         }
                         Stepper("\(minutes)m", value: $minutes, in: 5...180, step: 5).fixedSize()
                     }
@@ -461,11 +506,11 @@ private struct FocusSection: View {
                         Label("Start focusing", systemImage: "play.fill").frame(maxWidth: 200)
                     }.buttonStyle(.borderedProminent).controlSize(.large)
                     Text("Tip: pair with a macOS Focus (Control Center) to silence notifications, and use the ambient bar below for background noise.")
-                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 20)
+                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, DS.Space.xl)
                 }
                 Spacer()
             }
-            .frame(maxWidth: .infinity).padding(16)
+            .frame(maxWidth: .infinity).padding(DS.Space.l)
         }
         .overlay {
             if confirmEnd {
@@ -507,21 +552,20 @@ private struct SessionsSection: View {
                     Spacer()
                     Text(timeStr(StudyStats.secondsThisWeek(state.data)) + " this week")
                         .font(.caption).foregroundStyle(.secondary)
-                }.padding(.horizontal, 12).padding(.top, 8)
+                }.padding(.horizontal, DS.Space.l).padding(.top, DS.Space.m)
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: DS.Space.l) {
                         ForEach(grouped, id: \.0) { day, items in
-                            VStack(alignment: .leading, spacing: 5) {
+                            VStack(alignment: .leading, spacing: DS.Space.s) {
                                 HStack {
-                                    Text(dayHeader(day)).font(.caption.bold())
-                                        .foregroundStyle(Calendar.current.isDateInToday(day) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                    SectionHeader(title: dayHeader(day))
                                     Spacer()
                                     Text(timeStr(items.reduce(0) { $0 + $1.seconds })).font(.caption).foregroundStyle(.secondary)
-                                }.padding(.horizontal, 12)
+                                }.padding(.horizontal, DS.Space.l)
                                 ForEach(items) { row($0) }
                             }
                         }
-                    }.padding(.vertical, 10)
+                    }.padding(.vertical, DS.Space.m)
                 }
             }
         }
@@ -529,29 +573,29 @@ private struct SessionsSection: View {
             if renaming != nil {
                 ZStack {
                     Color.black.opacity(0.28).ignoresSafeArea().onTapGesture { renaming = nil }
-                    VStack(spacing: 12) {
+                    VStack(spacing: DS.Space.l) {
                         Text("Rename session").font(.headline)
                         TextField("Label", text: $newLabel).textFieldStyle(.roundedBorder)
                             .frame(width: 220).onSubmit { commitRename() }
-                        HStack(spacing: 10) {
+                        HStack(spacing: DS.Space.m) {
                             Button("Cancel") { renaming = nil }.keyboardShortcut(.cancelAction)
                             Button("Save") { commitRename() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                         }
                     }
                     .padding(20).frame(maxWidth: 280)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(.separator)).shadow(radius: 20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.modal))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal).stroke(.separator)).shadow(radius: 20)
                 }
             }
         }
     }
 
     private func row(_ e: TimeEntry) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.m) {
             Image(systemName: kindIcon(e.kind)).frame(width: 18).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text(e.label.isEmpty ? kindName(e.kind) : e.label).fontWeight(.medium).lineLimit(1)
-                HStack(spacing: 6) {
+                HStack(spacing: DS.Space.s) {
                     CourseChip(course: state.course(e.courseID))
                     if let a = state.data.assignments.first(where: { $0.id == e.assignmentID }) {
                         Text("· \(a.title)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -566,8 +610,8 @@ private struct SessionsSection: View {
                 Button("Delete", role: .destructive) { state.data.timeEntries.removeAll { $0.id == e.id } }
             } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .padding(.horizontal, 10)
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(.horizontal, DS.Space.l)
     }
 
     private func commitRename() {
@@ -576,9 +620,9 @@ private struct SessionsSection: View {
         renaming = nil
     }
     private func dayHeader(_ d: Date) -> String {
-        if Calendar.current.isDateInToday(d) { return "TODAY" }
-        if Calendar.current.isDateInYesterday(d) { return "YESTERDAY" }
-        return d.formatted(.dateTime.weekday(.wide).month().day()).uppercased()
+        if Calendar.current.isDateInToday(d) { return "Today" }
+        if Calendar.current.isDateInYesterday(d) { return "Yesterday" }
+        return d.formatted(.dateTime.weekday(.wide).month().day())
     }
     private func kindIcon(_ k: String) -> String {
         switch k { case "stopwatch": return "stopwatch"; case "focus": return "moon.stars"; default: return "timer" }
