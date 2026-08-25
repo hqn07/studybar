@@ -77,6 +77,8 @@ enum ModuleRegistry {
               category: .research) { AnyView(DictionaryView()) },
         .init(id: "lookup", title: "Lookup", symbol: "magnifyingglass",
               category: .research) { AnyView(LookupView()) },
+        .init(id: "equation", title: "Equation", symbol: "function",
+              category: .research) { AnyView(EquationView()) },
 
         // Study
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
