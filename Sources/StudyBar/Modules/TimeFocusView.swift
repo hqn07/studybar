@@ -468,7 +468,9 @@ private struct FocusSection: View {
     @State private var courseID: UUID? = nil
     @State private var assignmentID: UUID? = nil
     @State private var confirmEnd = false
+    @State private var customLength = false
 
+    private let presets = [25, 50, 90]
     private var p: PomodoroEngine { state.pomodoro }
     private var active: Bool { p.running && p.phase == .focus }
 
@@ -484,8 +486,11 @@ private struct FocusSection: View {
                         Label("End focus", systemImage: "stop.fill")
                     }.buttonStyle(.borderedProminent).controlSize(.large)
                 } else {
-                    Image(systemName: "moon.stars.fill").font(.system(size: 38)).foregroundStyle(.tint).padding(.top, DS.Space.m)
-                    Text("Focus Session").font(.title2.bold())
+                    VStack(spacing: DS.Space.xs) {
+                        Image(systemName: "moon.stars.fill").font(.system(size: 30)).foregroundStyle(.tint)
+                        Text("Focus Session").font(.title3.bold())
+                    }.padding(.top, DS.Space.s)
+
                     TextField("What are you focusing on?", text: $task)
                         .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
                     HStack(spacing: DS.Space.m) {
@@ -493,25 +498,43 @@ private struct FocusSection: View {
                         Divider().frame(height: 14)
                         AssignmentPicker(assignmentID: $assignmentID)
                     }
-                    HStack(spacing: DS.Space.s) {
-                        ForEach([25, 50, 90], id: \.self) { m in
-                            Button { minutes = m } label: { Chip("\(m)m", .filter, selected: minutes == m) }
-                                .buttonStyle(.plain)
+
+                    VStack(spacing: DS.Space.s) {
+                        HStack(spacing: DS.Space.s) {
+                            ForEach(presets, id: \.self) { m in
+                                Button { minutes = m; customLength = false } label: {
+                                    Chip("\(m)m", .filter, selected: !customLength && minutes == m)
+                                }.buttonStyle(.plain)
+                            }
+                            Button { customLength = true } label: {
+                                Chip("Custom", .filter, selected: customLength)
+                            }.buttonStyle(.plain)
                         }
-                        Stepper("\(minutes)m", value: $minutes, in: 5...180, step: 5).fixedSize()
+                        if customLength {
+                            Stepper("\(minutes) min", value: $minutes, in: 5...180, step: 5)
+                                .font(.caption).fixedSize()
+                        }
                     }
-                    Toggle("Hide other apps when I start", isOn: $hideOthers).toggleStyle(.switch).frame(maxWidth: 260)
-                    Toggle("Strict mode (confirm before ending)", isOn: $strict).toggleStyle(.switch).frame(maxWidth: 260)
+
+                    VStack(spacing: 0) {
+                        optionRow("Hide other apps on start", isOn: $hideOthers)
+                        Divider()
+                        optionRow("Strict mode", caption: "Confirm before ending", isOn: $strict)
+                    }.frame(maxWidth: 280).dsCard(padding: 0)
+
                     Button { start() } label: {
                         Label("Start focusing", systemImage: "play.fill").frame(maxWidth: 200)
-                    }.buttonStyle(.borderedProminent).controlSize(.large)
-                    Text("Tip: pair with a macOS Focus (Control Center) to silence notifications, and use the ambient bar below for background noise.")
-                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, DS.Space.xl)
+                    }.buttonStyle(.borderedProminent).controlSize(.large).padding(.top, DS.Space.xs)
+
+                    Text("Tip: pair with a macOS Focus to silence notifications.")
+                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .padding(.horizontal, DS.Space.xl)
                 }
                 Spacer()
             }
             .frame(maxWidth: .infinity).padding(DS.Space.l)
         }
+        .onAppear { customLength = !presets.contains(minutes) }
         .overlay {
             if confirmEnd {
                 ConfirmCard(title: "End focus early?", message: "Strict mode is on — you asked to see this.",
@@ -520,6 +543,18 @@ private struct FocusSection: View {
                             onCancel: { confirmEnd = false })
             }
         }
+    }
+
+    private func optionRow(_ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: DS.Space.m) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout)
+                if let caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden()
+        }
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
     }
 
     private func endPressed() { if strict { confirmEnd = true } else { p.reset() } }
