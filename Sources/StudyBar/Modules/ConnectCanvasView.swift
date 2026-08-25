@@ -194,10 +194,15 @@ struct ConnectCanvasView: View {
         }
         // Subscribe the feed so future launches auto-refresh (dedupe by URL).
         let u = url.trimmingCharacters(in: .whitespaces)
-        if !state.data.icsFeeds.contains(where: { $0.url == u }) {
-            state.data.icsFeeds.append(ICSFeed(name: name.isEmpty ? "Canvas" : name, url: u))
+        let feedID: UUID
+        if let existing = state.data.icsFeeds.first(where: { $0.url == u }) {
+            feedID = existing.id
+        } else {
+            let feed = ICSFeed(name: name.isEmpty ? "Canvas" : name, url: u)
+            state.data.icsFeeds.append(feed)
+            feedID = feed.id
         }
-        result = CanvasFeedImport.apply(resolved, into: state)
+        result = CanvasFeedImport.apply(resolved, into: state, feedID: feedID)
         phase = .done
     }
 }

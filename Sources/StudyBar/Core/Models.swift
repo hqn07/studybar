@@ -103,6 +103,7 @@ struct Assignment: Identifiable, Codable, Hashable {
     var recurring: Bool = false
     var canvasID: Int? = nil        // Canvas assignment id (for sync dedup)
     var sourceUID: String? = nil    // .ics feed UID (Canvas Calendar Feed import dedup; decode-safe)
+    var sourceFeedID: UUID? = nil   // which ICSFeed imported it (per-feed counts + cleanup; decode-safe)
     var submitted: Bool = false     // from Canvas submission state
     var points: Double? = nil       // points possible
     var urgency: Int? = nil         // AI triage: 0 later · 1 this week · 2 now (nil = unranked)
@@ -316,6 +317,8 @@ struct ICSFeed: Identifiable, Codable, Hashable {
     var name: String = ""
     var url: String = ""
     var courseID: UUID? = nil
+    var lastSynced: Date? = nil     // last successful assignment import (decode-safe)
+    var lastImported: Int? = nil    // assignments created+updated on that sync (decode-safe)
 }
 
 // MARK: - Folder bookmark (25 recent files, 32 PDF search)

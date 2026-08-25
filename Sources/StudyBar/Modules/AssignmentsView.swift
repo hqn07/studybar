@@ -104,8 +104,14 @@ struct AssignmentRow: View {
             }.buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(assignment.title.isEmpty ? "Untitled" : assignment.title)
-                    .font(.callout.weight(.medium)).strikethrough(done).lineLimit(1)
+                HStack(spacing: DS.Space.xs) {
+                    Text(assignment.title.isEmpty ? "Untitled" : assignment.title)
+                        .font(.callout.weight(.medium)).strikethrough(done).lineLimit(1)
+                    if assignment.sourceFeedID != nil {
+                        Image(systemName: "link").font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.tint).help("Imported from a Canvas feed")
+                    }
+                }
                 if !subtitle.isEmpty {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }

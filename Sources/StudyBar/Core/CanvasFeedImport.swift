@@ -26,6 +26,7 @@ enum CanvasFeedImport {
         for feed in feeds {
             guard let events = await fetch(feed.url) else { s.failed += 1; continue }
             s.feeds += 1
+            var feedTouched = 0
             for ev in events where isAssignment(ev) {
                 guard let due = ev.start, due.timeIntervalSinceNow > staleCutoff else { continue }
                 let uid = ev.uid.isEmpty ? ev.url : ev.uid
@@ -36,19 +37,30 @@ enum CanvasFeedImport {
 
                 if let i = state.data.assignments.firstIndex(where: { $0.sourceUID == uid }) {
                     // Update in place. Preserve user edits (status/notes/checklist);
-                    // only refresh the fields the feed owns.
+                    // only fill the fields the feed owns (course only when still empty).
                     var a = state.data.assignments[i]
                     var changed = false
                     if a.due != due { a.due = due; changed = true }
                     if a.title != title { a.title = title; changed = true }
                     if a.courseID == nil, let course { a.courseID = course; changed = true }
-                    if changed { state.data.assignments[i] = a; s.updated += 1 }
+                    if a.sourceFeedID == nil { a.sourceFeedID = feed.id; changed = true }
+                    if changed { state.data.assignments[i] = a; s.updated += 1; feedTouched += 1 }
+                } else if let j = fuzzyIndex(title: title, courseID: course, due: due, in: state.data.assignments) {
+                    // Adopt a manually-typed assignment that matches, instead of duplicating.
+                    var a = state.data.assignments[j]
+                    a.sourceUID = uid; a.sourceFeedID = feed.id; a.due = due
+                    if a.courseID == nil, let course { a.courseID = course }
+                    state.data.assignments[j] = a; s.updated += 1; feedTouched += 1
                 } else {
                     var a = Assignment(title: title, courseID: course, due: due)
-                    a.sourceUID = uid
+                    a.sourceUID = uid; a.sourceFeedID = feed.id
                     state.data.assignments.append(a)
-                    s.created += 1
+                    s.created += 1; feedTouched += 1
                 }
+            }
+            if let fi = state.data.icsFeeds.firstIndex(where: { $0.id == feed.id }) {
+                state.data.icsFeeds[fi].lastSynced = Date()
+                state.data.icsFeeds[fi].lastImported = feedTouched
             }
         }
         return s
@@ -77,9 +89,11 @@ enum CanvasFeedImport {
             let uid = ev.uid.isEmpty ? ev.url : ev.uid
             guard !uid.isEmpty else { continue }
             let course = feedCourseID ?? matchCourse(codeTag(ev.title), state.data.courses)
-            out.append(Planned(uid: uid, title: cleanTitle(ev.title), due: due,
-                               courseID: course, code: codeTag(ev.title),
-                               isNew: !state.data.assignments.contains { $0.sourceUID == uid }))
+            let title = cleanTitle(ev.title)
+            let exists = state.data.assignments.contains { $0.sourceUID == uid }
+                || fuzzyIndex(title: title, courseID: course, due: due, in: state.data.assignments) != nil
+            out.append(Planned(uid: uid, title: title, due: due,
+                               courseID: course, code: codeTag(ev.title), isNew: !exists))
         }
         return out.sorted { $0.due < $1.due }
     }
@@ -88,23 +102,50 @@ enum CanvasFeedImport {
     /// course choice even when the assignment already has one (the user picked it).
     @MainActor
     @discardableResult
-    static func apply(_ planned: [Planned], into state: AppState) -> Summary {
+    static func apply(_ planned: [Planned], into state: AppState, feedID: UUID? = nil) -> Summary {
         var s = Summary()
         for p in planned {
             if let i = state.data.assignments.firstIndex(where: { $0.sourceUID == p.uid }) {
                 var a = state.data.assignments[i]; var changed = false
                 if a.due != p.due { a.due = p.due; changed = true }
                 if a.title != p.title { a.title = p.title; changed = true }
-                if let c = p.courseID, a.courseID != c { a.courseID = c; changed = true }
+                if let c = p.courseID, a.courseID != c { a.courseID = c; changed = true }   // explicit user pick wins
+                if let f = feedID, a.sourceFeedID != f { a.sourceFeedID = f; changed = true }
                 if changed { state.data.assignments[i] = a; s.updated += 1 }
+            } else if let j = fuzzyIndex(title: p.title, courseID: p.courseID, due: p.due, in: state.data.assignments) {
+                var a = state.data.assignments[j]
+                a.sourceUID = p.uid; a.sourceFeedID = feedID; a.due = p.due
+                if let c = p.courseID { a.courseID = c }
+                state.data.assignments[j] = a; s.updated += 1
             } else {
                 var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
-                a.sourceUID = p.uid
+                a.sourceUID = p.uid; a.sourceFeedID = feedID
                 state.data.assignments.append(a)
                 s.created += 1
             }
         }
+        if let f = feedID, let fi = state.data.icsFeeds.firstIndex(where: { $0.id == f }) {
+            state.data.icsFeeds[fi].lastSynced = Date()
+            state.data.icsFeeds[fi].lastImported = s.created + s.updated
+        }
         return s
+    }
+
+    /// Find a manually-typed assignment (no sourceUID) that plausibly matches a feed
+    /// item — same normalized title, same course (or the manual one unassigned), due
+    /// the same calendar day — so re-imports adopt it instead of duplicating.
+    static func fuzzyIndex(title: String, courseID: UUID?, due: Date, in assignments: [Assignment]) -> Int? {
+        let key = normalize(title)
+        let cal = Calendar.current
+        return assignments.firstIndex { a in
+            a.sourceUID == nil
+                && normalize(a.title) == key
+                && (a.courseID == courseID || a.courseID == nil)
+                && (a.due.map { cal.isDate($0, inSameDayAs: due) } ?? false)
+        }
+    }
+    private static func normalize(_ s: String) -> String {
+        s.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Pure mapping helpers (unit-testable)

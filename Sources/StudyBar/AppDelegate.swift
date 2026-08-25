@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private var window: NSWindow?
     private var timer: Timer?
+    private var feedTimer: Timer?
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for u in urls { URLRouter.handle(u) }
@@ -68,11 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowOpener.open = { [weak self] _ in self?.showWindow() }
         SpotlightIndexer.reindex(state.data)
         refreshStatus()
-        // Pull assignment due dates from subscribed Canvas/LMS calendar feeds (no API/token).
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let r = await CanvasFeedImport.run(state: self.state)
-            if r.created + r.updated > 0 { self.refreshStatus() }
+        // Pull assignment due dates from subscribed Canvas/LMS calendar feeds (no API/token):
+        // once on launch, then every 30 min while running.
+        refreshFeeds()
+        feedTimer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+            self?.refreshFeeds()
         }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
@@ -123,6 +124,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = m
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    private func refreshFeeds() {
+        Task { [weak self] in
+            guard let self else { return }
+            let r = await CanvasFeedImport.run(state: self.state)
+            if r.created + r.updated > 0 { self.refreshStatus() }
+        }
     }
 
     private func refreshStatus() {

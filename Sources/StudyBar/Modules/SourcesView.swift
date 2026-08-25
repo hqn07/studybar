@@ -98,7 +98,12 @@ struct SourcesView: View {
                             Image(systemName: "dot.radiowaves.up.forward").foregroundStyle(.tint)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(feed.name.isEmpty ? "Feed" : feed.name).fontWeight(.medium)
-                                Text(feed.url).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                if let synced = feed.lastSynced {
+                                    Text("Synced \(synced.relativeShort) · \(feed.lastImported ?? 0) imported")
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                } else {
+                                    Text(feed.url).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
                             }
                             Spacer()
                             CourseChip(course: state.course(feed.courseID))
