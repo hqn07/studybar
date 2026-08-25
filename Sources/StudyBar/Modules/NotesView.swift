@@ -303,6 +303,7 @@ struct NoteEditor: View {
     }
 
     static let palette: [(String, NSColor)] = [
+        ("White", .white), ("Black", .black),
         ("Red", .systemRed), ("Orange", .systemOrange), ("Yellow", .systemYellow),
         ("Green", .systemGreen), ("Teal", .systemTeal), ("Blue", .systemBlue),
         ("Indigo", .systemIndigo), ("Purple", .systemPurple), ("Pink", .systemPink),
