@@ -141,6 +141,9 @@ struct NoteEditor: View {
     @State private var foldPrompt = false
     @State private var foldTitle = ""
     @State private var colorMode: ColorMode?
+    @State private var splitLive = false
+    @State private var liveText = ""
+    @State private var liveTask: Task<Void, Never>?
     private let initialAttributed: NSAttributedString
 
     enum ColorMode { case highlight, foreground }
@@ -179,7 +182,7 @@ struct NoteEditor: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
         .toolbar(.hidden, for: .windowToolbar)
-        .onAppear { editor.onEdit = { scheduleAutosave() } }
+        .onAppear { editor.onEdit = { scheduleAutosave(); refreshLive() } }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
         // flushes on teardown (e.g. switching modules from the sidebar).
         .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
@@ -222,11 +225,17 @@ struct NoteEditor: View {
             Button { save() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
                 .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
+            Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
+                Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
+            }
+            .buttonStyle(.borderless).foregroundStyle(splitLive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .disabled(showPreview)
+            .help("Live math preview — edit above, see it render below")
             Button { if !showPreview { persist() }; showPreview.toggle() } label: {
                 Image(systemName: showPreview ? "eye.fill" : "eye")
             }
             .buttonStyle(.borderless).foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .help("Preview (renders Markdown & LaTeX)")
+            .help("Full preview (renders Markdown & LaTeX)")
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
@@ -306,6 +315,25 @@ struct NoteEditor: View {
                 NotePreview(text: draft.body.isEmpty ? "_Nothing to preview yet._" : draft.body)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
+        } else if splitLive {
+            VStack(spacing: 0) {
+                RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor)
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+                    .frame(maxHeight: .infinity)
+                Divider()
+                VStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        SectionHeader(title: "Live preview", systemImage: "function")
+                        Spacer()
+                    }.padding(.horizontal, 12).padding(.top, 6)
+                    ScrollView {
+                        NotePreview(text: liveText.isEmpty ? "_Type math with `$…$` or `$$…$$`_" : liveText)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    }
+                }
+                .frame(maxHeight: 240)
+                .background(.background.secondary)
+            }
         } else {
             RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor)
                 .padding(.horizontal, 4).padding(.vertical, 2)
@@ -372,6 +400,19 @@ struct NoteEditor: View {
         defineTerm = term
         defineResult = DictionaryService.define(term) ?? "No definition found for “\(term)”."
     }
+
+    /// Refresh the live split preview ~0.35s after the last keystroke (folds → markers
+    /// so NotePreview renders them, and math renders via RichText/KaTeX).
+    private func refreshLive() {
+        guard splitLive else { return }
+        liveTask?.cancel()
+        liveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            liveText = editor.attributedString.expandingFolds().string
+        }
+    }
+    private func refreshLiveNow() { liveText = editor.attributedString.expandingFolds().string }
 
     /// Persist ~0.7s after the last edit (coalesces keystrokes).
     private func scheduleAutosave() {
