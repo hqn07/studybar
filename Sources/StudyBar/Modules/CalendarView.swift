@@ -351,6 +351,8 @@ struct CalendarView: View {
         for feed in state.data.icsFeeds {
             if let evs = await cal.fetchFeed(feed.url) { feedEvents[feed.id] = evs }
         }
+        // Materialize assignment-type feed events into real Assignments (deduped).
+        _ = await CanvasFeedImport.run(state: state)
         loadingFeeds = false
     }
 

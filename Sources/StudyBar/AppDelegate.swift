@@ -68,6 +68,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowOpener.open = { [weak self] _ in self?.showWindow() }
         SpotlightIndexer.reindex(state.data)
         refreshStatus()
+        // Pull assignment due dates from subscribed Canvas/LMS calendar feeds (no API/token).
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let r = await CanvasFeedImport.run(state: self.state)
+            if r.created + r.updated > 0 { self.refreshStatus() }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
         }

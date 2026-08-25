@@ -102,6 +102,7 @@ struct Assignment: Identifiable, Codable, Hashable {
     var checklist: [ChecklistItem] = []
     var recurring: Bool = false
     var canvasID: Int? = nil        // Canvas assignment id (for sync dedup)
+    var sourceUID: String? = nil    // .ics feed UID (Canvas Calendar Feed import dedup; decode-safe)
     var submitted: Bool = false     // from Canvas submission state
     var points: Double? = nil       // points possible
     var urgency: Int? = nil         // AI triage: 0 later · 1 this week · 2 now (nil = unranked)
