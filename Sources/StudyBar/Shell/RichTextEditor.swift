@@ -357,7 +357,13 @@ final class FoldingTextView: NSTextView {
         let idx = lm.characterIndexForGlyph(at: glyph)
         for cand in [idx, idx - 1] where cand >= 0 && cand < ts.length {
             if let math = ts.attribute(.attachment, at: cand, effectiveRange: nil) as? MathAttachment {
-                revealMath(math, at: cand); return   // click rendered math → edit its source
+                if event.clickCount >= 2 {
+                    revealMath(math, at: cand)               // double-click → edit its source
+                } else {
+                    setSelectedRange(NSRange(location: cand, length: 1))  // single click → select it (ready to recolor)
+                    window?.makeFirstResponder(self)
+                }
+                return
             }
             if let fold = ts.attribute(.attachment, at: cand, effectiveRange: nil) as? FoldAttachment {
                 toggle(fold, at: cand)
