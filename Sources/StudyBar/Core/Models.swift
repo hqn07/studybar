@@ -46,7 +46,8 @@ enum GradeScale {
 struct Note: Identifiable, Codable, Hashable {
     var id = UUID()
     var title: String = ""
-    var body: String = ""
+    var body: String = ""           // plaintext mirror (search / AI / Spotlight / preview)
+    var rich: Data? = nil           // (E2) RTFD: bold/italic/color/images — source of truth when present
     var courseID: UUID? = nil
     var assignmentID: UUID? = nil
     var tags: [String] = []

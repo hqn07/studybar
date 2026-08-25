@@ -20,6 +20,83 @@ struct RichText: View {
     }
 }
 
+// MARK: - Note preview with collapsible sections
+
+/// Renders a note's plaintext with `[[fold: Title]] … [[/fold]]` blocks shown as
+/// native expandable sections; everything else goes through `RichText`
+/// (Markdown + LaTeX). Isolated here so MarkdownText/RichText stay untouched.
+struct NotePreview: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(FoldParser.parse(text)) { seg in
+                if seg.isFold {
+                    FoldBlock(title: seg.title, content: seg.content)
+                } else {
+                    RichText(text: seg.content)
+                }
+            }
+        }
+    }
+}
+
+private struct FoldBlock: View {
+    let title: String
+    let content: String
+    @State private var expanded = false
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            RichText(text: content).padding(.leading, 6).padding(.top, 4)
+        } label: {
+            Label(title, systemImage: "chevron.right.circle.fill")
+                .font(.callout.weight(.semibold)).foregroundStyle(.tint)
+        }
+        .padding(8)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+enum FoldParser {
+    struct Segment: Identifiable { let id = UUID(); let isFold: Bool; let title: String; let content: String }
+
+    static func parse(_ text: String) -> [Segment] {
+        var out: [Segment] = []
+        var buffer: [String] = []
+        func flushText() {
+            let joined = buffer.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !joined.isEmpty { out.append(Segment(isFold: false, title: "", content: joined)) }
+            buffer.removeAll()
+        }
+        var i = 0
+        let lines = text.components(separatedBy: "\n")
+        while i < lines.count {
+            let line = lines[i]
+            if let title = foldTitle(line) {
+                flushText()
+                var inner: [String] = []
+                i += 1
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[[/fold]]") {
+                    inner.append(lines[i]); i += 1
+                }
+                out.append(Segment(isFold: true, title: title, content: inner.joined(separator: "\n")))
+                i += 1   // skip the [[/fold]]
+            } else {
+                buffer.append(line); i += 1
+            }
+        }
+        flushText()
+        return out
+    }
+
+    private static func foldTitle(_ line: String) -> String? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("[[fold:"), t.hasSuffix("]]") else { return nil }
+        let inner = t.dropFirst("[[fold:".count).dropLast(2)
+        return inner.trimmingCharacters(in: .whitespaces)
+    }
+}
+
 // MARK: - KaTeX assets (bundled, inlined once)
 
 /// Builds a self-contained `<style>…</style><script>…</script>` prelude from the
