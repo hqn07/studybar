@@ -403,7 +403,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var aboutSections: some View {
         Section("About") {
-            LabeledContent("Version", value: "1.2.0")
+            LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
             Text("Free & open source. A menu bar study companion.")
                 .font(.caption).foregroundStyle(.secondary)
         }

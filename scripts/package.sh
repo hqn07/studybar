@@ -6,13 +6,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
-  Sources/StudyBar/Resources/Info.plist)
 DIST="dist"
 rm -rf "$DIST"; mkdir -p "$DIST"
 
 ./scripts/build.sh release
 APP=$(find .build/Build/Products -name "StudyBar.app" -type d | head -1)
+
+# Single source of truth: MARKETING_VERSION (project.yml) → built app's
+# CFBundleShortVersionString via $(MARKETING_VERSION). Read it from the built
+# app so the .dmg name and cask version always match what shipped.
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+  "$APP/Contents/Info.plist")
 
 # Staging folder with an Applications symlink for drag-install.
 STAGE="$DIST/stage"
