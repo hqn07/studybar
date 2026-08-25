@@ -78,22 +78,22 @@ struct TodoRow: View {
     @EnvironmentObject var state: AppState
     let item: TodoItem
     let onEdit: () -> Void
-    private let colors: [Color] = [.secondary, .blue, .red]
+    private let colors: [Color] = [.secondary, .blue, .dsNow]
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.m) {
             Button { toggle() } label: {
                 Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(item.done ? .green : .secondary)
+                    .foregroundStyle(item.done ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
             }.buttonStyle(.plain)
             Button(action: onEdit) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.text).strikethrough(item.done).foregroundStyle(item.done ? .secondary : .primary)
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.s) {
                         CourseChip(course: state.course(item.courseID))
                         if let due = item.due {
                             Text(dueLabel(due)).font(.caption2)
-                                .foregroundStyle(item.isOverdue ? .red : .secondary)
+                                .foregroundStyle(item.isOverdue ? Color.dsNow : Color.secondary)
                         }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -105,8 +105,8 @@ struct TodoRow: View {
                 Image(systemName: "xmark")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func dueLabel(_ d: Date) -> String {

@@ -186,10 +186,8 @@ struct ReferenceRow: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(rendered).font(.callout).textSelection(.enabled)
-                HStack(spacing: 6) {
-                    Text(reference.type.rawValue).font(.caption2)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(.tint.opacity(0.15), in: Capsule()).foregroundStyle(.tint)
+                HStack(spacing: DS.Space.s) {
+                    Chip(reference.type.rawValue, .tag)
                     CourseChip(course: state.course(reference.courseID))
                 }
             }
@@ -206,8 +204,8 @@ struct ReferenceRow: View {
                 }.buttonStyle(.borderless).foregroundStyle(.secondary)
             }.font(.caption)
         }
-        .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(DS.Space.m)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // Strip markdown emphasis markers for plain display/copy.

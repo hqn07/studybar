@@ -80,7 +80,7 @@ struct ReadingListRow: View {
         HStack(spacing: 8) {
             Button { toggle() } label: {
                 Image(systemName: item.read ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(item.read ? .green : .secondary)
+                    .foregroundStyle(item.read ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
             }.buttonStyle(.plain)
             FaviconView(urlString: item.url, fallbackSymbol: "doc.text", size: 16)
             Button { open() } label: {
@@ -97,7 +97,7 @@ struct ReadingListRow: View {
                 Image(systemName: "xmark")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
-        .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
     private func toggle() {
         guard let i = state.data.readingList.firstIndex(where: { $0.id == item.id }) else { return }

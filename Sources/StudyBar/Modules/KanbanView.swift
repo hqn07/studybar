@@ -45,15 +45,12 @@ struct KanbanView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(a.title.isEmpty ? "Untitled" : a.title).fontWeight(.medium).lineLimit(2)
             if let u = a.urgency, u > 0, a.status != .done {
-                Text(urgencyText(u)).font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(urgencyColor(u).opacity(0.15), in: Capsule())
-                    .foregroundStyle(urgencyColor(u))
+                Chip(u >= 2 ? "Now" : "This week", .status(u >= 2 ? .now : .week))
             }
-            HStack(spacing: 6) {
+            HStack(spacing: DS.Space.s) {
                 CourseChip(course: state.course(a.courseID))
                 if let d = a.due {
-                    Text(d.dayMonth).font(.caption2).foregroundStyle(a.isOverdue ? .red : .secondary)
+                    Text(d.dayMonth).font(.caption2).foregroundStyle(a.isOverdue ? Color.dsNow : Color.secondary)
                 }
             }
             if !a.checklist.isEmpty {
@@ -61,17 +58,13 @@ struct KanbanView: View {
                 Text("\(done)/\(a.checklist.count) subtasks").font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(9).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator, lineWidth: 0.5))
+        .padding(DS.Space.s + 1).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).stroke(.separator, lineWidth: 0.5))
         .contentShape(Rectangle())
         .onTapGesture { editing = a }
         .draggable(a.id.uuidString)
     }
-
-    // Mirrors the urgency pill from the Assignments list (same computed urgency).
-    private func urgencyText(_ level: Int) -> String { level >= 2 ? "NOW" : "THIS WEEK" }
-    private func urgencyColor(_ level: Int) -> Color { level >= 2 ? .red : .orange }
 
     private func addCard(_ status: AssignmentStatus) {
         var a = Assignment(title: "", due: nil)

@@ -98,12 +98,7 @@ struct SnippetsView: View {
         }
     }
     private func chip(_ label: String, active: Bool, _ tap: @escaping () -> Void) -> some View {
-        Button(action: tap) {
-            Text(label).font(.caption.weight(active ? .semibold : .regular))
-                .padding(.horizontal, 10).padding(.vertical, 3)
-                .background(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
-                .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-        }.buttonStyle(.plain)
+        Button(action: tap) { Chip(label, .filter, selected: active) }.buttonStyle(.plain)
     }
 
     // Collapsible category sections (shown for "All", no search).
@@ -116,11 +111,7 @@ struct SnippetsView: View {
                         VStack(spacing: 6) { ForEach(rows) { s in SnippetRow(snippet: s) { editing = s } } }
                             .padding(.top, 4)
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "number").font(.caption2).foregroundStyle(.tint)
-                            Text(c).font(.caption.bold())
-                            Text("\(rows.count)").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        SectionHeader(title: c, count: rows.count, systemImage: "number")
                     }
                 }
             }.padding(10)

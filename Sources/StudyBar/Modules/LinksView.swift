@@ -52,7 +52,7 @@ struct LinksView: View {
                                 VStack(alignment: .leading, spacing: 10) {
                                     ForEach(grouped, id: \.0) { name, items in
                                         HStack {
-                                            Text(name.uppercased()).font(.caption2).foregroundStyle(.secondary)
+                                            SectionHeader(title: name, count: items.count)
                                             Spacer()
                                             if items.count > 1 {
                                                 Button { items.forEach { open($0.url) } } label: { Text("Open all").font(.caption2) }
@@ -104,9 +104,9 @@ struct LinkRow: View {
             Button(action: onEdit) { Image(systemName: "pencil") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 10)
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(.horizontal, DS.Space.m)
     }
     private func open() {
         let s = link.url.contains("://") ? link.url : "https://\(link.url)"
