@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Cloze deletions. Stored internally as `{{word}}`, but the braces are never
 /// shown or typed — the composer blanks words by tapping them.
@@ -164,7 +165,8 @@ struct DeckView: View {
             CoursePicker(courseID: courseBinding)
             Spacer()
             Menu {
-                Button { importing = true } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
+                Button { importing = true } label: { Label("Import from Anki / CSV…", systemImage: "square.and.arrow.down") }
+                Button { exportFile() } label: { Label("Export for Anki…", systemImage: "square.and.arrow.up") }
                 Button { exportCSV() } label: { Label("Copy deck as CSV", systemImage: "doc.on.doc") }
                 Divider()
                 Button { resetProgress() } label: { Label("Reset study progress", systemImage: "arrow.counterclockwise") }
@@ -217,7 +219,7 @@ struct DeckView: View {
         Group {
             if cards.isEmpty {
                 EmptyState(symbol: "plus.rectangle.on.rectangle", title: "No cards",
-                           subtitle: "Add front/back pairs above, or import a CSV from the ⋯ menu.")
+                           subtitle: "Add front/back pairs above, or import an Anki/CSV file from the ⋯ menu.")
             } else {
                 VStack(spacing: 0) {
                     if cards.count > 6 { SearchField(text: $cardFilter).padding(8) }
@@ -296,6 +298,16 @@ struct DeckView: View {
         }.joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(csv, forType: .string)
+    }
+
+    /// Export the deck as an Anki-importable plain-text file (cloze back-converted).
+    private func exportFile() {
+        let text = AnkiText.export(cards.map { AnkiText.Card(front: $0.front, back: $0.back, tags: $0.tags) })
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(deck.name.isEmpty ? "deck" : deck.name).txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
 
@@ -543,43 +555,65 @@ struct CSVImportView: View {
     @Environment(\.dismiss) private var dismiss
     let deckID: UUID
     @State private var text = ""
+    @State private var choosing = false
 
-    private var parsed: [(String, String, [String])] {
-        text.split(separator: "\n").compactMap { line in
-            let raw = String(line)
-            let parts = raw.contains("\t") ? raw.components(separatedBy: "\t")
-                                           : raw.split(separator: ",", maxSplits: 2).map(String.init)
-            guard let front = parts.first?.trimmingCharacters(in: .whitespaces), !front.isEmpty else { return nil }
-            let back = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
-            let tags = parts.count > 2 ? parts[2].split(whereSeparator: { $0 == " " || $0 == ";" }).map(String.init) : []
-            return (front, back, tags)
-        }
+    private var parsed: [AnkiText.Card] { AnkiText.parse(text) }
+    private var existingFronts: Set<String> {
+        Set(state.data.flashcards.filter { $0.deckID == deckID }.map { norm($0.front) })
     }
+    private var newCards: [AnkiText.Card] {
+        var seen = existingFronts
+        return parsed.filter { seen.insert(norm($0.front)).inserted }   // also dedup within the paste
+    }
+    private var dupeCount: Int { parsed.count - newCards.count }
+    private func norm(_ s: String) -> String { s.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         VStack(spacing: 0) {
-            SubHeader("Import Cards")
+            SubHeader("Import Cards") {
+                Button { choosing = true } label: { Label("Choose file…", systemImage: "folder") }
+                    .buttonStyle(.borderless)
+            }
             Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Paste one card per line: front, back  (comma or tab separated; optional third field = tags).")
+            VStack(alignment: .leading, spacing: DS.Space.m) {
+                Text("Paste cards, or choose an Anki export (.txt) / CSV file. Front, back, optional tags — Anki `{{c1::cloze}}` and HTML are handled.")
                     .font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 160).scrollContentBackground(.hidden)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-                Text("\(parsed.count) cards detected").font(.caption).foregroundStyle(.tint)
+                HStack(spacing: DS.Space.s) {
+                    if !parsed.isEmpty {
+                        Chip("\(newCards.count) new", .status(.done))
+                        if dupeCount > 0 { Chip("\(dupeCount) duplicate\(dupeCount == 1 ? "" : "s")", .status(.neutral)) }
+                    } else if !text.isEmpty {
+                        Text("No cards detected").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }.padding(14)
             Divider()
             HStack { Spacer(); Button("Cancel") { dismiss() }
-                Button("Import \(parsed.count)") { doImport() }.buttonStyle(.borderedProminent)
-                    .disabled(parsed.isEmpty) }.padding(12)
+                Button("Import \(newCards.count)") { doImport() }.buttonStyle(.borderedProminent)
+                    .disabled(newCards.isEmpty) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .fileImporter(isPresented: $choosing,
+                      allowedContentTypes: [.plainText, .commaSeparatedText,
+                                            UTType(filenameExtension: "tsv") ?? .plainText,
+                                            UTType(filenameExtension: "txt") ?? .plainText]) { result in
+            if case .success(let url) = result { loadFile(url) }
+        }
+    }
+
+    private func loadFile(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if let s = try? String(contentsOf: url, encoding: .utf8) { text = s }
     }
 
     private func doImport() {
-        for (front, back, tags) in parsed {
-            state.data.flashcards.append(Flashcard(deckID: deckID, front: front, back: back, tags: tags))
+        for c in newCards {
+            state.data.flashcards.append(Flashcard(deckID: deckID, front: c.front, back: c.back, tags: c.tags))
         }
         dismiss()
     }
