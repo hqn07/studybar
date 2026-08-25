@@ -109,17 +109,15 @@ struct NoteRow: View {
                         .fontWeight(.medium).lineLimit(1)
                     Text(note.body.isEmpty ? "No content" : note.body)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    HStack(spacing: 6) {
+                    HStack(spacing: DS.Space.s) {
                         CourseChip(course: state.course(note.courseID))
-                        ForEach(note.tags, id: \.self) { t in
-                            Text("#\(t)").font(.caption2).foregroundStyle(.tint)
-                        }
+                        ForEach(note.tags, id: \.self) { t in Chip(t, .tag) }
                     }
                 }
                 Spacer()
             }
-            .padding(10).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            .padding(DS.Space.m).contentShape(Rectangle())
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 

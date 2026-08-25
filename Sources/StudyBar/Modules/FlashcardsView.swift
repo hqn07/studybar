@@ -74,25 +74,21 @@ struct FlashcardsView: View {
     }
 
     private func deckRow(_ deck: Deck) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.l) {
             Image(systemName: "rectangle.stack").foregroundStyle(.tint).font(.title3)
             VStack(alignment: .leading, spacing: 2) {
                 Text(deck.name.isEmpty ? "Untitled deck" : deck.name).fontWeight(.medium)
-                HStack(spacing: 6) {
+                HStack(spacing: DS.Space.s) {
                     CourseChip(course: state.course(deck.courseID))
                     Text("\(cardCount(deck)) cards").font(.caption2).foregroundStyle(.secondary)
                 }
             }
             Spacer()
             let due = dueCount(deck)
-            if due > 0 {
-                Text("\(due) due").font(.caption2.bold())
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Capsule().fill(.orange)).foregroundStyle(.white)
-            }
+            if due > 0 { Chip("\(due) due", .status(.week)) }
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func addDeck() {
@@ -180,10 +176,10 @@ struct DeckView: View {
 
     private var statsRow: some View {
         HStack(spacing: 0) {
-            statPill("\(due.count)", "due", .orange)
+            statPill("\(due.count)", "due", .dsWeek)
             statPill("\(newCards.count)", "new", .blue)
             statPill("\(cards.count)", "total", .secondary)
-            if let r = retention { statPill("\(r)%", "retention", r >= 80 ? .green : .orange) }
+            if let r = retention { statPill("\(r)%", "retention", r >= 80 ? .dsDone : .dsWeek) }
         }.padding(.vertical, 6)
     }
     private func statPill(_ v: String, _ l: String, _ c: Color) -> some View {
@@ -252,8 +248,8 @@ struct DeckView: View {
                     .font(.caption2).foregroundStyle(card.isDue ? .orange : .secondary)
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
             }
-            .padding(9).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+            .padding(DS.Space.m).contentShape(Rectangle())
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 

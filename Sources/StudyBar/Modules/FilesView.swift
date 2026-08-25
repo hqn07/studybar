@@ -72,11 +72,8 @@ struct FilesView: View {
                             ForEach(groups[g] ?? []) { pinnedRow($0) }
                         }.padding(.top, 4)
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "tag.fill").font(.caption2).foregroundStyle(.tint)
-                            Text(g.isEmpty ? "Ungrouped" : g).font(.caption.bold())
-                            Text("\(groups[g]?.count ?? 0)").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        SectionHeader(title: g.isEmpty ? "Ungrouped" : g,
+                                      count: groups[g]?.count ?? 0, systemImage: "tag.fill")
                     }
                 }
             }
@@ -111,7 +108,7 @@ struct FilesView: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Remove from group")
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 7))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func expansion(_ g: String) -> Binding<Bool> {
@@ -261,7 +258,7 @@ struct FilesView: View {
                                     Text("…\(m.snippet)…").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)
@@ -303,7 +300,7 @@ struct FilesView: View {
             Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right.square") }
                 .buttonStyle(.borderless).font(.caption).help("Open")
         }
-        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     /// Open in Apple Preview for docs/images (resizable, annotatable — nicer than a
