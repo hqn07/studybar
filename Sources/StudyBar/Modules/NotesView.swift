@@ -409,10 +409,10 @@ struct NoteEditor: View {
         liveTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
-            liveText = editor.attributedString.expandingFolds().string
+            liveText = editor.attributedString.expandingMath().expandingFolds().string
         }
     }
-    private func refreshLiveNow() { liveText = editor.attributedString.expandingFolds().string }
+    private func refreshLiveNow() { liveText = editor.attributedString.expandingMath().expandingFolds().string }
 
     /// Persist ~0.7s after the last edit (coalesces keystrokes).
     private func scheduleAutosave() {
@@ -428,7 +428,7 @@ struct NoteEditor: View {
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
     private func persist() {
-        let attr = editor.attributedString.expandingFolds()   // fold chips → [[fold:]] markers
+        let attr = editor.attributedString.expandingMath().expandingFolds()   // math→$…$, folds→[[fold:]]
         if attr.length > 0 || !showPreview {   // capture rich content when the editor is/was live
             draft.rich = attr.rtfdData()
             draft.body = attr.string

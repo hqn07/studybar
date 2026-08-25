@@ -4,6 +4,12 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+packages:
+  # Native LaTeX math typesetter (iosMath port) — renders $…$ to an image
+  # synchronously, for in-place inline math in the Notes editor.
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath.git
+    from: "1.5.0"
 settings:
   base:
     MARKETING_VERSION: "1.1.0"
@@ -17,6 +23,8 @@ targets:
   StudyBar:
     type: application
     platform: macOS
+    dependencies:
+      - package: SwiftMath
     sources:
       - path: Sources/StudyBar
         excludes:

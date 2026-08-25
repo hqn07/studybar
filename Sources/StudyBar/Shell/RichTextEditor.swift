@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import SwiftMath
 
 // MARK: - RTFD (de)serialization helpers
 
@@ -30,6 +31,9 @@ final class RichTextController: ObservableObject {
     /// Latest content, kept fresh on every edit so persistence survives the text
     /// view being torn down (preview toggle, module switch) — avoids data loss.
     var snapshot: NSAttributedString?
+    /// True while the caret is inside a math expression the user clicked to edit,
+    /// so we know to re-render it when they move away.
+    var mathEditing = false
 
     static let baseFont = NSFont.systemFont(ofSize: 13)
 
@@ -274,7 +278,8 @@ struct RichTextEditor: NSViewRepresentable {
         tv.textContainerInset = NSSize(width: 4, height: 8)
         tv.drawsBackground = false
         tv.delegate = context.coordinator
-        let installed = initial.installingFolds()
+        tv.mathController = controller
+        let installed = initial.installingFolds().installingMath()
         if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor]
@@ -295,6 +300,21 @@ struct RichTextEditor: NSViewRepresentable {
             if let tv = notification.object as? NSTextView { controller.snapshot = tv.attributedString() }
             controller.onEdit()
         }
+
+        /// When the caret leaves a math expression it was editing, re-render it in place.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard controller.mathEditing, let tv = notification.object as? NSTextView,
+                  let ts = tv.textStorage else { return }
+            if MathSupport.caretInsideMath(tv.string, tv.selectedRange().location) { return }
+            let caret = tv.selectedRange().location
+            let rebuilt = tv.attributedString().installingMath()
+            if rebuilt.length != ts.length {           // something rendered → apply
+                ts.setAttributedString(rebuilt)
+                tv.setSelectedRange(NSRange(location: min(caret, rebuilt.length), length: 0))
+                tv.didChangeText()
+            }
+            controller.mathEditing = false
+        }
     }
 }
 
@@ -302,6 +322,8 @@ struct RichTextEditor: NSViewRepresentable {
 /// in an editable text view (a click just places the caret), so we intercept
 /// `mouseDown`, hit-test the character, and toggle if it's a fold.
 final class FoldingTextView: NSTextView {
+    weak var mathController: RichTextController?
+
     override func mouseDown(with event: NSEvent) {
         guard let ts = textStorage, let lm = layoutManager, let tc = textContainer else {
             super.mouseDown(with: event); return
@@ -311,6 +333,9 @@ final class FoldingTextView: NSTextView {
         let glyph = lm.glyphIndex(for: NSPoint(x: pt.x - origin.x, y: pt.y - origin.y), in: tc)
         let idx = lm.characterIndexForGlyph(at: glyph)
         for cand in [idx, idx - 1] where cand >= 0 && cand < ts.length {
+            if let math = ts.attribute(.attachment, at: cand, effectiveRange: nil) as? MathAttachment {
+                revealMath(math, at: cand); return   // click rendered math → edit its source
+            }
             if let fold = ts.attribute(.attachment, at: cand, effectiveRange: nil) as? FoldAttachment {
                 toggle(fold, at: cand)
                 return   // consume — don't move the caret
@@ -331,7 +356,7 @@ final class FoldingTextView: NSTextView {
         } else if let mr = RichTextController.memberRange(fold.uuid, from: charIndex + 1, in: ts) {
             var cap = ts.attributedSubstring(from: mr)
             if cap.string.hasPrefix("\n") { cap = cap.attributedSubstring(from: NSRange(location: 1, length: cap.length - 1)) }
-            fold.body = RichTextController.stripped(cap)
+            fold.body = RichTextController.stripped(cap).expandingMath()   // store math as source
             ts.deleteCharacters(in: mr)
             fold.collapsed = true
         }
@@ -340,6 +365,24 @@ final class FoldingTextView: NSTextView {
         layoutManager?.invalidateLayout(forCharacterRange: r, actualCharacterRange: nil)
         layoutManager?.invalidateDisplay(forCharacterRange: r)
         didChangeText()
+    }
+
+    /// Replace a rendered math attachment with its `$…$` source so it can be edited;
+    /// it re-renders when the caret leaves (see textViewDidChangeSelection).
+    private func revealMath(_ math: MathAttachment, at charIndex: Int) {
+        guard let ts = textStorage else { return }
+        let src = math.display ? "$$\(math.latex)$$" : "$\(math.latex)$"
+        let attr = NSAttributedString(string: src, attributes: [
+            .font: RichTextController.baseFont, .foregroundColor: NSColor.labelColor])
+        let range = NSRange(location: charIndex, length: 1)
+        if shouldChangeText(in: range, replacementString: src) {
+            ts.replaceCharacters(in: range, with: attr)
+            didChangeText()
+            // caret just before the closing delimiter, ready to edit
+            setSelectedRange(NSRange(location: charIndex + src.count - (math.display ? 2 : 1), length: 0))
+            mathController?.mathEditing = true
+            window?.makeFirstResponder(self)
+        }
     }
 }
 
@@ -457,5 +500,81 @@ extension NSAttributedString {
             idx += 1
         }
         return nil
+    }
+}
+
+// MARK: - In-place inline math (SwiftMath — native typesetter)
+
+/// A rendered LaTeX expression sitting inline in the editor. Clicking it reveals
+/// its `$…$` source for editing (see FoldingTextView.revealMath); it re-renders
+/// when the caret leaves. Persisted as `$…$` source via expandingMath.
+final class MathAttachment: NSTextAttachment {
+    let latex: String
+    let display: Bool
+    init(latex: String, display: Bool) {
+        self.latex = latex; self.display = display
+        super.init(data: nil, ofType: nil)
+        render()
+    }
+    required init?(coder: NSCoder) { latex = ""; display = false; super.init(coder: coder) }
+
+    private func render() {
+        var mi = MathImage(latex: latex, fontSize: display ? 19 : 15,
+                           textColor: NSColor.labelColor, labelMode: display ? .display : .text)
+        let (_, img, layout) = mi.asImage()
+        guard let img else { return }
+        image = img
+        // Sit the image on the text baseline (descent below the line).
+        bounds = CGRect(x: 0, y: -(layout?.descent ?? 0), width: img.size.width, height: img.size.height)
+    }
+}
+
+enum MathSupport {
+    static let displayRE = try! NSRegularExpression(pattern: #"\$\$(.+?)\$\$"#, options: [.dotMatchesLineSeparators])
+    static let inlineRE  = try! NSRegularExpression(pattern: #"(?<!\\)\$([^$\n]+?)\$"#)
+
+    /// Is the caret strictly inside a `$…$` / `$$…$$` source span (i.e. being edited)?
+    static func caretInsideMath(_ s: String, _ caret: Int) -> Bool {
+        let ns = s as NSString
+        for re in [displayRE, inlineRE] {
+            for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+                if caret > m.range.location && caret < m.range.location + m.range.length { return true }
+            }
+        }
+        return false
+    }
+}
+
+extension NSAttributedString {
+    /// `$…$` / `$$…$$` spans → rendered math attachments, in place.
+    func installingMath() -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: self)
+        func pass(_ re: NSRegularExpression, display: Bool) {
+            let ns = m.string as NSString
+            for match in re.matches(in: m.string, range: NSRange(location: 0, length: ns.length)).reversed() {
+                // Don't re-render a span that already holds an attachment.
+                if m.attributedSubstring(from: match.range).string.contains("\u{FFFC}") { continue }
+                let latex = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                guard !latex.isEmpty else { continue }
+                m.replaceCharacters(in: match.range,
+                                    with: NSAttributedString(attachment: MathAttachment(latex: latex, display: display)))
+            }
+        }
+        pass(MathSupport.displayRE, display: true)
+        pass(MathSupport.inlineRE, display: false)
+        return m
+    }
+
+    /// Math attachments → `$…$` source text (for save / preview / search).
+    func expandingMath() -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        enumerateAttribute(.attachment, in: NSRange(location: 0, length: length)) { val, range, _ in
+            if let ma = val as? MathAttachment {
+                out.append(NSAttributedString(string: ma.display ? "$$\(ma.latex)$$" : "$\(ma.latex)$"))
+            } else {
+                out.append(attributedSubstring(from: range))
+            }
+        }
+        return out
     }
 }
