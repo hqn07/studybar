@@ -11,9 +11,16 @@ import Combine
 struct TimeFocusView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("timeFocusTab") private var tabRaw = TimeTab.timer.rawValue
+    @AppStorage("dailyGoal") private var dailyGoal = 8
     @StateObject private var stopwatch = StopwatchModel()   // hoisted so tab switches don't reset it
+    @State private var showComplete = false
+    @State private var completeDone = 0
 
     private var tab: TimeTab { TimeTab(rawValue: tabRaw) ?? .timer }
+    private var p: PomodoroEngine { state.pomodoro }
+    private var phaseTint: Color {
+        switch p.phase { case .shortBreak, .longBreak: return .dsDone; default: return .accentColor }
+    }
 
     var body: some View {
         ModulePane(title: "Time & Focus") {
@@ -29,6 +36,8 @@ struct TimeFocusView: View {
                 .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
                 Divider()
 
+                liveBanner
+
                 Group {
                     switch tab {
                     case .timer:     PomodoroSection()
@@ -43,6 +52,65 @@ struct TimeFocusView: View {
                 AmbientBar()
             }
         }
+        .onChange(of: p.completedFocus) { old, new in
+            guard new > old else { return }
+            completeDone = StudyStats.pomodorosToday(state.data)
+            withAnimation(.spring(response: 0.4)) { showComplete = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 2_600_000_000)
+                withAnimation { showComplete = false }
+            }
+        }
+        .overlay(alignment: .bottom) { if showComplete { completeToast } }
+    }
+
+    /// Slim running-session strip shown on tabs that don't already display the live timer.
+    @ViewBuilder private var liveBanner: some View {
+        let busy = p.running || p.phase != .idle
+        let showsTimer = tab == .timer || (tab == .focus && p.phase == .focus)
+        if busy && !showsTimer {
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: p.phase == .focus ? "timer" : "cup.and.saucer.fill")
+                    .font(.caption).foregroundStyle(phaseTint).frame(width: 16)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(p.label.isEmpty ? p.phase.rawValue : p.label)
+                        .font(.caption.weight(.medium)).lineLimit(1)
+                    if !p.label.isEmpty {
+                        Text(p.phase.rawValue).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: DS.Space.s)
+                Text(p.mmss).font(.callout.monospacedDigit().weight(.medium))
+                Button { p.toggle() } label: { Image(systemName: p.running ? "pause.fill" : "play.fill") }
+                    .buttonStyle(.borderless).help(p.running ? "Pause" : "Resume")
+                Button { p.reset() } label: { Image(systemName: "stop.fill") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("End")
+            }
+            .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
+            .background(phaseTint.opacity(0.10))
+            .contentShape(Rectangle())
+            .onTapGesture { tabRaw = TimeTab.timer.rawValue }
+            Divider()
+        }
+    }
+
+    private var completeToast: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: "checkmark.seal.fill").font(.title3).foregroundStyle(Color.dsDone)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Focus session complete").font(.callout.weight(.semibold))
+                Text("+1 pomodoro · \(completeDone)/\(dailyGoal) today")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: DS.Space.s)
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(Color.dsDone.opacity(0.35)))
+        .shadow(radius: 12)
+        .padding(DS.Space.l).padding(.bottom, 44)   // clear the ambient bar
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 
