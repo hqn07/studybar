@@ -140,7 +140,10 @@ struct NoteEditor: View {
     @State private var defineResult: String?
     @State private var foldPrompt = false
     @State private var foldTitle = ""
+    @State private var colorMode: ColorMode?
     private let initialAttributed: NSAttributedString
+
+    enum ColorMode { case highlight, foreground }
 
     init(note: Note) {
         _draft = State(initialValue: note)
@@ -163,7 +166,11 @@ struct NoteEditor: View {
                     .background(.background.secondary)
                 Divider()
             }
-            if !showPreview { formatBar; Divider() }
+            if !showPreview {
+                formatBar
+                if let colorMode { Divider(); swatchPanel(colorMode) }
+                Divider()
+            }
             if let defineResult { defineCard(defineResult) }
             editorOrPreview
             Divider()
@@ -189,7 +196,7 @@ struct NoteEditor: View {
             Color.black.opacity(0.28).ignoresSafeArea().onTapGesture { foldPrompt = false }
             VStack(spacing: 12) {
                 Text("Collapse into a section").font(.headline)
-                Text("The selected text folds under a titled, expandable header in Preview.")
+                Text("The selected text collapses into a titled chip — click it to expand or collapse.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 TextField("Section title", text: $foldTitle).textFieldStyle(.roundedBorder).frame(width: 220)
                     .onSubmit { commitFold() }
@@ -246,22 +253,52 @@ struct NoteEditor: View {
                     if editor.hasSelection { foldTitle = ""; foldPrompt = true }
                 }
                 sep
-                Menu {
-                    swatch("Yellow", .systemYellow); swatch("Green", .systemGreen)
-                    swatch("Blue", .systemBlue); swatch("Pink", .systemPink); swatch("Orange", .systemOrange)
-                    Button("No highlight") { editor.setHighlight(nil) }
-                } label: { Image(systemName: "highlighter") }.menuStyle(.borderlessButton).fixedSize()
-                Menu {
-                    textColor("Red", .systemRed); textColor("Orange", .systemOrange)
-                    textColor("Green", .systemGreen); textColor("Blue", .systemBlue); textColor("Purple", .systemPurple)
-                    Button("Default") { editor.setForeground(.labelColor) }
-                } label: { Image(systemName: "paintpalette") }.menuStyle(.borderlessButton).fixedSize()
+                Button { colorMode = (colorMode == .highlight ? nil : .highlight) } label: { Image(systemName: "highlighter") }
+                    .buttonStyle(.borderless).foregroundStyle(colorMode == .highlight ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                Button { colorMode = (colorMode == .foreground ? nil : .foreground) } label: { Image(systemName: "paintpalette") }
+                    .buttonStyle(.borderless).foregroundStyle(colorMode == .foreground ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 sep
                 fmtBtn("photo") { editor.insertImage() }
                 fmtBtn("character.book.closed") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
     }
+
+    /// Inline swatch panel — a real color grid (NSColorPanel would dismiss the popover).
+    private func swatchPanel(_ mode: ColorMode) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Text(mode == .highlight ? "Highlight" : "Text").font(.caption2.bold()).foregroundStyle(.secondary)
+                ForEach(Self.palette, id: \.0) { name, color in
+                    Button {
+                        if mode == .highlight { editor.setHighlight(color.withAlphaComponent(0.35)) }
+                        else { editor.setForeground(color) }
+                        colorMode = nil
+                    } label: {
+                        Circle().fill(Color(nsColor: color)).frame(width: 20, height: 20)
+                            .overlay(Circle().strokeBorder(.separator, lineWidth: 0.5))
+                    }.buttonStyle(.plain).help(name)
+                }
+                Button {
+                    if mode == .highlight { editor.setHighlight(nil) } else { editor.setForeground(.labelColor) }
+                    colorMode = nil
+                } label: {
+                    ZStack {
+                        Circle().fill(Color(nsColor: .textBackgroundColor)).frame(width: 20, height: 20)
+                            .overlay(Circle().strokeBorder(.separator, lineWidth: 0.5))
+                        Image(systemName: "slash.circle").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }.buttonStyle(.plain).help(mode == .highlight ? "No highlight" : "Default color")
+            }.padding(.horizontal, 10).padding(.vertical, 6)
+        }
+    }
+
+    static let palette: [(String, NSColor)] = [
+        ("Red", .systemRed), ("Orange", .systemOrange), ("Yellow", .systemYellow),
+        ("Green", .systemGreen), ("Teal", .systemTeal), ("Blue", .systemBlue),
+        ("Indigo", .systemIndigo), ("Purple", .systemPurple), ("Pink", .systemPink),
+        ("Brown", .systemBrown), ("Gray", .systemGray),
+    ]
 
     @ViewBuilder private var editorOrPreview: some View {
         if showPreview {
@@ -328,12 +365,6 @@ struct NoteEditor: View {
         Button(action: action) { Image(systemName: icon).frame(width: 18) }.buttonStyle(.borderless)
     }
     private var sep: some View { Divider().frame(height: 14) }
-    private func swatch(_ name: String, _ color: NSColor) -> some View {
-        Button { editor.setHighlight(color.withAlphaComponent(0.35)) } label: { Label(name, systemImage: "square.fill") }
-    }
-    private func textColor(_ name: String, _ color: NSColor) -> some View {
-        Button { editor.setForeground(color) } label: { Label(name, systemImage: "a.square.fill") }
-    }
 
     private func define() {
         let term = editor.wordToDefine
@@ -356,7 +387,7 @@ struct NoteEditor: View {
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
     private func persist() {
-        let attr = editor.attributedString
+        let attr = editor.attributedString.expandingFolds()   // fold chips → [[fold:]] markers
         if attr.length > 0 || !showPreview {   // capture rich content when the editor is/was live
             draft.rich = attr.rtfdData()
             draft.body = attr.string

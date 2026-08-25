@@ -1,12 +1,36 @@
 import SwiftUI
 
-/// Anki-style {{cloze}} rendering.
+/// Cloze deletions. Stored internally as `{{word}}`, but the braces are never
+/// shown or typed — the composer blanks words by tapping them.
 enum Cloze {
     static func question(_ s: String) -> String {
         s.replacingOccurrences(of: #"\{\{(.*?)\}\}"#, with: "[ … ]", options: .regularExpression)
     }
     static func answer(_ s: String) -> String {
         s.replacingOccurrences(of: "{{", with: "").replacingOccurrences(of: "}}", with: "")
+    }
+
+    /// Front words for the blank-picker chips (space-separated tokens).
+    static func words(_ plain: String) -> [String] {
+        plain.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    }
+    /// Existing stored front → plain text (no braces) + the set of blanked word indices.
+    static func parse(_ front: String) -> (plain: String, blanks: Set<Int>) {
+        var blanks = Set<Int>(); var plain: [String] = []
+        for (i, w) in front.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
+            var s = String(w); var isBlank = false
+            if s.hasPrefix("{{") { s.removeFirst(2); isBlank = true }
+            if s.hasSuffix("}}") { s.removeLast(2); isBlank = true }
+            if isBlank { blanks.insert(i) }
+            plain.append(s)
+        }
+        return (plain.joined(separator: " "), blanks)
+    }
+    /// Plain text + blanked indices → stored front with `{{ }}` around blanks.
+    static func build(plain: String, blanks: Set<Int>) -> String {
+        plain.split(separator: " ", omittingEmptySubsequences: false).enumerated().map { i, w in
+            (blanks.contains(i) && !w.isEmpty) ? "{{\(w)}}" : String(w)
+        }.joined(separator: " ")
     }
 }
 
@@ -85,8 +109,9 @@ struct DeckView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     let deck: Deck
-    @State private var front = ""
+    @State private var frontPlain = ""
     @State private var back = ""
+    @State private var blanks: Set<Int> = []
     @State private var selectedTags: Set<String> = []
     @State private var composerFlipped = false
     @State private var cardFilter = ""
@@ -173,16 +198,18 @@ struct DeckView: View {
         Array(Set(state.data.flashcards.flatMap { $0.tags })).sorted { $0.localizedCompare($1) == .orderedAscending }
     }
     private var canAdd: Bool {
-        !front.trimmingCharacters(in: .whitespaces).isEmpty
-        && (!back.trimmingCharacters(in: .whitespaces).isEmpty || front.contains("{{"))
+        !frontPlain.trimmingCharacters(in: .whitespaces).isEmpty
+        && (!back.trimmingCharacters(in: .whitespaces).isEmpty || !blanks.isEmpty)
     }
 
     private var addCardForm: some View {
-        VStack(spacing: 8) {
-            FlipCardComposer(front: $front, back: $back, flipped: $composerFlipped)
+        VStack(spacing: 10) {
+            FlipCardComposer(frontPlain: $frontPlain, back: $back, blanks: $blanks, flipped: $composerFlipped)
             TagChips(suggestions: allTags, selected: $selectedTags)
             HStack {
-                Text("Tip: wrap a word in {{ }} for a cloze blank").font(.caption2).foregroundStyle(.tertiary)
+                Text(blanks.isEmpty ? "Write a front and back — or tap a word to make a cloze blank."
+                                    : "Cloze card — the blanked word is the answer.")
+                    .font(.caption2).foregroundStyle(.tertiary)
                 Spacer()
                 Button { addCard() } label: { Label("Add card", systemImage: "plus") }
                     .buttonStyle(.borderedProminent).disabled(!canAdd)
@@ -243,11 +270,12 @@ struct DeckView: View {
     }
 
     private func addCard() {
+        let storedFront = Cloze.build(plain: frontPlain.trimmingCharacters(in: .whitespaces), blanks: blanks)
         state.data.flashcards.append(Flashcard(deckID: deck.id,
-                                               front: front.trimmingCharacters(in: .whitespaces),
+                                               front: storedFront,
                                                back: back.trimmingCharacters(in: .whitespaces),
                                                tags: selectedTags.sorted()))
-        front = ""; back = ""; composerFlipped = false
+        frontPlain = ""; back = ""; blanks = []; composerFlipped = false
         // selectedTags intentionally kept — consecutive cards reuse the same tags.
     }
     private func deleteDeck() {
@@ -275,54 +303,119 @@ struct DeckView: View {
     }
 }
 
+/// A card-flip transition: rotates on the Y axis while entering/leaving, but
+/// settles to identity so the resting editor stays interactive.
+private struct FlipModifier: ViewModifier {
+    let angle: Double
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.3)
+            .opacity(abs(angle) > 55 ? 0 : 1)
+    }
+}
+extension AnyTransition {
+    static var cardFlip: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: FlipModifier(angle: -90), identity: FlipModifier(angle: 0)),
+            removal:   .modifier(active: FlipModifier(angle:  90), identity: FlipModifier(angle: 0)))
+    }
+}
+
 // MARK: - Flip-card composer + reusable tags
 
-/// A card-shaped authoring surface: write the front, tap Flip (or the card) to
-/// write the back, with a 3D flip. Replaces the old plain front/back text fields.
+/// The primary card-authoring surface: an actual flashcard you write on. Write
+/// the front, flip to write the back, and blank words for cloze by tapping them
+/// (no `{{ }}` ever typed or shown).
 struct FlipCardComposer: View {
-    @Binding var front: String
+    @Binding var frontPlain: String
     @Binding var back: String
+    @Binding var blanks: Set<Int>
     @Binding var flipped: Bool
 
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                face(text: $front, side: "FRONT", placeholder: "Question or term")
-                    .opacity(flipped ? 0 : 1)
-                face(text: $back, side: "BACK", placeholder: "Answer")
-                    .rotation3DEffect(.degrees(180), axis: (0, 1, 0))
-                    .opacity(flipped ? 1 : 0)
-            }
-            .frame(height: 118)
-            .rotation3DEffect(.degrees(flipped ? 180 : 0), axis: (0, 1, 0))
-            .animation(.spring(response: 0.45, dampingFraction: 0.82), value: flipped)
+    private var words: [String] { Cloze.words(frontPlain) }
+    private var hasWords: Bool { words.contains { !$0.isEmpty } }
 
-            HStack {
-                Text(flipped ? "Back side" : "Front side").font(.caption2.bold()).foregroundStyle(.secondary)
-                Spacer()
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                // Only the visible face exists in the hierarchy, at identity transform,
+                // so its TextEditor is always clickable. (A persistent rotation3DEffect
+                // breaks hit-testing — you can't type into a rotated editor.) The flip
+                // is a transient transition only.
+                if flipped {
+                    face(text: $back, side: "BACK",
+                         placeholder: blanks.isEmpty ? "Answer" : "Extra notes (optional for cloze)")
+                        .transition(.cardFlip)
+                } else {
+                    face(text: $frontPlain, side: "FRONT", placeholder: "Question or term")
+                        .transition(.cardFlip)
+                }
+            }
+            .frame(height: 150)
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: flipped)
+            .overlay(alignment: .bottomTrailing) {
                 Button { flipped.toggle() } label: {
-                    Label(flipped ? "Front" : "Flip to back", systemImage: "arrow.2.squarepath")
-                        .font(.caption)
-                }.buttonStyle(.bordered).controlSize(.small)
+                    Label(flipped ? "Write front" : "Flip to write back", systemImage: "arrow.2.squarepath")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.tint.opacity(0.4)))
+                }.buttonStyle(.plain).padding(10)
+            }
+
+            if !flipped && hasWords { clozeRow }
+        }
+    }
+
+    // The blank-picker: tap a word to toggle it as a cloze deletion.
+    private var clozeRow: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.dashed").font(.caption2)
+                Text(blanks.isEmpty ? "Tap a word to blank it (cloze)"
+                                    : "Tap to toggle blanks · answer is the blanked word(s)")
+                    .font(.caption2)
+            }.foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(words.enumerated()), id: \.offset) { i, w in
+                        if !w.isEmpty {
+                            Button { toggle(i) } label: {
+                                Text(w).font(.caption)
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(blanks.contains(i) ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
+                                    .foregroundStyle(blanks.contains(i) ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.padding(.bottom, 2)
+            }
+            if !blanks.isEmpty {
+                Text(Cloze.question(Cloze.build(plain: frontPlain, blanks: blanks)))
+                    .font(.caption2.italic()).foregroundStyle(.tint).lineLimit(2)
             }
         }
     }
 
+    private func toggle(_ i: Int) {
+        if blanks.contains(i) { blanks.remove(i) } else { blanks.insert(i) }
+    }
+
     private func face(text: Binding<String>, side: String, placeholder: String) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.tint.opacity(0.35), lineWidth: 1))
-                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(side).font(.system(size: 9, weight: .heavy)).foregroundStyle(.tint).tracking(0.6)
+            RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .textBackgroundColor))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.tint.opacity(0.35), lineWidth: 1))
+                .shadow(color: .black.opacity(0.10), radius: 4, y: 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(side).font(.system(size: 10, weight: .heavy)).foregroundStyle(.tint).tracking(0.8)
                 ZStack(alignment: .topLeading) {
                     if text.wrappedValue.isEmpty {
-                        Text(placeholder).foregroundStyle(.tertiary).font(.callout).padding(.top, 2).padding(.leading, 5)
+                        Text(placeholder).foregroundStyle(.tertiary).font(.title3).padding(.top, 3).padding(.leading, 5)
                     }
-                    TextEditor(text: text).scrollContentBackground(.hidden).font(.callout)
+                    TextEditor(text: text).scrollContentBackground(.hidden).font(.title3)
                 }
             }
-            .padding(10)
+            .padding(14)
         }
     }
 }
@@ -389,9 +482,15 @@ struct CardEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Flashcard
     @State private var selectedTags: Set<String>
+    @State private var frontPlain: String
+    @State private var blanks: Set<Int>
+    @State private var flipped = false
     init(card: Flashcard) {
         _draft = State(initialValue: card)
         _selectedTags = State(initialValue: Set(card.tags))
+        let parsed = Cloze.parse(card.front)
+        _frontPlain = State(initialValue: parsed.plain)
+        _blanks = State(initialValue: parsed.blanks)
     }
     private var allTags: [String] {
         Array(Set(state.data.flashcards.flatMap { $0.tags })).sorted { $0.localizedCompare($1) == .orderedAscending }
@@ -405,26 +504,19 @@ struct CardEditor: View {
                 }
             }
             Divider()
-            VStack(alignment: .leading, spacing: 12) {
-                labeled("Front  (use {{cloze}} to blank a word)") {
-                    TextEditor(text: $draft.front).frame(height: 70).font(.body)
-                        .scrollContentBackground(.hidden)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
-                }
-                labeled("Back") {
-                    TextEditor(text: $draft.back).frame(height: 70).font(.body)
-                        .scrollContentBackground(.hidden)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
-                }
-                labeled("Tags") { TagChips(suggestions: allTags, selected: $selectedTags) }
-                labeled("Deck") {
-                    Picker("", selection: $draft.deckID) {
-                        ForEach(state.data.decks) { Text($0.name.isEmpty ? "Deck" : $0.name).tag($0.id) }
-                    }.labelsHidden()
-                }
-                Text("Due \(draft.due.formatted(date: .abbreviated, time: .omitted)) · \(draft.reviews) reviews · \(draft.lapses) lapses")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }.padding(14)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    FlipCardComposer(frontPlain: $frontPlain, back: $draft.back, blanks: $blanks, flipped: $flipped)
+                    labeled("Tags") { TagChips(suggestions: allTags, selected: $selectedTags) }
+                    labeled("Deck") {
+                        Picker("", selection: $draft.deckID) {
+                            ForEach(state.data.decks) { Text($0.name.isEmpty ? "Deck" : $0.name).tag($0.id) }
+                        }.labelsHidden()
+                    }
+                    Text("Due \(draft.due.formatted(date: .abbreviated, time: .omitted)) · \(draft.reviews) reviews · \(draft.lapses) lapses")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }.padding(14)
+            }
             Divider()
             HStack { Spacer(); Button("Cancel") { dismiss() }
                 Button("Save") { save() }.keyboardShortcut(.defaultAction) }.padding(12)
@@ -438,6 +530,7 @@ struct CardEditor: View {
     }
     private func save() {
         draft.tags = selectedTags.sorted()
+        draft.front = Cloze.build(plain: frontPlain.trimmingCharacters(in: .whitespaces), blanks: blanks)
         if draft.front.trimmingCharacters(in: .whitespaces).isEmpty {
             state.data.flashcards.removeAll { $0.id == draft.id }
         } else if let i = state.data.flashcards.firstIndex(where: { $0.id == draft.id }) {

@@ -16,10 +16,12 @@ struct FilesView: View {
 
     private let fileTypes: [(String, String, Set<String>)] = [
         ("all", "All", []),
-        ("pdf", "PDF", ["pdf"]),
-        ("docs", "Docs", ["docx","doc","pages","txt","md","rtf"]),
-        ("slides", "Slides", ["pptx","ppt","key"]),
-        ("sheets", "Sheets", ["xlsx","xls","numbers","csv"]),
+        ("pdf", "PDF", ["pdf", "epub"]),
+        ("docs", "Docs", ["docx","doc","pages","txt","md","rtf","rtfd","tex","odt"]),
+        ("slides", "Slides", ["pptx","ppt","key","odp"]),
+        ("sheets", "Sheets", ["xlsx","xls","numbers","csv","tsv","ods"]),
+        ("images", "Images", ["png","jpg","jpeg","gif","heic","tiff","tif","bmp","webp","svg"]),
+        ("code", "Code", ["swift","py","js","ts","java","kt","c","cpp","cc","h","hpp","cs","go","rb","rs","php","html","css","json","xml","yml","yaml","sh"]),
     ]
     private var filteredRecent: [FolderAccess.FileItem] {
         guard typeFilter != "all", let set = fileTypes.first(where: { $0.0 == typeFilter })?.2 else { return recent }
@@ -205,6 +207,13 @@ struct FilesView: View {
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    if !state.fileRefs.isEmpty {
+                        Text("GROUPS").font(.caption2.bold()).foregroundStyle(.secondary)
+                    } else if !recent.isEmpty {
+                        Label("Tap the tag icon on a file to group it (e.g. Syllabus).",
+                              systemImage: "tag")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
                     groupsSection
                     if !state.fileRefs.isEmpty && !filteredRecent.isEmpty {
                         Divider().padding(.vertical, 2)
@@ -262,7 +271,8 @@ struct FilesView: View {
     }
 
     private func fileRow(_ url: URL, sub: String) -> some View {
-        HStack(spacing: 8) {
+        let grouped = state.fileRefs.contains { FolderAccess.resolveFile($0)?.path == url.path }
+        return HStack(spacing: 8) {
             Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                 .resizable().frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 1) {
@@ -270,6 +280,22 @@ struct FilesView: View {
                 Text(sub).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
+            Menu {
+                ForEach(existingGroups, id: \.self) { name in
+                    Button { state.fileRefs.append(FolderAccess.fileRef(for: url, group: name)) } label: {
+                        Label(name, systemImage: "tag")
+                    }
+                }
+                if !existingGroups.isEmpty { Divider() }
+                Button { groupPrompt = GroupPrompt(name: "Syllabus", url: url) } label: {
+                    Label("New group…", systemImage: "plus")
+                }
+            } label: {
+                Image(systemName: grouped ? "tag.fill" : "tag")
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .foregroundStyle(grouped ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .font(.caption).help("Add to a group (tag)")
             Button { preview(url) } label: { Image(systemName: "eye") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Open in Preview")
             Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }

@@ -233,7 +233,17 @@ struct OllamaProvider: AIProvider {
         req.timeoutInterval = 120
         var msgs: [[String: String]] = [["role": "system", "content": system]]
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
-        let body: [String: Any] = ["model": model, "messages": msgs, "stream": false]
+        // format:json constrains Ollama's grammar to a single valid JSON object — this
+        // is what makes weak local models reliable (no prose prefixes, no malformed
+        // braces). Low temperature keeps the structured output stable.
+        let body: [String: Any] = [
+            "model": model, "messages": msgs, "stream": false,
+            "format": "json",
+            // num_ctx 8192: the default 4096 truncates StudyBar's full system prompt
+            // (tool catalogs + the student's course context), which makes weak models
+            // lose the format rules and invent tools. 8192 fixed it (3/3 vs 2/3).
+            "options": ["temperature": 0.3, "num_ctx": 8192],
+        ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -377,6 +387,14 @@ enum AIService {
                     text: "DATA (results of your reads — use these to answer; only read again if truly necessary):\n\(results)"))
                 continue
             }
+            // Unparseable envelope → give the model one corrective retry instead of
+            // surfacing a garbled failure.
+            if turn.parseFailed && round < maxRounds - 1 {
+                convo.append(.init(role: .assistant, text: raw))
+                convo.append(.init(role: .user, text:
+                    "Your last message was not valid JSON. Reply with ONLY one JSON object and nothing else — no prose, no code fences: {\"reads\":[],\"reply\":\"...\",\"actions\":[...]}."))
+                continue
+            }
             return present(turn)
         }
         return present(last)
@@ -423,6 +441,17 @@ enum AIService {
         Once you have what you need, set "reads":[]. Reads run instantly and privately;
         every write action is confirmed by the student. Never invent data you didn't read
         or the student didn't give you.
+
+        IMPORTANT:
+        - If the student included the material in their message (e.g. "summarize this note: …",
+          "make flashcards from: …"), act on it DIRECTLY — do NOT use reads. Only read when you
+          genuinely need data they did not provide.
+        - When the student asks you to save / add / make / summarize / rank something, you MUST
+          return at least one action — never reply with empty "actions" and an empty "reply".
+        - "reads" is a list of {"tool","args"} objects using ONLY the read tools above, or []. NEVER
+          put note text, prose, or anything else in "reads".
+        - Use ONLY the exact tool names listed. NEVER invent a tool (no "error", "unknown", etc.).
+          If you truly cannot help with these tools, return "actions":[] and a one-sentence "reply".
 
         READ TOOLS (free, no confirmation — use these to look things up):
         \(AIProtocol.readCatalog)
@@ -474,10 +503,29 @@ enum AIProtocol {
     """
 
     /// Extract the model's JSON object (tolerating prose or ``` fences around it).
+    /// Tool names the app actually understands — anything else the model invents
+    /// (e.g. a bogus "error" tool) is dropped rather than rendered as an action card.
+    static let writeTools: Set<String> = [
+        "add_task", "add_note", "create_assignment", "complete_assignment", "update_assignment",
+        "prioritize_assignments", "plan_study_block", "make_flashcards", "start_pomodoro",
+        "add_reading", "log_reading", "add_citation", "add_link", "add_snippet",
+        "add_class", "add_grade_item", "create_course",
+    ]
+    static let readTools: Set<String> = [
+        "get_note", "list_notes", "list_assignments", "list_todos", "list_reading",
+        "list_decks", "list_citations", "list_classes", "list_links", "get_grades", "search",
+    ]
+
     static func parse(_ raw: String) -> AITurn {
         if let obj = jsonEnvelope(raw) {
             let reply = (obj["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return AITurn(reply: reply, actions: actions(obj["actions"]), reads: actions(obj["reads"]))
+            // Accept read/write tools in either field, then sort them correctly — small
+            // models sometimes misplace a write action into "reads".
+            let inReads = actions(obj["reads"], valid: readTools.union(writeTools))
+            var acts = actions(obj["actions"], valid: writeTools)
+            acts += inReads.filter { writeTools.contains($0.tool) }
+            let reads = inReads.filter { readTools.contains($0.tool) }
+            return AITurn(reply: reply, actions: acts, reads: reads)
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // The model tried to emit the JSON envelope but produced something unparseable
@@ -541,9 +589,9 @@ enum AIProtocol {
                                         options: .regularExpression)
     }
 
-    private static func actions(_ value: Any?) -> [AIAction] {
+    private static func actions(_ value: Any?, valid: Set<String>) -> [AIAction] {
         (value as? [[String: Any]] ?? []).compactMap { a in
-            guard let tool = a["tool"] as? String else { return nil }
+            guard let tool = a["tool"] as? String, valid.contains(tool) else { return nil }
             var args = (a["args"] as? [String: Any]) ?? [:]
             // Some models (esp. small local ones) flatten params to the top level
             // instead of nesting them under "args" — accept that too.

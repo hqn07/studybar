@@ -22,7 +22,8 @@ extension NSAttributedString {
 /// Bridges the SwiftUI formatting toolbar to the underlying NSTextView. The text
 /// view owns the content; `persist` reads `attributedString` back on save. This
 /// one-way flow avoids SwiftUI ↔︎ AppKit binding loops that reset the caret.
-@MainActor
+/// (Not @MainActor: all use is on the main thread, but the AppKit delegate
+/// callbacks that touch it are nonisolated.)
 final class RichTextController: ObservableObject {
     weak var textView: NSTextView?
     var onEdit: () -> Void = {}
@@ -31,6 +32,20 @@ final class RichTextController: ObservableObject {
     var snapshot: NSAttributedString?
 
     static let baseFont = NSFont.systemFont(ofSize: 13)
+
+    /// The contiguous run tagged as a given fold's revealed body, or nil.
+    static func memberRange(_ uuid: String, from: Int, in s: NSAttributedString) -> NSRange? {
+        guard from < s.length,
+              (s.attribute(.foldMember, at: from, effectiveRange: nil) as? String) == uuid else { return nil }
+        var end = from
+        while end < s.length, (s.attribute(.foldMember, at: end, effectiveRange: nil) as? String) == uuid { end += 1 }
+        return NSRange(location: from, length: end - from)
+    }
+    static func stripped(_ a: NSAttributedString) -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: a)
+        m.removeAttribute(.foldMember, range: NSRange(location: 0, length: m.length))
+        return m
+    }
 
     var attributedString: NSAttributedString {
         textView?.attributedString() ?? snapshot ?? NSAttributedString()
@@ -166,20 +181,23 @@ final class RichTextController: ObservableObject {
 
     // MARK: Collapsible section
 
-    /// Wrap the current selection in a titled fold marker. Stored as plain text so
-    /// it round-trips through RTFD/search untouched; the note Preview renders it as
-    /// an expandable section.
+    /// Collapse the current selection into a titled, clickable fold chip. The
+    /// selected rich content is moved into the chip and hidden; clicking the chip
+    /// toggles it. Persisted as `[[fold: …]]` markers (see expandingFolds), so the
+    /// Preview, search and inner formatting all round-trip.
     func wrapFold(title: String) {
         guard let tv = textView, let ts = tv.textStorage else { return }
         let range = tv.selectedRange()
         guard range.length > 0 else { return }
-        let inner = (ts.string as NSString).substring(with: range)
         let t = title.trimmingCharacters(in: .whitespaces).isEmpty ? "Section" : title
-        let wrapped = "[[fold: \(t)]]\n\(inner)\n[[/fold]]\n"
-        if tv.shouldChangeText(in: range, replacementString: wrapped) {
-            ts.replaceCharacters(in: range, with: NSAttributedString(
-                string: wrapped, attributes: [.font: Self.baseFont, .foregroundColor: NSColor.labelColor]))
+        let inner = ts.attributedSubstring(from: range)
+        let chip = NSAttributedString(attachment: FoldAttachment(title: t, body: inner, collapsed: true))
+        let replacement = NSMutableAttributedString(attributedString: chip)
+        replacement.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont]))
+        if tv.shouldChangeText(in: range, replacementString: nil) {
+            ts.replaceCharacters(in: range, with: replacement)
             tv.didChangeText()
+            snapshot = tv.attributedString()
         }
     }
 
@@ -227,8 +245,24 @@ struct RichTextEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(controller) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        guard let tv = scroll.documentView as? NSTextView else { return scroll }
+        // Build an explicit TextKit 1 stack: NSTextAttachmentCell drawing (the fold
+        // chips) is TextKit 1 only, and the FoldingTextView subclass intercepts
+        // clicks to toggle folds (clickedOnCell is unreliable in editable views).
+        let scroll = NSScrollView()
+        let storage = NSTextStorage()
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let big = CGFloat.greatestFiniteMagnitude
+        let container = NSTextContainer(size: NSSize(width: 0, height: big))
+        container.widthTracksTextView = true
+        layout.addTextContainer(container)
+        let tv = FoldingTextView(frame: .zero, textContainer: container)
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.minSize = NSSize(width: 0, height: 0)
+        tv.maxSize = NSSize(width: big, height: big)
+        scroll.documentView = tv
         tv.isRichText = true
         tv.importsGraphics = true
         tv.allowsImageEditing = true
@@ -240,13 +274,14 @@ struct RichTextEditor: NSViewRepresentable {
         tv.textContainerInset = NSSize(width: 4, height: 8)
         tv.drawsBackground = false
         tv.delegate = context.coordinator
-        if initial.length > 0 { tv.textStorage?.setAttributedString(initial) }
+        let installed = initial.installingFolds()
+        if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor]
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         controller.textView = tv
-        controller.snapshot = initial
+        controller.snapshot = installed
         return scroll
     }
 
@@ -255,9 +290,172 @@ struct RichTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         let controller: RichTextController
         init(_ c: RichTextController) { controller = c }
+
         func textDidChange(_ notification: Notification) {
             if let tv = notification.object as? NSTextView { controller.snapshot = tv.attributedString() }
             controller.onEdit()
         }
+    }
+}
+
+/// NSTextView that toggles a fold chip when clicked. `clickedOnCell` is unreliable
+/// in an editable text view (a click just places the caret), so we intercept
+/// `mouseDown`, hit-test the character, and toggle if it's a fold.
+final class FoldingTextView: NSTextView {
+    override func mouseDown(with event: NSEvent) {
+        guard let ts = textStorage, let lm = layoutManager, let tc = textContainer else {
+            super.mouseDown(with: event); return
+        }
+        let pt = convert(event.locationInWindow, from: nil)
+        let origin = textContainerOrigin
+        let glyph = lm.glyphIndex(for: NSPoint(x: pt.x - origin.x, y: pt.y - origin.y), in: tc)
+        let idx = lm.characterIndexForGlyph(at: glyph)
+        for cand in [idx, idx - 1] where cand >= 0 && cand < ts.length {
+            if let fold = ts.attribute(.attachment, at: cand, effectiveRange: nil) as? FoldAttachment {
+                toggle(fold, at: cand)
+                return   // consume — don't move the caret
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    private func toggle(_ fold: FoldAttachment, at charIndex: Int) {
+        guard let ts = textStorage else { return }
+        ts.beginEditing()
+        if fold.collapsed {
+            let member = NSMutableAttributedString(string: "\n")
+            member.append(fold.body)
+            member.addAttribute(.foldMember, value: fold.uuid, range: NSRange(location: 0, length: member.length))
+            ts.insert(member, at: charIndex + 1)
+            fold.collapsed = false
+        } else if let mr = RichTextController.memberRange(fold.uuid, from: charIndex + 1, in: ts) {
+            var cap = ts.attributedSubstring(from: mr)
+            if cap.string.hasPrefix("\n") { cap = cap.attributedSubstring(from: NSRange(location: 1, length: cap.length - 1)) }
+            fold.body = RichTextController.stripped(cap)
+            ts.deleteCharacters(in: mr)
+            fold.collapsed = true
+        }
+        ts.endEditing()
+        let r = NSRange(location: max(0, charIndex - 1), length: 2)
+        layoutManager?.invalidateLayout(forCharacterRange: r, actualCharacterRange: nil)
+        layoutManager?.invalidateDisplay(forCharacterRange: r)
+        didChangeText()
+    }
+}
+
+// MARK: - Collapsible fold chip (clickable NSTextAttachment)
+
+extension NSAttributedString.Key {
+    static let foldMember = NSAttributedString.Key("sbFoldMember")
+}
+
+/// A collapsed section: a clickable chip carrying its (hidden) rich body.
+final class FoldAttachment: NSTextAttachment {
+    let uuid = UUID().uuidString
+    var title: String
+    var body: NSAttributedString
+    var collapsed: Bool
+    init(title: String, body: NSAttributedString, collapsed: Bool) {
+        self.title = title; self.body = body; self.collapsed = collapsed
+        super.init(data: nil, ofType: nil)
+        self.attachmentCell = FoldCell()
+    }
+    required init?(coder: NSCoder) {
+        title = "Section"; body = NSAttributedString(); collapsed = true
+        super.init(coder: coder)
+        self.attachmentCell = FoldCell()
+    }
+}
+
+final class FoldCell: NSTextAttachmentCell {
+    private var fold: FoldAttachment? { attachment as? FoldAttachment }
+    private var label: String { ((fold?.collapsed ?? true) ? "▸ " : "▾ ") + (fold?.title ?? "Section") }
+    private let chipFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+
+    override func cellSize() -> NSSize {
+        NSSize(width: (label as NSString).size(withAttributes: [.font: chipFont]).width + 22, height: 20)
+    }
+    override func cellBaselineOffset() -> NSPoint { NSPoint(x: 0, y: -4) }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        let rect = cellFrame.insetBy(dx: 1, dy: 1)
+        NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        (label as NSString).draw(at: NSPoint(x: rect.minX + 8, y: rect.minY + 2),
+            withAttributes: [.font: chipFont, .foregroundColor: NSColor.controlAccentColor])
+    }
+    override func wantsToTrackMouse() -> Bool { true }
+}
+
+// MARK: - Fold ⇄ marker conversion (persistence)
+
+extension NSAttributedString {
+    private static let foldRegex = try! NSRegularExpression(
+        pattern: #"\[\[fold:\s*(.*?)\]\][ \t]*\n([\s\S]*?)\n[ \t]*\[\[/fold\]\][ \t]*\n?"#)
+
+    /// Marker text → collapsed fold chips (for display in the editor).
+    func installingFolds() -> NSAttributedString {
+        let ns = string as NSString
+        let matches = NSAttributedString.foldRegex.matches(in: string, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return self }
+        let out = NSMutableAttributedString()
+        var cursor = 0
+        for m in matches {
+            if m.range.location > cursor {
+                out.append(attributedSubstring(from: NSRange(location: cursor, length: m.range.location - cursor)))
+            }
+            let title = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            let body = attributedSubstring(from: m.range(at: 2))
+            out.append(NSAttributedString(attachment: FoldAttachment(
+                title: title.isEmpty ? "Section" : title, body: body, collapsed: true)))
+            out.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 13)]))
+            cursor = m.range.location + m.range.length
+        }
+        if cursor < ns.length {
+            out.append(attributedSubstring(from: NSRange(location: cursor, length: ns.length - cursor)))
+        }
+        return out
+    }
+
+    /// Fold chips → `[[fold: …]]` marker text (for saving / search / preview).
+    func expandingFolds() -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        let full = string as NSString
+        var i = 0
+        while i < length {
+            var r = NSRange()
+            let att = attribute(.attachment, at: i, effectiveRange: &r)
+            if let fold = att as? FoldAttachment {
+                var body = fold.body
+                var advance = r.location + r.length
+                if let mr = RichTextController.memberRange(fold.uuid, from: advance, in: self) {
+                    var cap = attributedSubstring(from: mr)
+                    if cap.string.hasPrefix("\n") { cap = cap.attributedSubstring(from: NSRange(location: 1, length: cap.length - 1)) }
+                    body = RichTextController.stripped(cap)
+                    advance = mr.location + mr.length
+                }
+                out.append(NSAttributedString(string: "[[fold: \(fold.title)]]\n"))
+                out.append(body)
+                out.append(NSAttributedString(string: body.string.hasSuffix("\n") ? "[[/fold]]\n" : "\n[[/fold]]\n"))
+                if advance < length, full.substring(with: NSRange(location: advance, length: 1)) == "\n" { advance += 1 }
+                i = advance
+            } else if att != nil {
+                out.append(attributedSubstring(from: NSRange(location: i, length: r.length)))   // image, etc.
+                i += r.length
+            } else {
+                let next = NSAttributedString.nextAttachment(in: self, from: i) ?? length
+                out.append(attributedSubstring(from: NSRange(location: i, length: next - i)))
+                i = next
+            }
+        }
+        return out
+    }
+
+    private static func nextAttachment(in s: NSAttributedString, from: Int) -> Int? {
+        var idx = from
+        while idx < s.length {
+            if s.attribute(.attachment, at: idx, effectiveRange: nil) != nil { return idx }
+            idx += 1
+        }
+        return nil
     }
 }

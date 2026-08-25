@@ -74,6 +74,7 @@ struct Snippet: Identifiable, Codable, Hashable {
     var title: String = ""
     var body: String = ""
     var uses: Int = 0
+    var category: String = ""       // free-text group; "" shown as "General"
 }
 
 // MARK: - Assignments (7,8,9,12,13,14)

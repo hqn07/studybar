@@ -57,9 +57,22 @@ enum FolderAccess {
         let size: Int
     }
 
+    /// Broad set of study-relevant file types the recent list will surface.
+    static let defaultExtensions: Set<String> = [
+        "pdf", "epub",
+        "doc", "docx", "pages", "rtf", "rtfd", "txt", "md", "tex", "odt",
+        "ppt", "pptx", "key", "odp",
+        "xls", "xlsx", "numbers", "csv", "tsv", "ods",
+        "png", "jpg", "jpeg", "gif", "heic", "tiff", "tif", "bmp", "webp", "svg",
+        "swift", "py", "js", "ts", "java", "kt", "c", "cpp", "cc", "h", "hpp",
+        "cs", "go", "rb", "rs", "php", "html", "css", "json", "xml", "yml", "yaml", "sh",
+        "zip",
+    ]
+
     /// (25) Recent files in a folder tree, newest first.
-    static func recentFiles(in ref: FolderRef, limit: Int = 60,
-                            exts: Set<String> = ["pdf","docx","pptx","xlsx","txt","md","key","pages","numbers"]) -> [FileItem] {
+    static func recentFiles(in ref: FolderRef, limit: Int = 80,
+                            exts: Set<String>? = nil) -> [FileItem] {
+        let exts = exts ?? defaultExtensions
         guard let root = resolve(ref) else { return [] }
         let scoped = root.startAccessingSecurityScopedResource()
         defer { if scoped { root.stopAccessingSecurityScopedResource() } }
