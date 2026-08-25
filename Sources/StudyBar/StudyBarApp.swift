@@ -13,6 +13,7 @@ struct StudyBarApp: App {
 }
 
 enum MenuBarContent: String, CaseIterable, Identifiable {
+    case smart = "Smart (recommended)"
     case icon = "Icon only"
     case badge = "Icon + due badge"
     case timer = "Pomodoro countdown"

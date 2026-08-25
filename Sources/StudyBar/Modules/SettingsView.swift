@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
-    @AppStorage("menuBarShow") private var menuBarShow = MenuBarContent.badge.rawValue
+    @AppStorage("menuBarShow") private var menuBarShow = MenuBarContent.smart.rawValue
     @AppStorage("popoverSize") private var popoverSize = PopoverSize.medium.rawValue
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("density") private var density = "comfortable"

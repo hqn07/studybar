@@ -7,6 +7,18 @@ struct MenuBarLabel: View {
 
     var body: some View {
         switch mode {
+        case .smart:
+            if state.pomodoro.running {
+                Label(state.pomodoro.mmss, systemImage: "timer").labelStyle(.titleAndIcon).monospacedDigit()
+            } else if let next = state.nextClassToday, next.minutesUntil <= 60 {
+                Label(next.minutesUntil == 0 ? "now" : mins(next.minutesUntil), systemImage: "clock").labelStyle(.titleAndIcon)
+            } else if state.dueSoonCount > 0 {
+                Label("\(state.dueSoonCount)", systemImage: "graduationcap.fill").labelStyle(.titleAndIcon)
+            } else if let next = state.nextClassToday {
+                Label(mins(next.minutesUntil), systemImage: "clock").labelStyle(.titleAndIcon)
+            } else {
+                Image(systemName: "graduationcap.fill")
+            }
         case .icon:
             Image(systemName: "graduationcap.fill")
         case .badge:
@@ -36,4 +48,6 @@ struct MenuBarLabel: View {
             }
         }
     }
+
+    private func mins(_ m: Int) -> String { m < 60 ? "\(m)m" : "\(m / 60)h\(m % 60)m" }
 }

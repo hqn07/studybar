@@ -134,11 +134,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func minsLabel(_ m: Int) -> String { m < 60 ? "\(m)m" : "\(m / 60)h\(m % 60)m" }
+
     private func refreshStatus() {
         guard let button = statusItem.button else { return }
-        let mode = MenuBarContent(rawValue: UserDefaults.standard.string(forKey: "menuBarShow") ?? "") ?? .badge
+        let mode = MenuBarContent(rawValue: UserDefaults.standard.string(forKey: "menuBarShow") ?? "") ?? .smart
         let cap = NSImage(systemSymbolName: "graduationcap.fill", accessibilityDescription: "StudyBar")
+        func sym(_ n: String) -> NSImage? { NSImage(systemSymbolName: n, accessibilityDescription: nil) }
+        button.toolTip = "StudyBar"
         switch mode {
+        case .smart:
+            if state.pomodoro.running {
+                button.image = sym("timer"); button.title = " \(state.pomodoro.mmss)"
+                button.toolTip = "Focus session — \(state.pomodoro.mmss) left"
+            } else if let next = state.nextClassToday, next.minutesUntil <= 60 {
+                let name = state.course(next.session.courseID)?.name ?? (next.session.title.isEmpty ? "Class" : next.session.title)
+                button.image = sym("clock")
+                button.title = next.minutesUntil == 0 ? " now" : " \(minsLabel(next.minutesUntil))"
+                button.toolTip = next.minutesUntil == 0 ? "\(name) is on now" : "\(name) in \(minsLabel(next.minutesUntil))"
+            } else if state.dueSoonCount > 0 {
+                button.image = cap; button.title = " \(state.dueSoonCount)"
+                button.toolTip = "\(state.dueSoonCount) assignment\(state.dueSoonCount == 1 ? "" : "s") due soon"
+            } else if let next = state.nextClassToday {
+                let name = state.course(next.session.courseID)?.name ?? (next.session.title.isEmpty ? "Class" : next.session.title)
+                button.image = sym("clock"); button.title = " \(minsLabel(next.minutesUntil))"
+                button.toolTip = "\(name) in \(minsLabel(next.minutesUntil))"
+            } else {
+                button.image = cap; button.title = ""
+                button.toolTip = "Nothing due — you're clear"
+            }
         case .icon:
             button.image = cap; button.title = ""
         case .badge:
