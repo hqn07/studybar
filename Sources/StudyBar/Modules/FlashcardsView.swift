@@ -287,6 +287,9 @@ struct DeckView: View {
             state.data.flashcards[i].interval = 0
             state.data.flashcards[i].ease = 2.5
             state.data.flashcards[i].due = .now
+            state.data.flashcards[i].stability = 0
+            state.data.flashcards[i].difficulty = 0
+            state.data.flashcards[i].lastReview = nil
         }
     }
     private func exportCSV() {
@@ -688,7 +691,7 @@ struct StudyView: View {
                             Button { grade(g) } label: {
                                 VStack(spacing: 1) {
                                     Text(g.label).font(.caption.bold())
-                                    Text(SM2.intervalPreview(card, grade: g)).font(.system(size: 9)).opacity(0.8)
+                                    Text(FSRS.intervalPreview(card, grade: g)).font(.system(size: 9)).opacity(0.8)
                                 }.frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered).tint(color(g))
@@ -738,7 +741,7 @@ struct StudyView: View {
     private func grade(_ g: SM2.Grade) {
         guard let card = currentCard,
               let i = state.data.flashcards.firstIndex(where: { $0.id == card.id }) else { return }
-        state.data.flashcards[i] = SM2.apply(card, grade: g)
+        state.data.flashcards[i] = FSRS.apply(card, grade: g)
         queue.removeFirst()
         graded += 1
         if g == .again { agains += 1; queue.append(card.id) } else { done += 1 }

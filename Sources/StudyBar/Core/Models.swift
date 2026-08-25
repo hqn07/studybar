@@ -207,6 +207,10 @@ struct Flashcard: Identifiable, Codable, Hashable {
     // Retention tracking
     var reviews: Int = 0
     var lapses: Int = 0
+    // FSRS-4.5 scheduler state (decode-safe; 0 = not yet scheduled by FSRS)
+    var stability: Double = 0
+    var difficulty: Double = 0
+    var lastReview: Date? = nil
 
     var isDue: Bool { due <= .now }
     /// A card whose front uses Anki-style {{cloze}} syntax.
