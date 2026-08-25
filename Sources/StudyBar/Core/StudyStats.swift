@@ -127,4 +127,23 @@ enum StudyStats {
         let days = Int(ceil(Double(item.pagesLeft) / pace))
         return cal.date(byAdding: .day, value: days, to: .now)
     }
+
+    // MARK: Flashcards
+
+    /// Lifetime retention across all cards: successful reviews / total reviews.
+    /// nil until at least one review is logged.
+    static func flashcardRetention(_ data: AppData) -> Double? {
+        let reviews = data.flashcards.reduce(0) { $0 + $1.reviews }
+        guard reviews > 0 else { return nil }
+        let lapses = data.flashcards.reduce(0) { $0 + $1.lapses }
+        return Double(reviews - lapses) / Double(reviews)
+    }
+    /// Cards whose next review is due now.
+    static func cardsDueToday(_ data: AppData) -> Int {
+        data.flashcards.filter { $0.isDue }.count
+    }
+    /// Cards that have graduated to a long interval (learned).
+    static func matureCards(_ data: AppData) -> Int {
+        data.flashcards.filter { $0.interval >= 21 }.count
+    }
 }
