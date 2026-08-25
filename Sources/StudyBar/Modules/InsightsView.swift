@@ -13,6 +13,7 @@ struct InsightsView: View {
         ModulePane(title: "Insights") { EmptyView() } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
+                    if AIConfig.isReady { weeklyReviewCard }
                     streakCard
                     section("Last 7 days", nil, "chart.bar.fill") { barChart }
                     section("This week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
@@ -25,6 +26,27 @@ struct InsightsView: View {
                 }.padding(DS.Space.l)
             }
         }
+    }
+
+    // MARK: - Weekly review (AI habit hook)
+
+    private var weeklyReviewCard: some View {
+        Button { AppActions.assistant(WeeklyReview.prompt(state.data)) } label: {
+            HStack(spacing: DS.Space.l) {
+                Image(systemName: "sparkles").font(.title3).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Weekly review").font(.callout.weight(.semibold))
+                    Text("Recap your week and get a plan for the next one")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: DS.Space.s)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(DS.Space.l)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25), lineWidth: 0.5))
+        }.buttonStyle(.plain)
     }
 
     // MARK: - Metric tiles (mono-accent — semantic color is state only)
