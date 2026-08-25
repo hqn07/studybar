@@ -54,6 +54,59 @@ enum CanvasFeedImport {
         return s
     }
 
+    // MARK: - Guided flow: dry-run plan + apply (used by ConnectCanvasView)
+
+    /// One candidate assignment from a feed, resolved but not yet written.
+    struct Planned: Identifiable {
+        let id = UUID()
+        var uid: String
+        var title: String
+        var due: Date
+        var courseID: UUID?      // detected (feed course or [CODE] match); user may override
+        var code: String?        // the [CODE] tag Canvas appended, if any (grouping key)
+        var isNew: Bool          // false = already imported (this run would update it)
+    }
+
+    /// Fetch + map a feed WITHOUT writing — for the connect preview. nil = fetch/parse failed.
+    @MainActor
+    static func plan(feedURL: String, feedCourseID: UUID?, state: AppState) async -> [Planned]? {
+        guard let events = await fetch(feedURL) else { return nil }
+        var out: [Planned] = []
+        for ev in events where isAssignment(ev) {
+            guard let due = ev.start, due.timeIntervalSinceNow > staleCutoff else { continue }
+            let uid = ev.uid.isEmpty ? ev.url : ev.uid
+            guard !uid.isEmpty else { continue }
+            let course = feedCourseID ?? matchCourse(codeTag(ev.title), state.data.courses)
+            out.append(Planned(uid: uid, title: cleanTitle(ev.title), due: due,
+                               courseID: course, code: codeTag(ev.title),
+                               isNew: !state.data.assignments.contains { $0.sourceUID == uid }))
+        }
+        return out.sorted { $0.due < $1.due }
+    }
+
+    /// Write a reviewed plan into assignments. Unlike `run`, this honors an explicit
+    /// course choice even when the assignment already has one (the user picked it).
+    @MainActor
+    @discardableResult
+    static func apply(_ planned: [Planned], into state: AppState) -> Summary {
+        var s = Summary()
+        for p in planned {
+            if let i = state.data.assignments.firstIndex(where: { $0.sourceUID == p.uid }) {
+                var a = state.data.assignments[i]; var changed = false
+                if a.due != p.due { a.due = p.due; changed = true }
+                if a.title != p.title { a.title = p.title; changed = true }
+                if let c = p.courseID, a.courseID != c { a.courseID = c; changed = true }
+                if changed { state.data.assignments[i] = a; s.updated += 1 }
+            } else {
+                var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
+                a.sourceUID = p.uid
+                state.data.assignments.append(a)
+                s.created += 1
+            }
+        }
+        return s
+    }
+
     // MARK: - Pure mapping helpers (unit-testable)
 
     /// Canvas assignment VEVENTs carry "assignment" in their URL (`/assignments/<id>`)
@@ -71,15 +124,23 @@ enum CanvasFeedImport {
     }
 
     /// Course for an imported assignment: the feed's own course wins; otherwise
-    /// match the bracketed `[CODE]`/name Canvas appends to the title, against the
-    /// user's courses (case-insensitive, code or name).
+    /// match the bracketed `[CODE]`/name Canvas appends to the title.
     static func courseID(for e: ICSEvent, feed: ICSFeed, courses: [Course]) -> UUID? {
-        if let c = feed.courseID { return c }
-        guard let r = e.title.range(of: #"\[([^\]]+)\]\s*$"#, options: .regularExpression) else { return nil }
-        let tag = e.title[r].trimmingCharacters(in: CharacterSet(charactersIn: "[] ")).lowercased()
-        guard !tag.isEmpty else { return nil }
+        feed.courseID ?? matchCourse(codeTag(e.title), courses)
+    }
+
+    /// The `[CODE]` tag Canvas appends to account-wide feed titles, if present.
+    static func codeTag(_ summary: String) -> String? {
+        guard let r = summary.range(of: #"\[([^\]]+)\]\s*$"#, options: .regularExpression) else { return nil }
+        let tag = summary[r].trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+        return tag.isEmpty ? nil : tag
+    }
+
+    /// Match a Canvas course code/name tag to a Course (case-insensitive, code or name).
+    static func matchCourse(_ tag: String?, _ courses: [Course]) -> UUID? {
+        guard let low = tag?.lowercased(), !low.isEmpty else { return nil }
         return courses.first {
-            $0.code.lowercased() == tag || $0.name.lowercased() == tag || $0.name.lowercased().contains(tag)
+            $0.code.lowercased() == low || $0.name.lowercased() == low || $0.name.lowercased().contains(low)
         }?.id
     }
 

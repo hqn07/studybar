@@ -83,7 +83,11 @@ struct SourcesView: View {
                     .buttonStyle(.borderless).help("Import .ics file")
                 Button { editingFeed = ICSFeed() } label: { Image(systemName: "plus") }.buttonStyle(.borderless)
             }
-            Text("Canvas: Calendar ▸ Calendar Feed ▸ copy the URL.")
+            NavigationLink { ConnectCanvasView() } label: {
+                Label("Connect Canvas (no API needed)", systemImage: "link.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }.buttonStyle(.bordered).controlSize(.large)
+            Text("Guided setup imports your assignment due dates. Or add a raw feed with ＋.")
                 .font(.caption2).foregroundStyle(.secondary)
             if state.data.icsFeeds.isEmpty {
                 Text("No feeds yet.").font(.caption).foregroundStyle(.secondary)
