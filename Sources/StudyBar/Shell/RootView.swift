@@ -1,9 +1,23 @@
 import SwiftUI
 
 /// Lets non-SwiftUI code (global hotkey) open the main window.
-enum WindowOpener { @MainActor static var open: ((String) -> Void)? }
+enum WindowOpener {
+    @MainActor static var open: ((String) -> Void)?
+    /// Popover → window hand-off: called when a module is selected inside the
+    /// compact menu-bar popover, so deep views render in the roomy window instead
+    /// of the ~380 pt popover. AppDelegate wires this and no-ops when the popover
+    /// isn't the active surface.
+    @MainActor static var routeToWindow: ((String) -> Void)?
+}
+
+/// StudyBar renders on two surfaces with different jobs (see docs/PHILOSOPHY.md):
+/// the menu-bar **popover** is glance + capture; the **window** is the workspace.
+enum RootSurface { case popover, window }
 
 struct RootView: View {
+    /// Which surface this instance is hosted on. Defaults to `.window` so any
+    /// incidental construction gets the full experience.
+    var surface: RootSurface = .window
     @EnvironmentObject var state: AppState
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
@@ -20,22 +34,14 @@ struct RootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            if state.globalSearch.isEmpty {
-                GeometryReader { geo in
-                    let forced = geo.size.width < 440          // Compact popover → auto-rail
-                    let railed = forced || sidebarCollapsed
-                    HStack(spacing: 0) {
-                        SidebarView(prefs: state.modulePrefs, collapsed: railed)
-                            .frame(width: railed ? 48 : 176)
-                        Divider()
-                        content
-                    }
-                    .animation(.snappy(duration: 0.28), value: railed)
-                }
+            if surface == .popover {
+                popoverBar
+                Divider()
+                popoverBody
             } else {
-                UnifiedSearchView(query: state.globalSearch)
+                header
+                Divider()
+                windowBody
             }
         }
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
@@ -82,6 +88,12 @@ struct RootView: View {
         .onChange(of: state.paletteRequested) { _, v in
             if v { showPalette = true; state.paletteRequested = false }
         }
+        // In the popover, selecting a module (from Today, the launcher, search or ⌘K)
+        // hands off to the window so deep views get real room. The window instance
+        // ignores this; AppDelegate also no-ops it unless the popover is showing.
+        .onChange(of: state.selectedModuleID) { _, id in
+            if surface == .popover { WindowOpener.routeToWindow?(id) }
+        }
     }
 
     // MARK: Header
@@ -95,13 +107,8 @@ struct RootView: View {
             .help(sidebarCollapsed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
             Spacer(minLength: 8)
             SearchField(text: $state.globalSearch).frame(maxWidth: 180)
-            Button { WindowOpener.open?("main") } label: {
-                Image(systemName: "macwindow")
-            }.help("Open in resizable window (⌘O)").buttonStyle(.borderless).controlSize(.small)
-                .keyboardShortcut("o", modifiers: .command)
             Menu {
                 Button("Settings") { state.selectedModuleID = "settings"; state.globalSearch = "" }
-                Button("Open in Window") { WindowOpener.open?("main") }.keyboardShortcut("o")
                 Divider()
                 Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
@@ -126,6 +133,86 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Window body (sidebar + content)
+
+    @ViewBuilder private var windowBody: some View {
+        if state.globalSearch.isEmpty {
+            GeometryReader { geo in
+                let forced = geo.size.width < 440          // narrow window → auto-rail
+                let railed = forced || sidebarCollapsed
+                HStack(spacing: 0) {
+                    SidebarView(prefs: state.modulePrefs, collapsed: railed)
+                        .frame(width: railed ? 48 : 176)
+                    Divider()
+                    content
+                }
+                .animation(.snappy(duration: 0.28), value: railed)
+            }
+        } else {
+            UnifiedSearchView(query: state.globalSearch)
+        }
+    }
+
+    // MARK: Popover body — the calm quick surface (glance / search)
+
+    @ViewBuilder private var popoverBody: some View {
+        if state.globalSearch.isEmpty {
+            TodayView()
+        } else {
+            UnifiedSearchView(query: state.globalSearch)
+        }
+    }
+
+    /// Open a module — from the popover this hands off to the window.
+    private func launch(_ id: String) {
+        state.globalSearch = ""
+        state.selectedModuleID = id
+        WindowOpener.routeToWindow?(id)
+    }
+
+    // MARK: Popover top bar — search · module launcher · menu
+
+    private var popoverBar: some View {
+        HStack(spacing: 8) {
+            SearchField(text: $state.globalSearch).frame(maxWidth: .infinity)
+            Menu {
+                let favs = state.modulePrefs.favorites
+                    .compactMap { ModuleRegistry.info($0) }
+                    .filter { state.modulePrefs.isVisible($0.id) }
+                if !favs.isEmpty {
+                    Section("Favorites") {
+                        ForEach(favs) { m in
+                            Button { launch(m.id) } label: { Label(m.title, systemImage: m.symbol) }
+                        }
+                    }
+                }
+                Section("All Modules") {
+                    ForEach(ModuleRegistry.all.filter { state.modulePrefs.isVisible($0.id) && $0.id != "settings" }) { m in
+                        Button { launch(m.id) } label: { Label(m.title, systemImage: m.symbol) }
+                    }
+                }
+            } label: {
+                Image(systemName: "square.grid.2x2")
+            }
+            .menuStyle(.borderlessButton).controlSize(.small).fixedSize()
+            .help("Open a module in the window")
+
+            Menu {
+                Button("Settings") { launch("settings") }
+                Button("Open Window") { WindowOpener.open?("main") }.keyboardShortcut("o")
+                Divider()
+                Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton).controlSize(.small).fixedSize().help("Menu")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background {
+            Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
+        }
     }
 }
 

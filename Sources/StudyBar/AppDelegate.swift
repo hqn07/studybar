@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         popover.behavior = .transient
         popover.animates = true
-        popover.contentViewController = NSHostingController(rootView: RootView().environmentObject(state))
+        popover.contentViewController = NSHostingController(rootView: RootView(surface: .popover).environmentObject(state))
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -72,6 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         WindowOpener.open = { [weak self] _ in self?.showWindow() }
+        // Popover → window hand-off: only acts while the popover is the active surface,
+        // so selecting a module inside the popover opens it in the roomy window and
+        // dismisses the popover; navigation inside the window is left untouched.
+        WindowOpener.routeToWindow = { [weak self] id in
+            guard let self, self.popover.isShown else { return }
+            self.state.selectedModuleID = id
+            self.popover.performClose(nil)
+            self.showWindow()
+        }
         installMainMenu()
         SpotlightIndexer.reindex(state.data)
         refreshStatus()
@@ -236,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.center()
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("StudyBarMain")
-            w.contentViewController = NSHostingController(rootView: RootView().environmentObject(state))
+            w.contentViewController = NSHostingController(rootView: RootView(surface: .window).environmentObject(state))
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
