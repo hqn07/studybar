@@ -45,6 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Headless self-test hook: `StudyBar --merge-selftest` runs the 3-way merge
+        // suite and exits, without touching the menu bar or the user's data file.
+        if CommandLine.arguments.contains("--merge-selftest") {
+            exit(MergeSelfTest.run())
+        }
         // Test/dev hook: SB_DOCK=1 promotes StudyBar to a regular Dock app so UI-automation
         // tools (which can't target an LSUIElement accessory app) can drive the window.
         // No effect on normal launches — 1.0 stays a pure menu-bar app.

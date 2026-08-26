@@ -66,6 +66,9 @@ final class AppState: ObservableObject {
     /// Modification date of the data file as we last read or wrote it — used to
     /// detect external changes (another device/instance) before overwriting.
     private var loadedMtime: Date?
+    /// Snapshot of `data` at the last point it matched disk (load / reload / commit) —
+    /// the common ancestor for a 3-way merge when disk changed under us.
+    private var baseData: AppData
     /// Set while adopting on-disk data so the reload doesn't re-trigger a save.
     private var suppressSave = false
 
@@ -98,12 +101,15 @@ final class AppState: ObservableObject {
         let useCloud = UserDefaults.standard.bool(forKey: "iCloudSync")
         fileURL = AppState.dataURL(iCloud: useCloud)
 
+        let initial: AppData
         if let raw = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) {
-            data = decoded
+            initial = decoded
         } else {
-            data = AppData.seed()
+            initial = AppData.seed()
         }
+        data = initial
+        baseData = initial
         loadedMtime = AppState.mtime(fileURL)
         pomodoro.onComplete = { [weak self] seconds, label, courseID, assignmentID in
             self?.logPomodoro(seconds: seconds, label: label, courseID: courseID, assignmentID: assignmentID)
@@ -150,37 +156,62 @@ final class AppState: ObservableObject {
 
     func saveNow() { commitSave() }
 
-    /// Write the current data, but never silently destroy a newer file: if the file
-    /// on disk changed since we last read/wrote it (external edit), copy it to a
-    /// timestamped conflict file first, so nothing is lost.
+    /// Write the current data, but never silently destroy a newer file. If the file on
+    /// disk changed since we last read/wrote it (another device via iCloud, or another
+    /// instance), 3-way merge our in-memory copy against it — so edits from *both* sides
+    /// survive — then write the union. The raw newer disk file is also copied to a
+    /// timestamped `.conflict-*` backup first, belt-and-suspenders.
     private func commitSave() {
-        backupIfExternallyChanged()
+        if let merged = mergeAgainstDiskIfChanged() {
+            suppressSave = true
+            data = merged
+            suppressSave = false
+        }
         guard let raw = try? JSONEncoder.studybar.encode(data) else { return }
         do {
             try raw.write(to: fileURL, options: .atomic)
             loadedMtime = AppState.mtime(fileURL)
-        } catch { /* leave loadedMtime so a later save retries the backup check */ }
+            baseData = data
+        } catch { /* leave loadedMtime/baseData so a later save retries the merge check */ }
     }
 
-    private func backupIfExternallyChanged() {
+    /// If the on-disk file is newer than our last sync point, back it up and return the
+    /// 3-way merge of (ancestor `baseData`, our `data`, the newer disk copy). Returns nil
+    /// when there is no external change, or the disk file can't be decoded (in which case
+    /// the raw file has still been backed up, so overwriting it loses nothing).
+    private func mergeAgainstDiskIfChanged() -> AppData? {
         guard let disk = AppState.mtime(fileURL), let loaded = loadedMtime,
-              disk.timeIntervalSince(loaded) > 1 else { return }   // >1s allows for fs granularity
+              disk.timeIntervalSince(loaded) > 1 else { return nil }   // >1s allows for fs granularity
+        backupDiskFile()
+        guard let raw = try? Data(contentsOf: fileURL),
+              let theirs = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else { return nil }
+        return AppData.merged(base: baseData, mine: data, theirs: theirs)
+    }
+
+    /// Copy the current on-disk file to a timestamped `.conflict-*` sibling.
+    private func backupDiskFile() {
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
         let dst = fileURL.deletingLastPathComponent()
             .appendingPathComponent("data.json.conflict-\(f.string(from: Date()))")
         try? FileManager.default.copyItem(at: fileURL, to: dst)
     }
 
-    /// Adopt the on-disk file if it changed under us (without re-triggering a save).
+    /// The on-disk file changed under us (another device/instance): merge it into our
+    /// live state instead of adopting it wholesale, so unsaved local edits survive too.
     func reloadIfChanged() {
         guard let disk = AppState.mtime(fileURL) else { return }
         if let loaded = loadedMtime, disk.timeIntervalSince(loaded) <= 1 { return }
         guard let raw = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else { return }
+              let theirs = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else { return }
+        let merged = AppData.merged(base: baseData, mine: data, theirs: theirs)
         suppressSave = true
-        data = decoded
+        data = merged
         suppressSave = false
         loadedMtime = disk
+        baseData = merged
+        // If the merge added anything the disk file lacks (unsaved local edits), persist
+        // the union so the other device converges on it too.
+        if merged != theirs { scheduleSave() }
     }
 
     var dataFileURL: URL { fileURL }
@@ -198,6 +229,7 @@ final class AppState: ObservableObject {
         if target != fileURL { try? FileManager.default.removeItem(at: fileURL) }
         fileURL = target
         loadedMtime = AppState.mtime(fileURL)
+        baseData = data
     }
     var iCloudAvailable: Bool { AppState.iCloudDir != nil }
 

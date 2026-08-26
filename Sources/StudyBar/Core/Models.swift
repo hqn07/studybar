@@ -368,7 +368,7 @@ struct GradeItem: Identifiable, Codable, Hashable {
 
 // MARK: - Root persisted document
 
-struct AppData: Codable {
+struct AppData: Codable, Equatable {
     var courses: [Course] = []
     var notes: [Note] = []
     var scratchpad: String = ""
