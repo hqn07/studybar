@@ -17,6 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for u in urls { URLRouter.handle(u) }
     }
 
+    /// Clicking the app (Finder / Launchpad / Dock) while it's already running — which a
+    /// menu-bar app always is — sends a reopen event. Without this, nothing happened and
+    /// the window was only reachable from the menu bar. Open the window on reopen.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showWindow() }
+        return true
+    }
+
     /// Custom URL schemes (studybar://) are delivered as a `kAEGetURL` Apple Event, not
     /// through `application(_:open:)` — register a handler so links work whether the app
     /// is already running or cold-launched.
