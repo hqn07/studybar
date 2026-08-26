@@ -61,7 +61,7 @@ struct QuickCaptureView: View {
                 Spacer()
                 Text(mode == .note ? "⌃⌥N" : "⌃⌥T").font(.caption2.monospaced()).foregroundStyle(.secondary)
             }
-            TextField(mode == .note ? "Jot something down…" : "What needs doing?", text: $text)
+            TextField(mode == .note ? "Jot something down…" : "e.g. essay due friday for chem", text: $text)
                 .textFieldStyle(.plain).font(.title3).focused($focused)
                 .onSubmit { save() }
             Divider()
@@ -83,7 +83,14 @@ struct QuickCaptureView: View {
         if mode == .note {
             state.data.notes.append(Note(title: String(t.prefix(60)), body: t, courseID: courseID))
         } else {
-            state.data.todos.append(TodoItem(text: t, courseID: courseID))
+            // Natural-language parse: "essay fri for chem" → assignment; else a todo.
+            let p = QuickParse.parse(t, courses: state.data.courses)
+            let course = courseID ?? p.courseID   // an explicit picker choice wins
+            if p.isAssignment {
+                state.data.assignments.append(Assignment(title: p.title, courseID: course, due: p.due))
+            } else {
+                state.data.todos.append(TodoItem(text: p.title, priority: p.priority, courseID: course, due: p.due))
+            }
         }
         onClose()
     }
