@@ -40,6 +40,25 @@ enum BackupManager {
         } catch { return false }
     }
 
+    /// Backups in the chosen folder, newest first.
+    static func listBackups() -> [(url: URL, date: Date)] {
+        guard let dir = resolveFolder() else { return [] }
+        let scoped = dir.startAccessingSecurityScopedResource()
+        defer { if scoped { dir.stopAccessingSecurityScopedResource() } }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])
+            .filter({ $0.lastPathComponent.hasPrefix("studybar-backup-") }) else { return [] }
+        return files.map { ($0, mod($0) ?? .distantPast) }.sorted { $0.date > $1.date }
+    }
+
+    /// Decode a backup file into AppData (nil on read/parse failure).
+    static func load(_ url: URL) -> AppData? {
+        let dir = resolveFolder()
+        let scoped = dir?.startAccessingSecurityScopedResource() ?? false
+        defer { if scoped { dir?.stopAccessingSecurityScopedResource() } }
+        guard let raw = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder.studybar.decode(AppData.self, from: raw)
+    }
+
     static func maybeAuto(_ data: AppData) {
         guard auto, hasFolder else { return }
         if let l = last, Date().timeIntervalSince(l) < 20 * 3600 { return }

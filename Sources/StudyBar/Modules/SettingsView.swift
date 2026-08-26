@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var autoBackup = BackupManager.auto
     @State private var backupStatus = ""
     @State private var confirmClear = false
+    @State private var pendingRestore: URL? = nil
     @State private var hotkeyTick = 0
     @State private var remindersStatus = ""
     @State private var canvasHost = ""
@@ -61,10 +62,22 @@ struct SettingsView: View {
         .overlay {
             if confirmClear {
                 ConfirmCard(title: "Erase all data?",
-                            message: "This deletes every course, note, assignment, deck and setting on this Mac. Export a backup first if unsure.",
+                            message: "This deletes every course, note, assignment, deck and setting on this Mac. You can undo right after with ⌘Z.",
                             confirmLabel: "Erase everything",
-                            onConfirm: { state.data = AppData(); confirmClear = false },
+                            onConfirm: { state.withUndo("Erased all data") { state.data = AppData() }; confirmClear = false },
                             onCancel: { confirmClear = false })
+            }
+        }
+        .overlay {
+            if let url = pendingRestore {
+                ConfirmCard(title: "Restore this backup?",
+                            message: "Replaces your current data with the backup from \(url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "studybar-backup-", with: "")). Undoable with ⌘Z.",
+                            confirmLabel: "Restore", destructive: false,
+                            onConfirm: {
+                                if let d = BackupManager.load(url) { state.withUndo("Restored backup") { state.data = d } }
+                                pendingRestore = nil
+                            },
+                            onCancel: { pendingRestore = nil })
             }
         }
     }
@@ -226,6 +239,16 @@ struct SettingsView: View {
                     if !BackupManager.hasFolder { _ = BackupManager.chooseFolder() }
                     backupStatus = BackupManager.backupNow(state.data) ? "Backed up ✓" : "Backup failed"
                 }
+                let backups = BackupManager.listBackups()
+                Menu("Restore…") {
+                    if backups.isEmpty {
+                        Text("No backups found")
+                    } else {
+                        ForEach(backups, id: \.url) { b in
+                            Button(b.date.formatted(date: .abbreviated, time: .shortened)) { pendingRestore = b.url }
+                        }
+                    }
+                }.disabled(backups.isEmpty)
             }
             Text(backupInfo).font(.caption).foregroundStyle(backupStatus.contains("✓") ? .green : .secondary)
         }
