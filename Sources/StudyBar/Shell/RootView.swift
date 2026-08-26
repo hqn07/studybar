@@ -32,7 +32,7 @@ struct RootView: View {
                         Divider()
                         content
                     }
-                    .animation(.spring(response: 0.3), value: railed)
+                    .animation(.snappy(duration: 0.28), value: railed)
                 }
             } else {
                 UnifiedSearchView(query: state.globalSearch)
@@ -69,7 +69,7 @@ struct RootView: View {
             }
         }
         .background {
-            Button("") { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } }
+            Button("") { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } }
                 .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
         .onAppear {
@@ -88,7 +88,7 @@ struct RootView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Button { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } } label: {
+            Button { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } } label: {
                 Image(systemName: "sidebar.leading").font(.system(size: 14))
             }
             .buttonStyle(.borderless).controlSize(.small)
@@ -135,86 +135,69 @@ struct SidebarView: View {
     @ObservedObject var prefs: ModulePrefs
     var collapsed: Bool = false
 
-    private var selection: Binding<String?> {
-        Binding(get: { state.selectedModuleID }, set: { if let v = $0 { state.selectedModuleID = v } })
-    }
-
+    // One custom row list for both modes so collapsing only fades the labels
+    // (no List relayout, no view-type swap) — the width animates smoothly.
     var body: some View {
-        if collapsed { rail } else { fullList }
-    }
-
-    // MARK: Icon-only rail
-
-    private var rail: some View {
         ScrollView {
-            VStack(spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 let favs = prefs.favorites.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
-                if !favs.isEmpty { ForEach(favs) { railButton($0) }; railDivider }
+                group("Favorites", favs, isFirst: true)
                 if prefs.order == .category {
                     ForEach(prefs.orderedCategories(), id: \.self) { cat in
-                        let visible = ModuleRegistry.all.filter { $0.category == cat && prefs.isVisible($0.id) }
-                        if !visible.isEmpty { ForEach(visible) { railButton($0) }; railDivider }
+                        group(cat.rawValue, ModuleRegistry.all.filter { $0.category == cat && prefs.isVisible($0.id) },
+                              isFirst: favs.isEmpty && cat == prefs.orderedCategories().first)
                     }
                 } else {
                     let flat = prefs.orderedIDs().compactMap { ModuleRegistry.info($0) }
                         .filter { prefs.isVisible($0.id) && !prefs.isFavorite($0.id) }
-                    ForEach(flat) { railButton($0) }
+                    group(prefs.order == .mostUsed ? "Most Used" : "Modules", flat, isFirst: favs.isEmpty)
                 }
-            }.padding(.vertical, DS.Space.s)
+            }
+            .padding(.vertical, DS.Space.s).padding(.horizontal, DS.Space.s)
         }
         .scrollIndicators(.hidden)
     }
-    private var railDivider: some View { Divider().padding(.horizontal, DS.Space.m).padding(.vertical, 2) }
 
-    private func railButton(_ m: ModuleInfo) -> some View {
+    @ViewBuilder private func group(_ title: String, _ items: [ModuleInfo], isFirst: Bool) -> some View {
+        if !items.isEmpty {
+            if collapsed {
+                if !isFirst { Divider().padding(.horizontal, DS.Space.s).padding(.vertical, 3) }
+            } else {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold)).tracking(0.5).foregroundStyle(.secondary)
+                    .padding(.horizontal, DS.Space.m).padding(.top, isFirst ? 2 : DS.Space.m).padding(.bottom, 2)
+            }
+            ForEach(items) { row($0) }
+        }
+    }
+
+    private func row(_ m: ModuleInfo) -> some View {
         let sel = state.selectedModuleID == m.id
         return Button { state.selectedModuleID = m.id } label: {
-            Image(systemName: m.symbol)
-                .font(.system(size: 15))
-                .frame(width: 34, height: 30)
-                .background(sel ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.control))
-                .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .overlay(alignment: .topTrailing) {
-                    if badge(for: m.id) != nil {
-                        Circle().fill(.red).frame(width: 6, height: 6).offset(x: -3, y: 3)
+            HStack(spacing: 8) {
+                Image(systemName: m.symbol).font(.system(size: 14)).frame(width: 22)
+                if !collapsed {
+                    Text(m.title).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let n = badge(for: m.id) {
+                        Text("\(n)").font(.caption2.bold()).foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(.red))
                     }
                 }
-        }
-        .buttonStyle(.plain).help(m.title)
-    }
-
-    // MARK: Full list
-
-    private var fullList: some View {
-        List(selection: selection) {
-            let favs = prefs.favorites.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
-            if !favs.isEmpty {
-                Section("Favorites") { ForEach(favs) { row($0) } }
             }
-            if prefs.order == .category {
-                ForEach(prefs.orderedCategories(), id: \.self) { cat in
-                    let visible = ModuleRegistry.all.filter { $0.category == cat && prefs.isVisible($0.id) }
-                    if !visible.isEmpty {
-                        Section(cat.rawValue) { ForEach(visible) { row($0) } }
-                    }
+            .padding(.vertical, 5).padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
+            .background(sel ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: DS.Radius.control))
+            .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            .overlay(alignment: .topTrailing) {
+                if collapsed, badge(for: m.id) != nil {
+                    Circle().fill(.red).frame(width: 6, height: 6).offset(x: -4, y: 4)
                 }
-            } else {
-                let flat = prefs.orderedIDs().compactMap { ModuleRegistry.info($0) }
-                    .filter { prefs.isVisible($0.id) && !prefs.isFavorite($0.id) }
-                Section(prefs.order == .mostUsed ? "Most Used" : "Modules") { ForEach(flat) { row($0) } }
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-    }
-
-    @ViewBuilder private func row(_ m: ModuleInfo) -> some View {
-        if let n = badge(for: m.id) {
-            Label(m.title, systemImage: m.symbol).badge(n).tag(m.id)
-        } else {
-            Label(m.title, systemImage: m.symbol).tag(m.id)
-        }
+        .buttonStyle(.plain)
+        .help(collapsed ? m.title : "")
     }
     private func badge(for id: String) -> Int? {
         switch id {
