@@ -44,6 +44,8 @@ struct CoursesView: View {
     @State private var expandedTerms: Set<String> = []
     @State private var archiving = false
     @State private var nextTerm = ""
+    @State private var pastPrompt = false
+    @State private var pastTerm = ""
 
     private var currentTerm: String { state.data.termName }
     private func isCurrent(_ c: Course) -> Bool { c.term.isEmpty || c.term == currentTerm }
@@ -66,7 +68,7 @@ struct CoursesView: View {
             ModulePane(title: "Courses") {
                 Menu {
                     Button { editing = Course(name: "", term: currentTerm) } label: { Label("Add course", systemImage: "plus") }
-                    Button { editing = Course(name: "", term: "Fall 2025") } label: { Label("Add past course…", systemImage: "clock.arrow.circlepath") }
+                    Button { pastTerm = ""; pastPrompt = true } label: { Label("Add past course…", systemImage: "clock.arrow.circlepath") }
                     if !currentCourses.isEmpty {
                         Divider()
                         Button { nextTerm = ""; archiving = true } label: { Label("Start next term…", systemImage: "arrow.right.circle") }
@@ -95,6 +97,34 @@ struct CoursesView: View {
             .navigationDestination(item: $detailID) { CourseDetailView(courseID: $0) }
         }
         .overlay { if archiving { archiveCard } }
+        .overlay { if pastPrompt { pastCard } }
+    }
+
+    private var pastCard: some View {
+        ZStack {
+            Color.black.opacity(0.28).ignoresSafeArea().onTapGesture { pastPrompt = false }
+            VStack(spacing: DS.Space.l) {
+                Text("Add past course").font(.headline)
+                Text("Which term is it from?").font(.caption).foregroundStyle(.secondary)
+                TextField("Term (e.g. Fall 2025)", text: $pastTerm).textFieldStyle(.roundedBorder).frame(width: 220)
+                    .onSubmit(continuePast)
+                HStack(spacing: DS.Space.m) {
+                    Button("Cancel") { pastPrompt = false }.keyboardShortcut(.cancelAction)
+                    Button("Continue") { continuePast() }.buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(pastTerm.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .padding(20).frame(maxWidth: 300)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.modal))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal).stroke(.separator)).shadow(radius: 20)
+        }
+    }
+    private func continuePast() {
+        let t = pastTerm.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        pastPrompt = false
+        editing = Course(name: "", term: t)
     }
 
     // MARK: hero
