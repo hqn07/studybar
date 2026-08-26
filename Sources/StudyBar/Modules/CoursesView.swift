@@ -332,6 +332,10 @@ struct CourseDetailView: View {
     private var links: [QuickLink] { state.data.links.filter { $0.courseID == courseID } }
     private var notes: [Note] { state.data.notes.filter { $0.courseID == courseID } }
     private var reading: [ReadingItem] { state.data.reading.filter { $0.courseID == courseID } }
+    private var timeEntries: [TimeEntry] { state.data.timeEntries.filter { $0.courseID == courseID } }
+    private var weekMinutes: Int { timeEntries.filter { StudyStats.isThisWeek($0.date) }.reduce(0) { $0 + $1.seconds } / 60 }
+    private var totalMinutes: Int { timeEntries.reduce(0) { $0 + $1.seconds } / 60 }
+    private var courseGradeItems: [GradeItem] { state.gradeItems.filter { $0.courseID == courseID } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -343,6 +347,8 @@ struct CourseDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         headerCard(c)
+                        effortCard(c)
+                        if !courseGradeItems.isEmpty { gradeCard() }
                         if !assignments.isEmpty {
                             section("OPEN ASSIGNMENTS (\(assignments.count))") {
                                 ForEach(assignments) { a in assignmentRow(a) }
@@ -439,6 +445,52 @@ struct CourseDetailView: View {
             Spacer()
             Text("\(Int(r.progress * 100))%").font(.caption2).foregroundStyle(.secondary)
         }.padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func effortCard(_ c: Course) -> some View {
+        HStack(spacing: 16) {
+            statBlock("\(weekMinutes)m", "this week")
+            statBlock(totalMinutes >= 60 ? "\(totalMinutes / 60)h \(totalMinutes % 60)m" : "\(totalMinutes)m", "total logged")
+            Spacer()
+            Button {
+                state.pomodoro.startFocus(label: c.name, courseID: c.id)
+                state.selectedModuleID = "timefocus"
+            } label: { Label("Focus", systemImage: "timer") }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                .help("Start a focus session logged to this course")
+        }
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func statBlock(_ v: String, _ l: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(v).font(.title3.weight(.semibold))
+            Text(l).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private func gradeCard() -> some View {
+        let graded = courseGradeItems.filter { $0.graded }
+        let gw = graded.reduce(0.0) { $0 + $1.weight }
+        section("GRADE") {
+            if gw > 0 {
+                let earned = graded.reduce(0.0) { $0 + $1.weight * $1.score / 100 }
+                Text(String(format: "%.1f%% earned on %d%% graded", earned / gw * 100, Int(gw)))
+                    .font(.callout.weight(.semibold))
+            }
+            ForEach(courseGradeItems) { g in
+                HStack {
+                    Text(g.name.isEmpty ? "Component" : g.name).font(.callout)
+                    Spacer()
+                    Text("\(Int(g.weight))%").font(.caption).foregroundStyle(.secondary)
+                    Text(g.graded ? "\(Int(g.score))%" : "—").font(.caption.weight(.medium))
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            }
+            Button("Open Grade Calc") { state.selectedModuleID = "gradecalc" }
+                .font(.caption).buttonStyle(.borderless)
+        }
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
