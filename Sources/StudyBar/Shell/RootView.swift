@@ -27,11 +27,8 @@ struct RootView: View {
                     let forced = geo.size.width < 440          // Compact popover → auto-rail
                     let railed = forced || sidebarCollapsed
                     HStack(spacing: 0) {
-                        VStack(spacing: 0) {
-                            collapseBar(forced: forced, railed: railed)
-                            SidebarView(prefs: state.modulePrefs, collapsed: railed)
-                        }
-                        .frame(width: railed ? 48 : 176)
+                        SidebarView(prefs: state.modulePrefs, collapsed: railed)
+                            .frame(width: railed ? 48 : 176)
                         Divider()
                         content
                     }
@@ -91,8 +88,11 @@ struct RootView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "graduationcap.fill").foregroundStyle(.tint).font(.system(size: 15))
-            Text("StudyBar").font(.system(size: 14, weight: .semibold))
+            Button { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } } label: {
+                Image(systemName: "sidebar.leading").font(.system(size: 14))
+            }
+            .buttonStyle(.borderless).controlSize(.small)
+            .help(sidebarCollapsed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
             Spacer(minLength: 8)
             SearchField(text: $state.globalSearch).frame(maxWidth: 180)
             Button { WindowOpener.open?("main") } label: {
@@ -112,20 +112,6 @@ struct RootView: View {
         // Hidden quit shortcut so ⌘Q still works even though the button is gone.
         .background {
             Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
-        }
-    }
-
-    // MARK: Sidebar collapse toggle
-
-    @ViewBuilder private func collapseBar(forced: Bool, railed: Bool) -> some View {
-        if !forced {
-            Button { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } } label: {
-                Image(systemName: "sidebar.leading")
-            }
-            .buttonStyle(.borderless).controlSize(.small)
-            .help(railed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
-            .frame(maxWidth: .infinity, alignment: railed ? .center : .trailing)
-            .padding(.horizontal, railed ? 0 : 8).padding(.top, 6)
         }
     }
 
