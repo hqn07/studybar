@@ -18,6 +18,10 @@ struct ModuleInfo: Identifiable {
     let title: String
     let symbol: String
     let category: ModuleCategory
+    /// Spatial modules (charts, boards, grids, calendars) that fill the window's full
+    /// width. Text/list modules stay `false` and get a centered readable column when the
+    /// window is widened past its default (see RootView.content).
+    var wide: Bool = false
     let make: () -> AnyView
 }
 
@@ -28,7 +32,7 @@ enum ModuleRegistry {
         .init(id: "today", title: "Today", symbol: "sun.max",
               category: .overview) { AnyView(TodayView()) },
         .init(id: "insights", title: "Insights", symbol: "chart.bar.xaxis",
-              category: .overview) { AnyView(InsightsView()) },
+              category: .overview, wide: true) { AnyView(InsightsView()) },
         .init(id: "assistant", title: "Assistant", symbol: "sparkles",
               category: .overview) { AnyView(AssistantView()) },
 
@@ -56,7 +60,7 @@ enum ModuleRegistry {
         .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",
               category: .schedule) { AnyView(ScheduleView()) },
         .init(id: "calendar", title: "Calendar", symbol: "calendar",
-              category: .schedule) { AnyView(CalendarView()) },
+              category: .schedule, wide: true) { AnyView(CalendarView()) },
 
         // Links
         .init(id: "links", title: "Quick Links", symbol: "link",
@@ -84,13 +88,13 @@ enum ModuleRegistry {
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
               category: .study) { AnyView(FlashcardsView()) },
         .init(id: "reading", title: "Reading", symbol: "book",
-              category: .study) { AnyView(ReadingView()) },
+              category: .study, wide: true) { AnyView(ReadingView()) },
 
         // Organize
         .init(id: "todos", title: "To-Do", symbol: "checkmark.circle",
               category: .organize) { AnyView(TodosView()) },
         .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",
-              category: .organize) { AnyView(KanbanView()) },
+              category: .organize, wide: true) { AnyView(KanbanView()) },
         .init(id: "semester", title: "Semester", symbol: "calendar.badge.clock",
               category: .organize) { AnyView(SemesterView()) },
         .init(id: "gradecalc", title: "Grade Calc", symbol: "percent",
