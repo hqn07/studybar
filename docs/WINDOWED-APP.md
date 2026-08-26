@@ -125,8 +125,12 @@ two-column / wider layouts in the window that a 380 pt popover can't hold.
   window + dismisses the popover, no-op unless the popover is active) — zero call-site
   churn. Deep-links/Spotlight/notifications already route to the window via
   `AppActions.open`. *Was low risk — reused views.*
-- **Phase 2 — window as home.** Frame persistence, min size, native toolbar, "Open
-  StudyBar" entry points, Dock-toggle setting. Allow sheets/inspectors where they help.
+- **Phase 2 — window as home. ✅ mostly shipped (`ffd8457`).** Remember-last-module
+  (`AppState` persists `selectedModuleID`), dynamic window title ("StudyBar — <Module>"),
+  min size 720×480 (frame already autosaved), and **Dock-as-a-setting** ("Show StudyBar
+  in the Dock" → live activation-policy flip; default menu-bar-only). *Remaining:* a real
+  native `NSToolbar` (deferred — the in-content header serves; SwiftUI↔NSToolbar search
+  state is fiddly) and allowing sheets/inspectors in the window where they help.
 - **Phase 3 — customization surface.** Build the mocked Appearance surface (theme grid +
   light/dark/device + toolbar arrange). Ship **minimal by default**, breadth opt-in.
 - **Phase 4 — surface-aware modules.** Give the heavy modules (Notes, Calendar, Insights,
