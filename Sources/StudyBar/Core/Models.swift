@@ -104,6 +104,7 @@ struct Assignment: Identifiable, Codable, Hashable {
     var canvasID: Int? = nil        // Canvas assignment id (for sync dedup)
     var sourceUID: String? = nil    // .ics feed UID (Canvas Calendar Feed import dedup; decode-safe)
     var sourceFeedID: UUID? = nil   // which ICSFeed imported it (per-feed counts + cleanup; decode-safe)
+    var sourceCourseTag: String? = nil  // Canvas [CODE] tag from the feed, for classifying (decode-safe)
     var submitted: Bool = false     // from Canvas submission state
     var points: Double? = nil       // points possible
     var urgency: Int? = nil         // AI triage: 0 later · 1 this week · 2 now (nil = unranked)

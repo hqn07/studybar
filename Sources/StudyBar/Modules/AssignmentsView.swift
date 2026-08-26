@@ -9,7 +9,10 @@ struct AssignmentsView: View {
     @EnvironmentObject var state: AppState
     @State private var showDone = false
     @State private var editing: Assignment?
+    @State private var classifying = false
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
+
+    private var unsortedImports: Int { CanvasFeedImport.unclassified(state).count }
 
     private var sortMode: AssignmentSort { AssignmentSort(rawValue: sort) ?? .due }
 
@@ -34,6 +37,11 @@ struct AssignmentsView: View {
         NavigationStack {
             ModulePane(title: "Assignments") {
                 HStack(spacing: 8) {
+                    if unsortedImports > 0 {
+                        Button { classifying = true } label: {
+                            Label("\(unsortedImports)", systemImage: "tray.and.arrow.down")
+                        }.help("Sort \(unsortedImports) imported Canvas items into courses")
+                    }
                     Button { state.selectedModuleID = "board" } label: { Image(systemName: "rectangle.split.3x1") }
                         .help("Board view — same assignments")
                     if anyRanked {
@@ -64,6 +72,7 @@ struct AssignmentsView: View {
                 }
             }
             .navigationDestination(item: $editing) { AssignmentEditor(assignment: $0) }
+            .navigationDestination(isPresented: $classifying) { ClassifyView() }
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
         }

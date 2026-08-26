@@ -33,7 +33,8 @@ enum CanvasFeedImport {
                 guard !uid.isEmpty else { continue }
 
                 let title = cleanTitle(ev.title)
-                let course = courseID(for: ev, feed: feed, courses: state.data.courses)
+                let tag = codeTag(ev.title)
+                let course = feed.courseID ?? matchCourse(tag, state.data.courses)
 
                 if let i = state.data.assignments.firstIndex(where: { $0.sourceUID == uid }) {
                     // Update in place. Preserve user edits (status/notes/checklist);
@@ -44,16 +45,17 @@ enum CanvasFeedImport {
                     if a.title != title { a.title = title; changed = true }
                     if a.courseID == nil, let course { a.courseID = course; changed = true }
                     if a.sourceFeedID == nil { a.sourceFeedID = feed.id; changed = true }
+                    if a.sourceCourseTag == nil, let tag { a.sourceCourseTag = tag; changed = true }
                     if changed { state.data.assignments[i] = a; s.updated += 1; feedTouched += 1 }
                 } else if let j = fuzzyIndex(title: title, courseID: course, due: due, in: state.data.assignments) {
                     // Adopt a manually-typed assignment that matches, instead of duplicating.
                     var a = state.data.assignments[j]
-                    a.sourceUID = uid; a.sourceFeedID = feed.id; a.due = due
+                    a.sourceUID = uid; a.sourceFeedID = feed.id; a.due = due; a.sourceCourseTag = tag
                     if a.courseID == nil, let course { a.courseID = course }
                     state.data.assignments[j] = a; s.updated += 1; feedTouched += 1
                 } else {
                     var a = Assignment(title: title, courseID: course, due: due)
-                    a.sourceUID = uid; a.sourceFeedID = feed.id
+                    a.sourceUID = uid; a.sourceFeedID = feed.id; a.sourceCourseTag = tag
                     state.data.assignments.append(a)
                     s.created += 1; feedTouched += 1
                 }
@@ -111,15 +113,16 @@ enum CanvasFeedImport {
                 if a.title != p.title { a.title = p.title; changed = true }
                 if let c = p.courseID, a.courseID != c { a.courseID = c; changed = true }   // explicit user pick wins
                 if let f = feedID, a.sourceFeedID != f { a.sourceFeedID = f; changed = true }
+                if a.sourceCourseTag == nil, let t = p.code { a.sourceCourseTag = t; changed = true }
                 if changed { state.data.assignments[i] = a; s.updated += 1 }
             } else if let j = fuzzyIndex(title: p.title, courseID: p.courseID, due: p.due, in: state.data.assignments) {
                 var a = state.data.assignments[j]
-                a.sourceUID = p.uid; a.sourceFeedID = feedID; a.due = p.due
+                a.sourceUID = p.uid; a.sourceFeedID = feedID; a.due = p.due; a.sourceCourseTag = p.code
                 if let c = p.courseID { a.courseID = c }
                 state.data.assignments[j] = a; s.updated += 1
             } else {
                 var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
-                a.sourceUID = p.uid; a.sourceFeedID = feedID
+                a.sourceUID = p.uid; a.sourceFeedID = feedID; a.sourceCourseTag = p.code
                 state.data.assignments.append(a)
                 s.created += 1
             }
@@ -183,6 +186,75 @@ enum CanvasFeedImport {
         return courses.first {
             $0.code.lowercased() == low || $0.name.lowercased() == low || $0.name.lowercased().contains(low)
         }?.id
+    }
+
+    // MARK: - Classification (Classify page)
+
+    /// Feed-imported assignments with no course assigned.
+    @MainActor
+    static func unclassified(_ state: AppState) -> [Assignment] {
+        state.data.assignments.filter { $0.sourceUID != nil && $0.courseID == nil }
+    }
+
+    /// Unclassified imports grouped by their [CODE] tag; untagged items ("") sort last.
+    @MainActor
+    static func classifyGroups(_ state: AppState) -> [(tag: String, items: [Assignment])] {
+        var dict: [String: [Assignment]] = [:]
+        for a in unclassified(state) { dict[a.sourceCourseTag ?? "", default: []].append(a) }
+        return dict.sorted {
+            if $0.key.isEmpty != $1.key.isEmpty { return !$0.key.isEmpty }   // tagged groups first
+            return $0.value.count > $1.value.count
+        }.map { ($0.key, $0.value) }
+    }
+
+    /// Re-fetch subscribed feeds and backfill sourceCourseTag (and courseID when a
+    /// matching course now exists) on imports that predate tag storage.
+    @MainActor
+    static func backfillTags(state: AppState) async {
+        for feed in state.data.icsFeeds {
+            guard let events = await fetch(feed.url) else { continue }
+            var byUID: [String: String] = [:]
+            for ev in events where isAssignment(ev) {
+                let uid = ev.uid.isEmpty ? ev.url : ev.uid
+                if let t = codeTag(ev.title) { byUID[uid] = t }
+            }
+            for i in state.data.assignments.indices {
+                guard let uid = state.data.assignments[i].sourceUID, let t = byUID[uid] else { continue }
+                if state.data.assignments[i].sourceCourseTag == nil { state.data.assignments[i].sourceCourseTag = t }
+                if state.data.assignments[i].courseID == nil, let c = matchCourse(t, state.data.courses) {
+                    state.data.assignments[i].courseID = c
+                }
+            }
+        }
+    }
+
+    /// Create a Course from a tag and assign every unclassified import with that tag.
+    @MainActor @discardableResult
+    static func createCourseAndAssign(tag: String, state: AppState) -> UUID {
+        let hex = Palette.swatches[state.data.courses.count % Palette.swatches.count]
+        let c = Course(name: tag, code: tag, colorHex: hex)
+        state.data.courses.append(c)
+        assign(tag: tag, to: c.id, state: state)
+        return c.id
+    }
+
+    /// Assign every unclassified import carrying `tag` to `courseID`.
+    @MainActor
+    static func assign(tag: String, to courseID: UUID, state: AppState) {
+        for i in state.data.assignments.indices
+        where state.data.assignments[i].sourceUID != nil
+            && state.data.assignments[i].courseID == nil
+            && (state.data.assignments[i].sourceCourseTag ?? "") == tag {
+            state.data.assignments[i].courseID = courseID
+        }
+    }
+
+    /// Assign specific assignments to a course.
+    @MainActor
+    static func assign(ids: Set<UUID>, to courseID: UUID, state: AppState) {
+        for i in state.data.assignments.indices where ids.contains(state.data.assignments[i].id) {
+            state.data.assignments[i].courseID = courseID
+        }
     }
 
     // MARK: - Fetch
