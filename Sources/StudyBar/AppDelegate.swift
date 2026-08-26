@@ -67,6 +67,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--ai-selftest") {
             exit(AIToolSelfTest.run())
         }
+        if CommandLine.arguments.contains("--ollama-stream-test") {
+            Task { exit(await OllamaStreamTest.run()) }
+            return
+        }
         // Test/dev hook: SB_DOCK=1 promotes StudyBar to a regular Dock app so UI-automation
         // tools (which can't target an LSUIElement accessory app) can drive the window.
         // No effect on normal launches — 1.0 stays a pure menu-bar app.

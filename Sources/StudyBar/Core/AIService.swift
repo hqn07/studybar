@@ -257,6 +257,41 @@ struct OllamaProvider: AIProvider {
         guard !text.isEmpty else { throw AIError.badResponse }
         return text
     }
+
+    /// Streaming variant: same request with `stream:true`, feeding the growing `reply`
+    /// field to `onReply` as tokens arrive. Returns the full accumulated JSON to parse.
+    func completeStreaming(system: String, messages: [AIMessage],
+                           onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        let base = host.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let url = URL(string: "\(base)/api/chat") else { throw AIError.badResponse }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 120
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
+        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        let body: [String: Any] = [
+            "model": model, "messages": msgs, "stream": true, "format": "json",
+            "options": ["temperature": 0.3, "num_ctx": 8192],
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.")
+        }
+        var raw = ""; var lastSent = ""
+        for try await line in bytes.lines {
+            guard let d = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+            if let chunk = (obj["message"] as? [String: Any])?["content"] as? String { raw += chunk }
+            if let r = AIProtocol.replySoFar(raw), r != lastSent { lastSent = r; await onReply(r) }
+            if (obj["done"] as? Bool) == true { break }
+        }
+        guard !raw.isEmpty else { throw AIError.badResponse }
+        return raw
+    }
 }
 
 // MARK: - Proposed actions (tool schema)
@@ -369,7 +404,8 @@ enum AIService {
 
     /// Run one assistant turn. The model may first request read-only data (which we
     /// execute and feed back) before returning its final reply + write actions.
-    static func send(history: [AIMessage], state: AppState) async throws -> AITurn {
+    static func send(history: [AIMessage], state: AppState,
+                     onReplyDelta: (@MainActor (String) -> Void)? = nil) async throws -> AITurn {
         guard let provider = makeProvider() else { throw AIError.notConfigured }
         // Cloud engines use the provider's native tool-calling API (structured, reliable)
         // instead of the JSON-in-prompt protocol; local engines keep the JSON path.
@@ -381,7 +417,14 @@ enum AIService {
         var last = AITurn(reply: "", actions: [])
 
         for round in 0..<maxRounds {
-            let raw = try await provider.complete(system: system, messages: convo)
+            // Stream on the local Ollama path so the reply types out live; the reads round
+            // has an empty reply so nothing shows until the final answer round.
+            let raw: String
+            if let ollama = provider as? OllamaProvider, let onReplyDelta {
+                raw = try await ollama.completeStreaming(system: system, messages: convo, onReply: onReplyDelta)
+            } else {
+                raw = try await provider.complete(system: system, messages: convo)
+            }
             let turn = AIProtocol.parse(raw)
             last = turn
             // If it asked for data and rounds remain, fetch it and continue.
@@ -520,6 +563,33 @@ enum AIProtocol {
         "get_note", "list_notes", "list_assignments", "list_todos", "list_reading",
         "list_decks", "list_citations", "list_classes", "list_links", "get_grades", "search",
     ]
+
+    /// Extract the growing value of the `"reply"` field from a partial JSON envelope,
+    /// for live streaming. The envelope order is reads → reply → actions and `reads` is
+    /// empty on the final round, so `reply` starts almost immediately; we return whatever
+    /// of it has arrived (stopping at the closing quote once complete). nil until it starts.
+    static func replySoFar(_ raw: String) -> String? {
+        guard let key = raw.range(of: "\"reply\"") else { return nil }
+        let after = raw[key.upperBound...]
+        guard let colon = after.firstIndex(of: ":") else { return nil }
+        var i = after.index(after: colon)
+        while i < after.endIndex, after[i] == " " { i = after.index(after: i) }
+        guard i < after.endIndex, after[i] == "\"" else { return nil }
+        i = after.index(after: i)
+        var out = ""; var esc = false
+        while i < after.endIndex {
+            let c = after[i]
+            if esc {
+                switch c { case "n": out += "\n"; case "t": out += "\t"; case "r": break
+                           case "\"": out += "\""; case "\\": out += "\\"; default: out.append(c) }
+                esc = false
+            } else if c == "\\" { esc = true }
+            else if c == "\"" { break }               // closing quote → reply complete
+            else { out.append(c) }
+            i = after.index(after: i)
+        }
+        return out
+    }
 
     static func parse(_ raw: String) -> AITurn {
         if let obj = jsonEnvelope(raw) {
@@ -1013,9 +1083,23 @@ final class AIChat: ObservableObject {
         approxTokens = (AIService.systemPrompt(state: state).count
                         + history.reduce(0) { $0 + $1.text.count }) / 4
         do {
-            let turn = try await AIService.send(history: history, state: state)
-            messages.append(Msg(role: .assistant, text: turn.reply, actions: turn.actions))
+            // A placeholder the reply streams into (Ollama); finalized with the actions.
+            let placeholder = Msg(role: .assistant, text: "")
+            messages.append(placeholder)
+            let pid = placeholder.id
+            let turn = try await AIService.send(history: history, state: state) { [weak self] partial in
+                guard let self, let i = self.messages.firstIndex(where: { $0.id == pid }) else { return }
+                self.messages[i].text = partial
+            }
+            if let i = messages.firstIndex(where: { $0.id == pid }) {
+                messages[i].text = turn.reply
+                messages[i].actions = turn.actions
+            }
         } catch {
+            // Drop the empty placeholder (if it never received a delta) and show the error.
+            if let last = messages.last, last.role == .assistant, last.text.isEmpty, last.actions.isEmpty {
+                messages.removeLast()
+            }
             messages.append(Msg(role: .assistant, text: error.localizedDescription, isError: true))
         }
         sending = false
@@ -1354,7 +1438,35 @@ enum AIToolSelfTest {
         check("add_task is a write", AIProtocol.writeTools.contains("add_task"))
         check("get_note is a read", AIProtocol.readTools.contains("get_note"))
 
+        // 8. Streaming reply extraction from a partial JSON envelope.
+        check("replySoFar mid-stream", AIProtocol.replySoFar("{\"reads\":[],\"reply\":\"Made 3 cards.") == "Made 3 cards.")
+        check("replySoFar complete", AIProtocol.replySoFar("{\"reads\":[],\"reply\":\"Done.\",\"actions\":[]}") == "Done.")
+        check("replySoFar escapes", AIProtocol.replySoFar("{\"reply\":\"a \\\"b\\\" c\\nd\"}") == "a \"b\" c\nd")
+        check("replySoFar not started", AIProtocol.replySoFar("{\"reads\":[{\"tool\":\"get_note\"") == nil)
+
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1
+    }
+}
+
+/// Live smoke test for Ollama streaming (StudyBar --ollama-stream-test). Needs Ollama up.
+enum OllamaStreamTest {
+    @MainActor static func run() async -> Int32 {
+        let p = OllamaProvider(host: AIConfig.ollamaHost, model: AIConfig.ollamaModel)
+        let sys = "You are a test. Reply with ONLY one JSON object and nothing else: {\"reads\":[],\"reply\":\"<a one-sentence greeting>\",\"actions\":[]}"
+        print("streaming from Ollama (\(AIConfig.ollamaModel))…")
+        var deltas = 0
+        do {
+            let raw = try await p.completeStreaming(system: sys, messages: [AIMessage(role: .user, text: "say hi")]) { partial in
+                deltas += 1
+                print("  delta \(deltas): \(partial)")
+            }
+            print("PARSED REPLY: \(AIProtocol.parse(raw).reply)")
+            print(deltas > 1 ? "OLLAMA STREAM TEST: PASS (\(deltas) deltas)" : "OLLAMA STREAM TEST: WARN (\(deltas) delta)")
+            return deltas >= 1 ? 0 : 1
+        } catch {
+            print("OLLAMA STREAM TEST: FAIL — \(error.localizedDescription)")
+            return 1
+        }
     }
 }
