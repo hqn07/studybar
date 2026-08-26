@@ -104,7 +104,7 @@ enum ModuleRegistry {
 
         // System
         .init(id: "settings", title: "Settings", symbol: "gearshape",
-              category: .system) { AnyView(SettingsView()) },
+              category: .system, wide: true) { AnyView(SettingsView()) },
     ]
 
     static func info(_ id: String) -> ModuleInfo? { all.first { $0.id == id } }

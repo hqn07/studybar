@@ -43,13 +43,12 @@ struct SettingsView: View {
     @State private var starterStatus = ""
 
     var body: some View {
-        ModulePane(title: "Settings") { EmptyView() } content: {
-            VStack(spacing: 0) {
-                tabBar
-                Divider()
-                Form { tabSections }.formStyle(.grouped)
-            }
+        HStack(spacing: 0) {
+            settingsSidebar
+            Divider()
+            Form { tabSections }.formStyle(.grouped)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileExporter(isPresented: $exporting,
                       document: JSONFile(url: state.dataFileURL),
                       contentType: .json, defaultFilename: "studybar-backup") { _ in }
@@ -84,25 +83,50 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Tabs
+    // MARK: Sections sidebar
 
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(SettingsTab.allCases) { t in
-                    Button { selectedTab = t } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: t.icon)
-                            Text(t.rawValue)
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(selectedTab == t ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.background.secondary), in: Capsule())
-                        .foregroundStyle(selectedTab == t ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    }.buttonStyle(.plain)
-                }
-            }.padding(.horizontal, 10).padding(.vertical, 8)
+    private var settingsSidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Settings").font(.title2.bold())
+                    .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 12)
+                navGroup([.general, .appearance, .shortcuts])
+                navSeparator
+                navGroup([.modules, .integrations, .intelligence])
+                navSeparator
+                navGroup([.data, .about])
+            }
+            .padding(10)
         }
+        .frame(width: 216)
+        .scrollIndicators(.hidden)
+        .background(.background.secondary)
+    }
+
+    private var navSeparator: some View {
+        Divider().padding(.horizontal, 8).padding(.vertical, 9)
+    }
+
+    @ViewBuilder private func navGroup(_ tabs: [SettingsTab]) -> some View {
+        ForEach(tabs) { navRow($0) }
+    }
+
+    private func navRow(_ t: SettingsTab) -> some View {
+        let sel = selectedTab == t
+        let title = t == .data ? "Data & Backup" : t.rawValue
+        return Button { selectedTab = t } label: {
+            HStack(spacing: 11) {
+                Image(systemName: t.icon).font(.system(size: 14)).frame(width: 20)
+                Text(title).font(.callout.weight(sel ? .semibold : .regular))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(sel ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     @ViewBuilder private var tabSections: some View {
@@ -176,10 +200,10 @@ struct SettingsView: View {
             }.pickerStyle(.segmented)
         }
         Section("Accent") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 34), spacing: 10)], spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: 12)], spacing: 12) {
                 ForEach(Palette.accents, id: \.self) { hex in accentSwatch(hex) }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
             LabeledContent("Custom") {
                 ColorPicker("", selection: Binding(
                     get: { Color(hex: accentHex) ?? .accentColor },
@@ -194,14 +218,17 @@ struct SettingsView: View {
         let selected = accentHex.caseInsensitiveCompare(hex) == .orderedSame
         let color = Color(hex: hex) ?? .gray
         return Button { accentHex = hex } label: {
-            Circle().fill(color).frame(width: 26, height: 26)
+            RoundedRectangle(cornerRadius: 9).fill(color).frame(width: 36, height: 36)
                 .overlay {
                     if selected {
-                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "checkmark").font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(.white)
                     }
                 }
-                .overlay(Circle().strokeBorder(.primary.opacity(selected ? 0 : 0.08)))
-                .shadow(color: color.opacity(selected ? 0.5 : 0), radius: 4)
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(color, lineWidth: selected ? 2 : 0).padding(-3))
+                .shadow(color: color.opacity(selected ? 0.45 : 0.18), radius: selected ? 5 : 2, y: 1)
         }
         .buttonStyle(.plain)
         .help(hex)
