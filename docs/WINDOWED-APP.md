@@ -131,8 +131,12 @@ two-column / wider layouts in the window that a 380 pt popover can't hold.
   in the Dock" → live activation-policy flip; default menu-bar-only). *Remaining:* a real
   native `NSToolbar` (deferred — the in-content header serves; SwiftUI↔NSToolbar search
   state is fiddly) and allowing sheets/inspectors in the window where they help.
-- **Phase 3 — customization surface.** Build the mocked Appearance surface (theme grid +
-  light/dark/device + toolbar arrange). Ship **minimal by default**, breadth opt-in.
+- **Phase 3 — customization surface. ✅ shipped (`ab86a89`).** Settings ▸ Appearance now
+  has the accent **preset grid** (`Palette.accents`, ✓ + glow) + Custom ColorPicker +
+  Light/Dark/Device segment; re-tints the app live. Module hide/reorder (the "toolbar
+  arrange" half) already ships in Settings ▸ Modules. *Honest scope:* StudyBar themes the
+  accent + light/dark; surface tokens stay system materials (surface theming = a later,
+  bigger change). *Remaining:* ship-minimal-by-default defaults pass.
 - **Phase 4 — surface-aware modules.** Give the heavy modules (Notes, Calendar, Insights,
   Board, Reading) roomier two-column window layouts distinct from any popover slice.
 
