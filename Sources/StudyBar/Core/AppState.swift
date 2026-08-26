@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import AppKit
 
 @MainActor
 final class AppState: ObservableObject {
@@ -8,7 +9,7 @@ final class AppState: ObservableObject {
     static weak var current: AppState?
 
     // Persisted document. Any write schedules a debounced save.
-    @Published var data: AppData { didSet { scheduleSave() } }
+    @Published var data: AppData { didSet { if !suppressSave { scheduleSave() } } }
 
     // UI state (not persisted here; settings persisted via @AppStorage in views)
     @Published var selectedModuleID: String = "today" {
@@ -62,6 +63,15 @@ final class AppState: ObservableObject {
     private var fileURL: URL
     private var saveTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
+    /// Modification date of the data file as we last read or wrote it — used to
+    /// detect external changes (another device/instance) before overwriting.
+    private var loadedMtime: Date?
+    /// Set while adopting on-disk data so the reload doesn't re-trigger a save.
+    private var suppressSave = false
+
+    private static func mtime(_ url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    }
 
     static var localDir: URL {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -94,12 +104,21 @@ final class AppState: ObservableObject {
         } else {
             data = AppData.seed()
         }
+        loadedMtime = AppState.mtime(fileURL)
         pomodoro.onComplete = { [weak self] seconds, label, courseID, assignmentID in
             self?.logPomodoro(seconds: seconds, label: label, courseID: courseID, assignmentID: assignmentID)
         }
         clipboard = ClipboardMonitor(state: self)
         clipboard.start()
         AppState.current = self
+
+        // When the app returns to the foreground, pick up any external change to the
+        // data file (another device via iCloud, or another instance) so this running
+        // copy never holds stale data that a later save would clobber.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.reloadIfChanged() }
+        }
 
         // Forward nested engine changes so views observing AppState re-render each tick.
         pomodoro.objectWillChange
@@ -121,23 +140,47 @@ final class AppState: ObservableObject {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = data
-        let url = fileURL
         saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
-            guard !Task.isCancelled else { return }
-            if let raw = try? JSONEncoder.studybar.encode(snapshot) {
-                try? raw.write(to: url, options: .atomic)
-            }
-            SpotlightIndexer.reindexThrottled(snapshot)
-            _ = self
+            guard let self, !Task.isCancelled else { return }
+            self.commitSave()
+            SpotlightIndexer.reindexThrottled(self.data)
         }
     }
 
-    func saveNow() {
-        if let raw = try? JSONEncoder.studybar.encode(data) {
-            try? raw.write(to: fileURL, options: .atomic)
-        }
+    func saveNow() { commitSave() }
+
+    /// Write the current data, but never silently destroy a newer file: if the file
+    /// on disk changed since we last read/wrote it (external edit), copy it to a
+    /// timestamped conflict file first, so nothing is lost.
+    private func commitSave() {
+        backupIfExternallyChanged()
+        guard let raw = try? JSONEncoder.studybar.encode(data) else { return }
+        do {
+            try raw.write(to: fileURL, options: .atomic)
+            loadedMtime = AppState.mtime(fileURL)
+        } catch { /* leave loadedMtime so a later save retries the backup check */ }
+    }
+
+    private func backupIfExternallyChanged() {
+        guard let disk = AppState.mtime(fileURL), let loaded = loadedMtime,
+              disk.timeIntervalSince(loaded) > 1 else { return }   // >1s allows for fs granularity
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let dst = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("data.json.conflict-\(f.string(from: Date()))")
+        try? FileManager.default.copyItem(at: fileURL, to: dst)
+    }
+
+    /// Adopt the on-disk file if it changed under us (without re-triggering a save).
+    func reloadIfChanged() {
+        guard let disk = AppState.mtime(fileURL) else { return }
+        if let loaded = loadedMtime, disk.timeIntervalSince(loaded) <= 1 { return }
+        guard let raw = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else { return }
+        suppressSave = true
+        data = decoded
+        suppressSave = false
+        loadedMtime = disk
     }
 
     var dataFileURL: URL { fileURL }
@@ -154,6 +197,7 @@ final class AppState: ObservableObject {
         // Remove the old file if it differs.
         if target != fileURL { try? FileManager.default.removeItem(at: fileURL) }
         fileURL = target
+        loadedMtime = AppState.mtime(fileURL)
     }
     var iCloudAvailable: Bool { AppState.iCloudDir != nil }
 
