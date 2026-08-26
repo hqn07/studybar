@@ -371,6 +371,11 @@ enum AIService {
     /// execute and feed back) before returning its final reply + write actions.
     static func send(history: [AIMessage], state: AppState) async throws -> AITurn {
         guard let provider = makeProvider() else { throw AIError.notConfigured }
+        // Cloud engines use the provider's native tool-calling API (structured, reliable)
+        // instead of the JSON-in-prompt protocol; local engines keep the JSON path.
+        if let anthropic = provider as? AnthropicProvider {
+            return try await sendWithTools(provider: anthropic, history: history, state: state)
+        }
         let system = systemPrompt(state: state)
         var convo = history
         var last = AITurn(reply: "", actions: [])
@@ -679,7 +684,7 @@ enum AIReader {
         reads.map { one($0, state: state) }.joined(separator: "\n")
     }
 
-    private static func one(_ r: AIAction, state: AppState) -> String {
+    static func one(_ r: AIAction, state: AppState) -> String {
         let d = state.data
         switch r.tool {
         case "get_note":
@@ -1105,5 +1110,251 @@ extension Assignment {
         case 0: return "Later"
         default: return nil
         }
+    }
+}
+
+// MARK: - Native tool-use (cloud engines)
+//
+// Cloud providers expose a real tool-calling API, so instead of asking the model to
+// emit a JSON envelope in text (fragile on weak models) we hand it typed tools. Read
+// tools run in-loop and their results are fed back as tool_result; write tools are NOT
+// executed — they're surfaced as proposed AIActions (StudyBar never auto-writes), which
+// terminates the turn. Output is the same AITurn the UI already renders.
+
+/// One tool exposed to a provider's native tool-calling API.
+struct AITool {
+    let name: String
+    let description: String
+    let schema: [String: Any]   // JSON Schema for the input object
+}
+
+enum AIToolCatalog {
+    // Schema primitives.
+    private static let S: [String: Any] = ["type": "string"]
+    private static let I: [String: Any] = ["type": "integer"]
+    private static let N: [String: Any] = ["type": "number"]
+    private static let B: [String: Any] = ["type": "boolean"]
+    private static func arr(_ items: [String: Any]) -> [String: Any] { ["type": "array", "items": items] }
+    private static func obj(_ props: [(String, [String: Any])], _ required: [String] = []) -> [String: Any] {
+        var p: [String: Any] = [:]; for (k, v) in props { p[k] = v }
+        return ["type": "object", "properties": p, "required": required]
+    }
+    private static func tool(_ name: String, _ desc: String,
+                             _ props: [(String, [String: Any])] = [], _ required: [String] = []) -> AITool {
+        AITool(name: name, description: desc, schema: obj(props, required))
+    }
+
+    static let reads: [AITool] = [
+        tool("get_note", "Return the title and body of the best-matching note.", [("query", S)], ["query"]),
+        tool("list_notes", "List all note titles."),
+        tool("list_assignments", "List assignments with status, due date and urgency. Set include='done' to include completed ones.", [("include", S)]),
+        tool("list_todos", "List open to-dos."),
+        tool("list_reading", "List books with page progress."),
+        tool("list_decks", "List flashcard decks with card counts."),
+        tool("list_citations", "List saved references/citations."),
+        tool("list_classes", "List the weekly class schedule."),
+        tool("list_links", "List saved quick links."),
+        tool("get_grades", "GPA and current standing; pass a course for its what-if breakdown.", [("course", S)]),
+        tool("search", "Search across notes, tasks, reading and citations.", [("query", S)], ["query"]),
+    ]
+
+    static let writes: [AITool] = [
+        tool("add_task", "Add a to-do.", [("text", S), ("course", S), ("dueInDays", I)], ["text"]),
+        tool("add_note", "Save a note.", [("title", S), ("text", S), ("course", S)], ["text"]),
+        tool("create_assignment", "Add an assignment.", [("title", S), ("course", S), ("dueInDays", I), ("points", N)], ["title"]),
+        tool("complete_assignment", "Mark an assignment done by title.", [("title", S)], ["title"]),
+        tool("update_assignment", "Update an assignment by title.", [("title", S), ("dueInDays", I), ("submitted", B), ("done", B)], ["title"]),
+        tool("prioritize_assignments", "Rank assignments by urgency (StudyBar computes the ranking — don't guess)."),
+        tool("plan_study_block", "Propose study sessions.", [("sessions", arr(obj([("title", S), ("dueInDays", I), ("minutes", I), ("course", S)], ["title", "dueInDays"])))], ["sessions"]),
+        tool("make_flashcards", "Make flashcards from the student's material.", [("deck", S), ("course", S), ("cards", arr(obj([("front", S), ("back", S)], ["front", "back"])))], ["cards"]),
+        tool("start_pomodoro", "Start a focus session.", [("minutes", I), ("label", S)]),
+        tool("add_reading", "Add a book to the reading tracker.", [("title", S), ("author", S), ("totalPages", I), ("course", S)], ["title"]),
+        tool("log_reading", "Log reading progress to a page.", [("title", S), ("toPage", I)], ["title", "toPage"]),
+        tool("add_citation", "Add a citation/reference.", [("title", S), ("authors", arr(S)), ("year", S), ("doi", S), ("url", S), ("container", S)], ["title"]),
+        tool("add_link", "Add a quick link.", [("title", S), ("url", S), ("course", S)], ["title", "url"]),
+        tool("add_snippet", "Add a text snippet.", [("keyword", S), ("title", S), ("body", S)], ["keyword", "title", "body"]),
+        tool("add_class", "Add a weekly class session.", [("title", S), ("weekday", I), ("start", S), ("end", S), ("course", S), ("room", S)], ["title", "weekday", "start", "end"]),
+        tool("add_grade_item", "Add a weighted grade component to a course.", [("course", S), ("name", S), ("weight", N), ("score", N), ("graded", B)], ["course", "name", "weight"]),
+        tool("create_course", "Create a course.", [("name", S), ("code", S)], ["name"]),
+    ]
+
+    static let all: [AITool] = reads + writes
+    static var byName: [String: AITool] { Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
+
+    /// Anthropic `tools` payload.
+    static var anthropic: [[String: Any]] {
+        all.map { ["name": $0.name, "description": $0.description, "input_schema": $0.schema] }
+    }
+}
+
+extension AnthropicProvider {
+    struct ToolUse { let id: String; let name: String; let input: [String: Any] }
+
+    /// One tool-enabled round-trip. `messages` are Anthropic content-block messages.
+    func completeTools(system: String, messages: [[String: Any]],
+                       tools: [[String: Any]]) async throws -> (text: String, toolUses: [ToolUse]) {
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        let body: [String: Any] = [
+            "model": model, "max_tokens": 2048, "system": system,
+            "tools": tools, "messages": messages,
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let msg = (o?["error"] as? [String: Any])?["message"] as? String
+            throw AIError.http(code, msg ?? (String(data: data, encoding: .utf8) ?? ""))
+        }
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return AnthropicProvider.parseContent(obj?["content"] as? [[String: Any]] ?? [])
+    }
+
+    /// Pure extraction of text + tool_use blocks from an Anthropic `content` array.
+    static func parseContent(_ blocks: [[String: Any]]) -> (text: String, toolUses: [ToolUse]) {
+        var text = ""
+        var uses: [ToolUse] = []
+        for b in blocks {
+            switch b["type"] as? String {
+            case "text":
+                if let t = b["text"] as? String { text += (text.isEmpty ? "" : "\n") + t }
+            case "tool_use":
+                if let id = b["id"] as? String, let name = b["name"] as? String {
+                    uses.append(ToolUse(id: id, name: name, input: b["input"] as? [String: Any] ?? [:]))
+                }
+            default: break
+            }
+        }
+        return (text, uses)
+    }
+}
+
+extension AIService {
+    /// Cloud tool-use loop: reads execute + feed back; writes become proposed actions.
+    static func sendWithTools(provider: AnthropicProvider, history: [AIMessage], state: AppState) async throws -> AITurn {
+        let system = toolSystemPrompt(state: state)
+        let tools = AIToolCatalog.anthropic
+        var messages: [[String: Any]] = history.map {
+            ["role": $0.role.rawValue, "content": [["type": "text", "text": $0.text]]]
+        }
+        var replyText = ""
+        for _ in 0..<maxRoundsTool {
+            let (text, toolUses) = try await provider.completeTools(system: system, messages: messages, tools: tools)
+            if !text.isEmpty { replyText = text }
+            let writes = toolUses.filter { AIProtocol.writeTools.contains($0.name) }
+            let reads  = toolUses.filter { AIProtocol.readTools.contains($0.name) }
+            // Writes proposed, or nothing left to read → terminal.
+            if !writes.isEmpty || reads.isEmpty {
+                return present(AITurn(reply: replyText, actions: writes.map { proposedAction($0.name, $0.input) }))
+            }
+            // Reads only → replay the assistant turn, run them, feed tool_result, continue.
+            var assistant: [[String: Any]] = []
+            if !text.isEmpty { assistant.append(["type": "text", "text": text]) }
+            assistant += toolUses.map { ["type": "tool_use", "id": $0.id, "name": $0.name, "input": $0.input] }
+            messages.append(["role": "assistant", "content": assistant])
+            let results: [[String: Any]] = reads.map { tu in
+                ["type": "tool_result", "tool_use_id": tu.id,
+                 "content": AIReader.one(AIAction(tool: tu.name, label: "", args: tu.input), state: state)]
+            }
+            messages.append(["role": "user", "content": results])
+        }
+        return present(AITurn(reply: replyText, actions: []))
+    }
+
+    static var maxRoundsTool: Int { 5 }
+
+    /// Build a proposed write action from a tool call, with a human label.
+    static func proposedAction(_ tool: String, _ input: [String: Any]) -> AIAction {
+        AIAction(tool: tool, label: AIAction(tool: tool, label: "", args: input).autoLabel, args: input)
+    }
+
+    /// System prompt for the native-tool path — same guardrail as the JSON prompt, but
+    /// the tools carry their own schemas so there's no JSON-envelope protocol to explain.
+    static func toolSystemPrompt(state: AppState) -> String {
+        """
+        You are StudyBar Copilot, an assistant built into a macOS menu-bar study app.
+
+        YOUR JOB: organize the student's own study data and help them operate StudyBar —
+        rank and schedule assignments, plan focus sessions, turn the student's own notes
+        into flashcards, triage a pasted syllabus, tidy tasks.
+
+        HARD RULE — you do NOT tutor. Never produce NEW subject-matter explanations or
+        answers from your own knowledge, solve problems, or write essays/assignments. If
+        asked to teach or answer, briefly decline and offer to organize instead.
+
+        BUT reshaping the student's OWN material IS organizing, not tutoring — always
+        allowed, even for academic content: turning a note/text they give you into
+        flashcards, summarizing their note, tagging, or building tasks/a schedule from it.
+        Transform what they give you = YES; teach them something new = NO.
+
+        HOW YOU WORK — use your tools, don't describe them:
+        - Read tools (get_/list_/search) look things up instantly and privately, no confirmation.
+        - Write tools (add_/create_/make_/plan_/…) PROPOSE a change: each is shown to the
+          student as a confirm card and only applied on their tap. Call the tool; don't
+          paste the change as prose.
+        - If the student included the material in their message, act on it directly — don't
+          look it up. Only read when you genuinely need data they didn't provide.
+        - When they ask to save / add / make / summarize / rank, call at least one write tool.
+        - Never invent data you didn't read or the student didn't give you.
+
+        CURRENT STATE (a summary — use the read tools for detail):
+        \(StudyContext.snapshot(state: state))
+        """
+    }
+}
+
+// MARK: - Headless self-test for native tool-use (StudyBar --ai-selftest)
+
+enum AIToolSelfTest {
+    @MainActor static func run() -> Int32 {
+        var fail = 0
+        func check(_ name: String, _ cond: Bool) {
+            print((cond ? "  ok   " : "FAIL   ") + name); if !cond { fail += 1 }
+        }
+
+        // 1. Catalog covers exactly the read + write tools the app understands.
+        let names = Set(AIToolCatalog.all.map { $0.name })
+        check("catalog = read+write tools", names == AIProtocol.readTools.union(AIProtocol.writeTools))
+        check("catalog count 28", AIToolCatalog.all.count == 28)
+
+        // 2. Every tool has a non-empty description and an object schema.
+        check("all tools have description", AIToolCatalog.all.allSatisfy { !$0.description.isEmpty })
+        check("all schemas are objects", AIToolCatalog.all.allSatisfy { ($0.schema["type"] as? String) == "object" })
+
+        // 3. Anthropic payload shape.
+        let ap = AIToolCatalog.anthropic
+        check("anthropic payload count", ap.count == 28)
+        check("anthropic payload keys", ap.allSatisfy { $0["name"] != nil && $0["description"] != nil && $0["input_schema"] != nil })
+
+        // 4. A required-arg schema is right (create_course requires name).
+        if let cc = AIToolCatalog.byName["create_course"] {
+            check("create_course requires name", (cc.schema["required"] as? [String]) == ["name"])
+        } else { check("create_course present", false) }
+
+        // 5. parseContent extracts interleaved text + tool_use.
+        let blocks: [[String: Any]] = [
+            ["type": "text", "text": "Sure — adding that."],
+            ["type": "tool_use", "id": "tu_1", "name": "add_task", "input": ["text": "read chapter 3", "dueInDays": 2]],
+        ]
+        let parsed = AnthropicProvider.parseContent(blocks)
+        check("parseContent text", parsed.text == "Sure — adding that.")
+        check("parseContent one tool_use", parsed.toolUses.count == 1 && parsed.toolUses.first?.name == "add_task")
+        check("parseContent input carried", (parsed.toolUses.first?.input["text"] as? String) == "read chapter 3")
+
+        // 6. A write tool_use maps to a proposed action with a real label.
+        let a = AIService.proposedAction("create_assignment", ["title": "Lab report"])
+        check("proposedAction label", a.label == "Add assignment: Lab report")
+        check("proposedAction args", (a.args["title"] as? String) == "Lab report")
+
+        // 7. Read/write partition (routing used by the loop).
+        check("add_task is a write", AIProtocol.writeTools.contains("add_task"))
+        check("get_note is a read", AIProtocol.readTools.contains("get_note"))
+
+        print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
+        return fail == 0 ? 0 : 1
     }
 }
