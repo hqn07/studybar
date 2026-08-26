@@ -14,6 +14,16 @@ Native SwiftUI · macOS 14+ · single `.app` · MIT licensed
 
 ---
 
+## Screenshots
+
+<!-- Drop images/GIFs into docs/ and reference them here, e.g.:
+     ![Today](docs/today.png) ![Focus](docs/focus.gif)
+     A short GIF of the Today dashboard + a Focus session does the most for the repo. -->
+
+_Add screenshots and a short demo GIF here — the fastest way to grow stars (and reach Homebrew Cask's notability bar)._
+
+---
+
 ## Install
 
 > **Heads up — the app isn't notarized.** Notarization needs a paid Apple Developer ID
@@ -32,7 +42,7 @@ still works — you'll just do the one-time right-click → Open below.
 
 ### Download
 
-Grab `StudyBar-1.0.0.dmg` from the [latest release](https://github.com/hqn07/studybar/releases/latest),
+Grab the `.dmg` from the [latest release](https://github.com/hqn07/studybar/releases/latest),
 open it, and drag **StudyBar** to Applications. Then, once:
 
 - **right-click the app → Open** (and confirm), or
@@ -58,14 +68,14 @@ Look for the graduation-cap in your menu bar. **Left-click** for the popover,
 48 modules across study, capture, focus, schedule, research and organization —
 everything hangs off your **Courses**.
 
-- **Overview** — Today dashboard (streak, due-today, next class, quick-add) · Insights (7-day chart, time by course) · **AI Assistant**.
+- **Overview** — Today dashboard (next-up, streak, due-today, natural-language quick-add) · Insights (7-day chart, time by course, flashcard retention, weekly AI review) · **AI Assistant**.
 - **Assignments** — tracker, due badge + countdown, checklists, recurring, notifications with Complete/Snooze, AI urgency ranking.
 - **Capture** — Notes (Markdown, screenshot-to-note) · Scratchpad · **Voice Note** (on-device transcription) · Clipboard history · Snippets.
 - **Time & Focus** — Pomodoro (course-linked, cycles) · Stopwatch · Focus (hide apps + ambient noise) · Sessions.
 - **Schedule** — weekly class schedule · unified Calendar (EventKit + iCal feeds + assignments).
 - **Links & Resources** — Quick Links · Reading List · Files (PDF search) · **News** (RSS/Atom reader).
 - **Research** — Citations (Crossref/DOI, APA/MLA/Chicago/BibTeX) · Word Count · Dictionary · **Lookup** (Wikipedia + arXiv + DOI→open-access PDF).
-- **Study** — Flashcards (SM-2, cloze, retention %) · Reading tracker (ISBN covers, chapters, highlights).
+- **Study** — Flashcards (FSRS-4.5 scheduling, tap-to-cloze, **Anki `.apkg`/CSV import & export**, retention %) · Reading tracker (ISBN covers, chapters, highlights).
 - **Organize** — To-Do · Kanban Board · Semester (GPA) · **Grade Calc** (what-if) · Courses.
 
 ### The AI Assistant
@@ -82,8 +92,9 @@ before it's applied. Runs on:
 ### System integration
 
 Global hotkeys · floating command palette · quick-capture panel · `studybar://` URL
-scheme · Services menu · Shortcuts.app actions · Reminders push · Canvas LMS sync ·
-Spotlight indexing · Focus/DND automation · daily backups · optional iCloud Drive sync.
+scheme · Services menu · Shortcuts.app actions · Reminders push · **Canvas import via
+calendar feed (no API token)** · undo for deletes · Spotlight indexing · Focus/DND
+automation · daily backups · optional iCloud Drive sync.
 
 ---
 
