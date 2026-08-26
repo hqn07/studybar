@@ -220,6 +220,7 @@ struct CourseCard: View {
     private var open: [Assignment] { state.data.assignments.filter { $0.courseID == course.id && $0.status != .done } }
     private var overdue: Int { open.filter { $0.isOverdue }.count }
     private var dueSoon: Int { open.filter { ($0.daysUntilDue ?? 99) >= 0 && ($0.daysUntilDue ?? 99) <= 7 }.count }
+    private var notesCount: Int { state.data.notes.filter { $0.courseID == course.id }.count }
 
     /// Next meeting this week for the course: today's upcoming one, else the soonest weekday.
     private var nextMeeting: String? {
@@ -257,6 +258,9 @@ struct CourseCard: View {
                     else if let m = nextMeeting { Chip(m, .status(.neutral), systemImage: "clock") }
                     if overdue == 0 && dueSoon > 0 { Text("\(dueSoon) due").font(.caption2).foregroundStyle(.secondary) }
                     Spacer()
+                    if notesCount > 0 {
+                        Label("\(notesCount)", systemImage: "note.text").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }.padding(.top, DS.Space.m)
             }
             .padding(DS.Space.m)
