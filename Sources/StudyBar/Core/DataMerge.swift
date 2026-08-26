@@ -102,6 +102,7 @@ extension AppData {
         r.gradeItems  = mergeOptLists(base: base.gradeItems, mine: mine.gradeItems, theirs: theirs.gradeItems)
         r.rssFeeds    = mergeOptLists(base: base.rssFeeds,   mine: mine.rssFeeds,   theirs: theirs.rssFeeds)
         r.fileRefs    = mergeOptLists(base: base.fileRefs,   mine: mine.fileRefs,   theirs: theirs.fileRefs)
+        r.trash       = mergeOptLists(base: base.trash,      mine: mine.trash,      theirs: theirs.trash)
         // Scalars.
         r.scratchpad  = merge3(base.scratchpad, mine.scratchpad, theirs.scratchpad)
         r.termName    = merge3(base.termName,   mine.termName,   theirs.termName)
@@ -136,6 +137,7 @@ extension FolderRef:       MergeItem { var mergeStamp: Date { .distantPast } }
 extension FileRef:         MergeItem { var mergeStamp: Date { addedAt } }
 extension GradeItem:       MergeItem { var mergeStamp: Date { .distantPast } }
 extension RSSFeed:         MergeItem { var mergeStamp: Date { .distantPast } }
+extension TrashedItem:     MergeItem { var mergeStamp: Date { deletedAt } }
 
 // MARK: - Headless self-test
 // Run with `StudyBar --merge-selftest` (see AppDelegate). Exercises the merge
@@ -239,6 +241,20 @@ enum MergeSelfTest {
         do {
             let m = mergeLists(base: [], mine: [a, b], theirs: [c])
             check("order: mine first, remote appended", m.map(\.id) == [a.id, b.id, c.id])
+        }
+
+        // 16. Trash: deletion capture, payload round-trip, bulk cap, no-op.
+        do {
+            let n1 = Note(title: "Keep A"), n2 = Note(title: "Delete me"), n3 = Note(title: "Keep C")
+            var before = AppData(); before.notes = [n1, n2, n3]
+            var after = before; after.notes = [n1, n3]
+            let t = AppData.deletionTrash(before: before, after: after)
+            check("trash: one captured", t.count == 1 && t.first?.collection == "notes" && t.first?.itemID == n2.id)
+            let restored = t.first.flatMap { try? JSONDecoder.studybar.decode(Note.self, from: $0.payload) }
+            check("trash: payload restores", restored?.id == n2.id && restored?.title == "Delete me")
+            var big = AppData(); big.todos = (0..<30).map { TodoItem(text: "t\($0)") }
+            check("trash: bulk delete skipped", AppData.deletionTrash(before: big, after: AppData()).isEmpty)
+            check("trash: no deletion → empty", AppData.deletionTrash(before: before, after: before).isEmpty)
         }
 
         print(failures == 0 ? "MERGE SELFTEST: ALL PASS" : "MERGE SELFTEST: \(failures) FAILURE(S)")

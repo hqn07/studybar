@@ -366,6 +366,20 @@ struct GradeItem: Identifiable, Codable, Hashable {
     var graded: Bool = true    // false = not taken yet (a target/unknown)
 }
 
+// MARK: - Trash (soft-delete; recover a deleted item without reverting later work)
+
+/// One deleted item, captured by `AppState.withUndo` (diffed automatically) and kept
+/// until restored, purged, or aged out (30 days).
+struct TrashedItem: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var deletedAt = Date()
+    var collection: String   // which AppData array it came from
+    var itemID: UUID         // the item's original id
+    var label: String        // human summary for the Trash row
+    var symbol: String = "trash"
+    var payload: Data        // JSON of the removed item, for restore
+}
+
 // MARK: - Root persisted document
 
 struct AppData: Codable, Equatable {
@@ -395,4 +409,37 @@ struct AppData: Codable, Equatable {
     var gradeItems: [GradeItem]? = nil
     var rssFeeds: [RSSFeed]? = nil
     var fileRefs: [FileRef]? = nil     // pinned files grouped into collapsible tags
+    var trash: [TrashedItem]? = nil    // soft-deleted items, recoverable (decode-safe)
+}
+
+extension AppData {
+    /// Items that disappeared from a collection between `before` and `after` — captured
+    /// for the trash. Returns [] for a bulk change (>25 removed: erase/restore) so those
+    /// aren't dumped into the trash (backups cover them). Pure, so it's unit-testable.
+    static func deletionTrash(before: AppData, after: AppData) -> [TrashedItem] {
+        func removed<T: Identifiable & Codable>(_ name: String, _ symbol: String,
+                                                _ b: [T], _ a: [T], _ label: (T) -> String) -> [TrashedItem] where T.ID == UUID {
+            let live = Set(a.map(\.id))
+            return b.filter { !live.contains($0.id) }.compactMap { item in
+                guard let d = try? JSONEncoder.studybar.encode(item) else { return nil }
+                return TrashedItem(collection: name, itemID: item.id, label: label(item), symbol: symbol, payload: d)
+            }
+        }
+        var t: [TrashedItem] = []
+        t += removed("notes", "note.text", before.notes, after.notes) { $0.title.isEmpty ? "Untitled note" : $0.title }
+        t += removed("assignments", "checklist", before.assignments, after.assignments) { "Assignment: \($0.title)" }
+        t += removed("todos", "checkmark.circle", before.todos, after.todos) { "Task: \($0.text)" }
+        t += removed("references", "quote.opening", before.references, after.references) { "Citation: \($0.title)" }
+        t += removed("links", "link", before.links, after.links) { "Link: \($0.title.isEmpty ? $0.url : $0.title)" }
+        t += removed("snippets", "text.badge.plus", before.snippets, after.snippets) { "Snippet: \($0.keyword.isEmpty ? $0.title : $0.keyword)" }
+        t += removed("decks", "rectangle.on.rectangle.angled", before.decks, after.decks) { "Deck: \($0.name)" }
+        t += removed("flashcards", "rectangle.on.rectangle.angled", before.flashcards, after.flashcards) { "Card: \(String($0.front.prefix(32)))" }
+        t += removed("reading", "book", before.reading, after.reading) { "Book: \($0.title)" }
+        t += removed("readingList", "books.vertical", before.readingList, after.readingList) { "Read-later: \($0.title)" }
+        t += removed("timeEntries", "timer", before.timeEntries, after.timeEntries) { "Session: \($0.label.isEmpty ? "\($0.seconds / 60)m" : $0.label)" }
+        t += removed("classes", "graduationcap", before.classes, after.classes) { "Class: \($0.title.isEmpty ? "Class" : $0.title)" }
+        t += removed("courses", "graduationcap.fill", before.courses, after.courses) { "Course: \($0.name)" }
+        t += removed("clips", "doc.on.clipboard", before.clips, after.clips) { "Clip: \(String($0.text.prefix(32)))" }
+        return (t.isEmpty || t.count > 25) ? [] : t     // bulk op → leave to backups
+    }
 }

@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var autoBackup = BackupManager.auto
     @State private var backupStatus = ""
     @State private var confirmClear = false
+    @State private var confirmEmptyTrash = false
     @State private var pendingRestore: URL? = nil
     @State private var hotkeyTick = 0
     @State private var remindersStatus = ""
@@ -67,6 +68,15 @@ struct SettingsView: View {
                             confirmLabel: "Erase everything",
                             onConfirm: { state.withUndo("Erased all data") { state.data = AppData() }; confirmClear = false },
                             onCancel: { confirmClear = false })
+            }
+        }
+        .overlay {
+            if confirmEmptyTrash {
+                ConfirmCard(title: "Empty Trash?",
+                            message: "Permanently delete \(state.trashCount) item\(state.trashCount == 1 ? "" : "s") in the trash. This can't be undone.",
+                            confirmLabel: "Empty Trash",
+                            onConfirm: { state.emptyTrash(); confirmEmptyTrash = false },
+                            onCancel: { confirmEmptyTrash = false })
             }
         }
         .overlay {
@@ -276,6 +286,35 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var recentlyDeletedSection: some View {
+        if let trash = state.data.trash, !trash.isEmpty {
+            Section("Recently Deleted (\(trash.count))") {
+                ForEach(trash.sorted { $0.deletedAt > $1.deletedAt }) { t in
+                    HStack(spacing: 10) {
+                        Image(systemName: t.symbol).foregroundStyle(.secondary).frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(t.label).lineLimit(1)
+                            Text(t.deletedAt.formatted(.relative(presentation: .named)))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { state.restoreFromTrash([t.id]) } label: { Image(systemName: "arrow.uturn.backward") }
+                            .buttonStyle(.borderless).help("Restore")
+                        Button(role: .destructive) { state.purgeFromTrash([t.id]) } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless).help("Delete forever")
+                    }
+                }
+                HStack {
+                    Button("Restore all") { state.restoreFromTrash(Set(trash.map(\.id))) }
+                    Spacer()
+                    Button("Empty Trash", role: .destructive) { confirmEmptyTrash = true }
+                }
+                Text("Deleted items are kept here for 30 days, then removed automatically.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     @ViewBuilder private var dataSections: some View {
         Section("Data") {
             Toggle("Sync via iCloud Drive", isOn: $iCloud)
@@ -319,6 +358,7 @@ struct SettingsView: View {
             Text("Find notes and open assignments from system-wide Spotlight; opening a result launches StudyBar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        recentlyDeletedSection
         Section("Storage") { statsCard }
         Section("Danger Zone") {
             Button { onboarded = false } label: { Label("Show welcome again", systemImage: "sparkles") }

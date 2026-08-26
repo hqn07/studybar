@@ -41,6 +41,7 @@ final class AppState: ObservableObject {
     func withUndo(_ label: String, _ mutation: () -> Void) {
         let snapshot = data
         mutation()
+        captureDeletions(from: snapshot)
         let entry = UndoEntry(label: label, snapshot: snapshot)
         undo = entry
         undoClearTask?.cancel()
@@ -55,6 +56,55 @@ final class AppState: ObservableObject {
         undo = nil
         undoClearTask?.cancel()
     }
+
+    // MARK: Trash — soft-deleted items captured by diffing withUndo (see Models.TrashedItem)
+
+    var trashCount: Int { data.trash?.count ?? 0 }
+
+    /// After a destructive mutation, capture anything that disappeared from a collection
+    /// into the trash — so a single deleted item can be recovered later without reverting
+    /// newer work. A bulk change (erase-all, restore-backup) is skipped; backups cover those.
+    private func captureDeletions(from before: AppData) {
+        let t = AppData.deletionTrash(before: before, after: data)
+        if !t.isEmpty { data.trash = (data.trash ?? []) + t }
+    }
+
+    /// Restore trashed items back into their collections.
+    func restoreFromTrash(_ ids: Set<UUID>) {
+        let dec = JSONDecoder.studybar
+        for t in (data.trash ?? []).filter({ ids.contains($0.id) }) {
+            func add<T: Decodable & Identifiable>(_ keyPath: WritableKeyPath<AppData, [T]>, _ type: T.Type) where T.ID == UUID {
+                guard let x = try? dec.decode(type, from: t.payload),
+                      !data[keyPath: keyPath].contains(where: { $0.id == x.id }) else { return }
+                data[keyPath: keyPath].append(x)
+            }
+            switch t.collection {
+            case "notes":        add(\.notes, Note.self)
+            case "assignments":  add(\.assignments, Assignment.self)
+            case "todos":        add(\.todos, TodoItem.self)
+            case "references":   add(\.references, Reference.self)
+            case "links":        add(\.links, QuickLink.self)
+            case "snippets":     add(\.snippets, Snippet.self)
+            case "decks":        add(\.decks, Deck.self)
+            case "flashcards":   add(\.flashcards, Flashcard.self)
+            case "reading":      add(\.reading, ReadingItem.self)
+            case "readingList":  add(\.readingList, ReadingListItem.self)
+            case "timeEntries":  add(\.timeEntries, TimeEntry.self)
+            case "classes":      add(\.classes, ClassSession.self)
+            case "courses":      add(\.courses, Course.self)
+            case "clips":        add(\.clips, ClipItem.self)
+            default: break
+            }
+        }
+        data.trash?.removeAll { ids.contains($0.id) }
+        if data.trash?.isEmpty == true { data.trash = nil }
+    }
+
+    func purgeFromTrash(_ ids: Set<UUID>) {
+        data.trash?.removeAll { ids.contains($0.id) }
+        if data.trash?.isEmpty == true { data.trash = nil }
+    }
+    func emptyTrash() { data.trash = nil }
     func dismissUndo() { undo = nil; undoClearTask?.cancel() }
 
     // AI assistant conversation (ephemeral; not persisted).
@@ -106,12 +156,18 @@ final class AppState: ObservableObject {
         let useCloud = UserDefaults.standard.bool(forKey: "iCloudSync")
         fileURL = AppState.dataURL(iCloud: useCloud)
 
-        let initial: AppData
+        var initial: AppData
         if let raw = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) {
             initial = decoded
         } else {
             initial = AppData.seed()
+        }
+        // Age out trashed items older than 30 days (before adopting, so no extra save).
+        if let tr = initial.trash {
+            let cutoff = Date().addingTimeInterval(-30 * 86400)
+            let kept = tr.filter { $0.deletedAt > cutoff }
+            initial.trash = kept.isEmpty ? nil : kept
         }
         data = initial
         baseData = initial
