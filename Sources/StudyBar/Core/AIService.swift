@@ -541,7 +541,7 @@ enum AIProtocol {
     - create_assignment   args: { "title": string, "course"?: string, "dueInDays"?: int, "points"?: number }
     - complete_assignment args: { "title": string }
     - update_assignment   args: { "title": string, "dueInDays"?: int, "submitted"?: bool, "done"?: bool }
-    - prioritize_assignments args: {}   (StudyBar computes urgency from due × weight × submission — don't guess ranks)
+    - prioritize_assignments args: {}   (StudyBar computes urgency from due × weight × course grade × effort — don't guess ranks)
     - plan_study_block    args: { "sessions": [ { "title": string, "dueInDays": int, "minutes"?: int, "course"?: string } ] }
     - make_flashcards     args: { "deck"?: string, "course"?: string, "cards": [ { "front": string, "back": string } ] }
     - start_pomodoro      args: { "minutes"?: int, "label"?: string }
@@ -1113,19 +1113,25 @@ enum AIActionRunner {
     }
 
     /// Deterministic urgency ranking — StudyBar computes it, the model never guesses.
-    /// Score blends days-until-due (dominant) with grade weight → urgency 0/1/2.
-    /// Imminent (≤3 days, incl. today/overdue) is "Now" regardless of weight.
-    static func urgencyScore(days: Int, points: Double?) -> Int {
+    /// Score blends days-until-due (dominant), assignment weight, and a `riskBump` from
+    /// the course's standing (low grade / neglected this week) → urgency 0/1/2.
+    /// Imminent (≤3 days, incl. today/overdue) is "Now" regardless of the rest.
+    static func urgencyScore(days: Int, points: Double?, riskBump: Double = 0) -> Int {
         var score = 0.0
         if days <= 3 { score += 3 }          // overdue … due in 3 days → Now baseline
         else if days <= 7 { score += 1.5 }   // this week
         else if days <= 14 { score += 0.5 }  // next couple weeks
         if let p = points { if p >= 50 { score += 1 } else if p >= 20 { score += 0.5 } }
+        score += riskBump
         return score >= 3 ? 2 : (score >= 1.5 ? 1 : 0)   // 2 Now · 1 This week · 0 Later
     }
 
     @discardableResult
     static func prioritize(state: AppState) -> Int {
+        let data = state.data
+        // Minutes studied per course this week — a course at 0 is being neglected.
+        var weekByCourse: [UUID: Int] = [:]
+        for r in StudyStats.weekByCourse(data) { if let id = r.courseID { weekByCourse[id] = r.seconds / 60 } }
         var count = 0
         for i in state.data.assignments.indices {
             let a = state.data.assignments[i]
@@ -1133,7 +1139,13 @@ enum AIActionRunner {
                 state.data.assignments[i].urgency = 0     // done/submitted → lowest
                 continue
             }
-            state.data.assignments[i].urgency = urgencyScore(days: a.daysUntilDue ?? 999, points: a.points)
+            // Ecosystem bump: work in a struggling or neglected course is more at risk.
+            var bump = 0.0
+            if let c = data.courses.first(where: { $0.id == a.courseID }) {
+                if let gp = c.gradePoints { if gp < 2.7 { bump += 1.0 } else if gp < 3.3 { bump += 0.5 } }
+                if (weekByCourse[c.id] ?? 0) == 0 { bump += 0.5 }
+            }
+            state.data.assignments[i].urgency = urgencyScore(days: a.daysUntilDue ?? 999, points: a.points, riskBump: bump)
             count += 1
         }
         return count
@@ -1535,6 +1547,11 @@ enum AIToolSelfTest {
         // 7. Read/write partition (routing used by the loop).
         check("add_task is a write", AIProtocol.writeTools.contains("add_task"))
         check("get_note is a read", AIProtocol.readTools.contains("get_note"))
+
+        // 7b. Urgency ranking factors the ecosystem risk bump (low grade / neglected course).
+        check("urgency: far due, no risk → Later", AIActionRunner.urgencyScore(days: 10, points: nil) == 0)
+        check("urgency: far due + risk bump → This week", AIActionRunner.urgencyScore(days: 10, points: nil, riskBump: 1.5) == 1)
+        check("urgency: imminent → Now", AIActionRunner.urgencyScore(days: 1, points: nil) == 2)
 
         // 8. Streaming reply extraction from a partial JSON envelope.
         check("replySoFar mid-stream", AIProtocol.replySoFar("{\"reads\":[],\"reply\":\"Made 3 cards.") == "Made 3 cards.")
