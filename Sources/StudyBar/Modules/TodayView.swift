@@ -227,10 +227,16 @@ struct TodayView: View {
 
     // MARK: - Quick add + Plan my day
 
+    private var parsedQuick: QuickParse.Result { QuickParse.parse(quickTask, courses: state.data.courses) }
+    private var showParsePreview: Bool {
+        !quickTask.trimmingCharacters(in: .whitespaces).isEmpty
+            && (parsedQuick.due != nil || parsedQuick.courseID != nil || parsedQuick.isAssignment)
+    }
+
     private var quickAddBlock: some View {
         VStack(spacing: DS.Space.m) {
             HStack(spacing: DS.Space.m) {
-                TextField("Quick add a task…", text: $quickTask, onCommit: addTask)
+                TextField("Quick add — “essay fri for chem”", text: $quickTask, onCommit: addTask)
                     .textFieldStyle(.roundedBorder)
                 Button { addTask() } label: { Image(systemName: "plus.circle.fill") }
                     .buttonStyle(.borderless).disabled(quickTask.isEmpty)
@@ -241,6 +247,7 @@ struct TodayView: View {
                     Image(systemName: "timer")
                 }.buttonStyle(.borderless).help("Start a timer")
             }
+            if showParsePreview { parsePreview }
             if AIConfig.isReady {
                 Button {
                     AppActions.assistant("Look at my open assignments, due dates and classes, and give me a short prioritized plan for today. Propose tasks or study blocks I can add.")
@@ -252,10 +259,37 @@ struct TodayView: View {
         }
     }
 
+    private var parsePreview: some View {
+        let p = parsedQuick
+        return HStack(spacing: DS.Space.s) {
+            Image(systemName: p.isAssignment ? "checklist" : "circle")
+                .font(.caption2).foregroundStyle(.secondary)
+            Text(p.title.isEmpty ? "…" : p.title).font(.caption).lineLimit(1)
+            if let c = state.course(p.courseID) { CourseChip(course: c) }
+            if let due = p.due { Chip(due.dayMonth, .status(dueStatus(due))) }
+            Spacer(minLength: DS.Space.s)
+            Chip(p.isAssignment ? "Assignment" : "Task", .tag)
+        }
+        .padding(.horizontal, DS.Space.xs)
+        .transition(.opacity)
+    }
+
+    private func dueStatus(_ due: Date) -> Chip.Status {
+        let days = Calendar.current.dateComponents([.day],
+            from: Calendar.current.startOfDay(for: .now),
+            to: Calendar.current.startOfDay(for: due)).day ?? 99
+        return days <= 0 ? .now : (days <= 3 ? .week : .neutral)
+    }
+
     private func addTask() {
-        let t = quickTask.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty else { return }
-        state.data.todos.append(TodoItem(text: t))
+        let raw = quickTask.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        let p = QuickParse.parse(raw, courses: state.data.courses)
+        if p.isAssignment {
+            state.data.assignments.append(Assignment(title: p.title, courseID: p.courseID, due: p.due))
+        } else {
+            state.data.todos.append(TodoItem(text: p.title, priority: p.priority, courseID: p.courseID, due: p.due))
+        }
         quickTask = ""
     }
 
