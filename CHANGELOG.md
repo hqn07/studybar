@@ -5,6 +5,12 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-08-26
+
+- **Courses redesign** — a term hub: GPA hero, grade-ring cards (live grade from your components), and collapsible past-term shelves with per-term GPA. Archive a term and add past courses.
+- **Canvas classification** — imported assignments auto-create their courses from the feed's course codes; a Classify page groups the rest so you can verify and assign in a tap.
+- **Minimizable sidebar** — collapse it to an icon rail (⌘\\ or the chevron); auto-rails in the compact popover.
+- **Data safety** — conflict-safe saves: StudyBar reloads external changes on activation and never overwrites a newer file (keeps a conflict copy). Fixes a case where data could be clobbered.
 - **Time & Focus** redesigned around a shared tick-dial clock hero (Timer, Stopwatch, Focus); live-session banner across tabs; session-complete toast; tidier Focus setup.
 - **Natural-language quick-add** — typing "essay due friday for chem" on Today or in the Quick Task panel creates a real assignment with course + due date, offline.
 - **Projected GPA** — Grade Calc rolls each course's graded components into a credit-weighted GPA.
