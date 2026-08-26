@@ -5,6 +5,15 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-08-26
+
+- **Resizable window** — StudyBar is now a full windowed app with the menu bar as a quick-glance companion. The popover shows Today plus a module launcher; open the window (click the app icon, or pick a module) for the full workspace. It remembers your last module and titles itself for the current one, and you can add a Dock icon in Settings ▸ General ▸ Window.
+- **Settings redesigned** — a vertical, grouped sidebar; Appearance now has accent presets, a Light / Dark / Device toggle, and density, with the status colors kept fixed.
+- **Assistant replies stream** — local (Ollama) answers type out live instead of appearing all at once.
+- **Never-lose-data saves** — when the same file was edited on two devices, StudyBar now does a true 3-way merge so edits from both sides survive, instead of keeping one and setting the other aside.
+- **Calendar sources** — hover any event to see where it came from (macOS Calendar, a subscribed feed, an assignment, or a class).
+- **Fixes** — clicking the menu bar shows only the popover, not the window; switching the theme to Device follows the system immediately; the popover is opaque (no desktop showing through); clicking the app icon opens the window.
+
 ## [1.4.0] — 2026-08-26
 
 - **Courses redesign** — a term hub: GPA hero, grade-ring cards (live grade from your components), and collapsible past-term shelves with per-term GPA. Archive a term and add past courses.
