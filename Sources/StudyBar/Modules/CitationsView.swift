@@ -160,7 +160,7 @@ struct CitationsView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(9).contentShape(Rectangle())
-                            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
@@ -205,7 +205,7 @@ struct ReferenceRow: View {
             }.font(.caption)
         }
         .padding(DS.Space.m)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // Strip markdown emphasis markers for plain display/copy.

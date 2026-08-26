@@ -89,7 +89,7 @@ struct FlashcardsView: View {
             if due > 0 { Chip("\(due) due", .status(.week)) }
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(DS.Space.m).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func addDeck() {
@@ -251,7 +251,7 @@ struct DeckView: View {
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(DS.Space.m).contentShape(Rectangle())
-            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -396,7 +396,7 @@ struct FlipCardComposer: View {
                             Button { toggle(i) } label: {
                                 Text(w).font(.caption)
                                     .padding(.horizontal, 7).padding(.vertical, 2)
-                                    .background(blanks.contains(i) ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.sbSurface), in: Capsule())
+                                    .background(blanks.contains(i) ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
                                     .foregroundStyle(blanks.contains(i) ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                             }.buttonStyle(.plain)
                         }
@@ -456,7 +456,7 @@ struct TagChips: View {
                 }
             }
             .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(Color.sbSurface, in: Capsule())
+            .background(.background.secondary, in: Capsule())
 
             if !ordered.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -476,7 +476,7 @@ struct TagChips: View {
                 Text(t).font(.caption2)
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.sbSurface), in: Capsule())
+            .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
             .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         }.buttonStyle(.plain)
     }
@@ -586,7 +586,7 @@ struct CSVImportView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $text).font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 160).scrollContentBackground(.hidden)
-                    .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 HStack(spacing: DS.Space.s) {
                     if !importError.isEmpty {
                         Text(importError).font(.caption).foregroundStyle(Color.dsNow)
@@ -684,7 +684,7 @@ struct StudyView: View {
                     }
                 }
                 .padding(24).frame(maxWidth: .infinity)
-                .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 14))
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 16)
                 Spacer()
                 if revealed {

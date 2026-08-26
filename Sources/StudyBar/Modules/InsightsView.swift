@@ -73,7 +73,7 @@ struct InsightsView: View {
             Text(v).font(.title3.bold().monospacedDigit())
             Text(l).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }.frame(maxWidth: .infinity).padding(.vertical, DS.Space.l)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - 7-day study chart

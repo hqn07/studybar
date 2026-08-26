@@ -86,7 +86,7 @@ struct WordCountView: View {
                 Spacer()
             }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var targetCard: some View {
@@ -104,7 +104,7 @@ struct WordCountView: View {
             } else {
                 Text("Set a word goal for essays and papers.").font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(12).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        }.padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var topWordsCard: some View {
@@ -114,7 +114,7 @@ struct WordCountView: View {
                 HStack { Text(w.0); Spacer(); Text("\(w.1)×").foregroundStyle(.secondary) }.font(.caption)
             }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func stat(_ v: String, _ l: String) -> some View {
@@ -123,7 +123,7 @@ struct WordCountView: View {
             Text(l).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func paste() {

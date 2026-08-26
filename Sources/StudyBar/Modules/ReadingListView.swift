@@ -97,7 +97,7 @@ struct ReadingListRow: View {
                 Image(systemName: "xmark")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
-        .padding(DS.Space.m).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
     private func toggle() {
         guard let i = state.data.readingList.firstIndex(where: { $0.id == item.id }) else { return }

@@ -204,7 +204,7 @@ struct SnippetRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func copy() {
@@ -229,7 +229,7 @@ struct KeywordPill: View {
             .font(.caption2.weight(.semibold).monospaced())
             .foregroundStyle(keyword.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Color.sbSurface2, in: RoundedRectangle(cornerRadius: 5))
+            .background(.background.tertiary, in: RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.separator, lineWidth: 0.5))
             .frame(minWidth: 42)
     }
@@ -263,7 +263,7 @@ struct SnippetEditor: View {
                 }
                 TextEditor(text: $draft.body).frame(height: 140)
                     .font(.body).scrollContentBackground(.hidden)
-                    .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 6))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
                 Text("Placeholders expand when you copy: {date} · {time} · {datetime} · {clipboard}")
                     .font(.caption2).foregroundStyle(.secondary)
             }.padding(14)
@@ -310,7 +310,7 @@ struct CategoryPicker: View {
                 }
             }
             .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(Color.sbSurface, in: Capsule())
+            .background(.background.secondary, in: Capsule())
 
             if !allChips.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -334,7 +334,7 @@ struct CategoryPicker: View {
                 Text(c).font(.caption2)
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.sbSurface), in: Capsule())
+            .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Capsule())
             .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         }.buttonStyle(.plain)
     }

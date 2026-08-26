@@ -98,7 +98,7 @@ struct ClassifyView: View {
                 }
             }
         }
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     /// One item inside an expanded group — title + a move menu (other codes / a course).
@@ -132,7 +132,7 @@ struct ClassifyView: View {
                 set: { if let c = $0 { assignItem(a.id, to: c) } }))
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {

@@ -18,7 +18,7 @@ enum DS {
 extension Color {
     /// Semantic status colors — used for state ONLY (urgency, done, overdue), never decoration.
     static let dsNow = Color.red
-    static let dsWeek = Color(hex: "#BFA980") ?? .orange   // muted taupe — calmer than the old amber
+    static let dsWeek = Color.orange
     static let dsDone = Color(red: 0.21, green: 0.71, blue: 0.67)   // teal
 }
 
@@ -81,8 +81,8 @@ struct Chip: View {
     private var background: AnyShapeStyle {
         switch style {
         case .tag: AnyShapeStyle(.tint.opacity(0.15))
-        case .filter: selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.sbSurface)
-        case .key: AnyShapeStyle(Color.sbSurface2)
+        case .filter: selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary)
+        case .key: AnyShapeStyle(.background.tertiary)
         case .status(let s): AnyShapeStyle(s.color.opacity(0.18))
         }
     }
@@ -114,7 +114,7 @@ struct SBRow<Trailing: View>: View {
                     .font(.system(size: 14))
                     .foregroundStyle(iconTint)
                     .frame(width: 30, height: 30)
-                    .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.callout.weight(.medium)).lineLimit(1)
@@ -126,7 +126,7 @@ struct SBRow<Trailing: View>: View {
             trailing()
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 }
 extension SBRow where Trailing == EmptyView {
@@ -152,7 +152,7 @@ struct SectionHeader: View {
             if let count {
                 Text("\(count)").font(.caption2).foregroundStyle(.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(Color.sbSurface, in: Capsule())
+                    .background(.background.secondary, in: Capsule())
             }
         }
     }
@@ -165,7 +165,7 @@ extension View {
     /// that aren't an SBRow.
     func dsCard(padding: CGFloat = DS.Space.m) -> some View {
         self.padding(padding)
-            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 }
 

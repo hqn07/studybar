@@ -18,32 +18,6 @@ extension Color {
         let b = Int(round(ns.blueComponent * 255))
         return String(format: "#%02X%02X%02X", r, g, b)
     }
-
-    // MARK: Dark surface palette
-    // Light mode keeps the native system look; dark mode uses a chosen near-black scheme
-    // (text & muted already match the system labels, so only the surfaces change). Applied
-    // via the `Color.sbSurface` sweep and the RootView base background.
-    static let sbBase     = sbDyn(light: .windowBackgroundColor,    darkHex: "#0B0B0E")
-    static let sbSurface  = sbDyn(light: .controlBackgroundColor,   darkHex: "#0E0E0E")
-    static let sbSurface2 = sbDyn(light: .underPageBackgroundColor, darkHex: "#17171C")
-
-    private static func sbDyn(light: NSColor, darkHex: String) -> Color {
-        let dark = NSColor(hex: darkHex) ?? .black
-        return Color(nsColor: NSColor(name: nil) { ap in
-            ap.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-        })
-    }
-}
-
-extension NSColor {
-    convenience init?(hex: String) {
-        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let v = UInt64(s, radix: 16) else { return nil }
-        self.init(srgbRed: CGFloat((v >> 16) & 0xFF) / 255,
-                  green: CGFloat((v >> 8) & 0xFF) / 255,
-                  blue: CGFloat(v & 0xFF) / 255, alpha: 1)
-    }
 }
 
 /// Palette used by the course color picker.
@@ -58,7 +32,7 @@ enum Palette {
     /// `swatches` (per-course colors), and kept clear of the semantic red / amber used
     /// for state so the accent never reads as an urgency signal.
     static let accents = [
-        "#4F8DFD", "#61AFEF", "#0EA5E9", "#06B6D4", "#0EA5A4", "#10B981",
-        "#6366F1", "#8B5CF6", "#A855F7", "#EC4899", "#F43F5E", "#64748B", "#52525B"
+        "#4F8DFD", "#0EA5E9", "#06B6D4", "#0EA5A4", "#10B981", "#6366F1",
+        "#8B5CF6", "#A855F7", "#EC4899", "#F43F5E", "#64748B", "#52525B"
     ]
 }

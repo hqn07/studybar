@@ -77,7 +77,7 @@ struct GradeCalcView: View {
             }
         }
         .padding(DS.Space.l).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     var body: some View {
@@ -127,7 +127,7 @@ struct GradeCalcView: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var targetCard: some View {
@@ -146,7 +146,7 @@ struct GradeCalcView: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var componentsList: some View {
@@ -175,7 +175,7 @@ struct GradeCalcView: View {
                 Toggle("Taken", isOn: b.graded).toggleStyle(.button).controlSize(.small).font(.caption)
             }
         }
-        .padding(10).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(10).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func field(_ label: String, _ value: Binding<Double>, suffix: String) -> some View {

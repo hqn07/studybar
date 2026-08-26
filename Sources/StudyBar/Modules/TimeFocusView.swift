@@ -186,7 +186,7 @@ private func circleButton(_ icon: String, main: Bool = false, tint: Color = .acc
         Image(systemName: icon)
             .font(.system(size: main ? 17 : 14, weight: .semibold))
             .frame(width: main ? 46 : 38, height: main ? 46 : 38)
-            .background(main ? AnyShapeStyle(tint) : AnyShapeStyle(Color.sbSurface), in: Circle())
+            .background(main ? AnyShapeStyle(tint) : AnyShapeStyle(.background.secondary), in: Circle())
             .overlay { if !main { Circle().strokeBorder(.separator, lineWidth: 0.5) } }
             .foregroundStyle(main ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
     }
@@ -385,7 +385,7 @@ private struct PomodoroSection: View {
             Toggle("Strict mode (confirm before ending)", isOn: $strict).font(.caption)
         }
         .padding(DS.Space.l)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .onChange(of: focusMin) { _, _ in applyConfig() }
         .onChange(of: shortMin) { _, _ in applyConfig() }
         .onChange(of: longMin) { _, _ in applyConfig() }
@@ -713,7 +713,7 @@ private struct SessionsSection: View {
                 Button("Delete", role: .destructive) { state.withUndo("Deleted session") { state.data.timeEntries.removeAll { $0.id == e.id } } }
             } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(DS.Space.m).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, DS.Space.l)
     }
 

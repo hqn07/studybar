@@ -15,7 +15,7 @@ struct KeyRecorder: View {
                 .frame(minWidth: 72)
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .foregroundStyle(recording ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.sbSurface))
+                .background(RoundedRectangle(cornerRadius: 5).fill(.background.secondary))
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(recording ? AnyShapeStyle(.tint) : AnyShapeStyle(.separator),
                                                                   lineWidth: recording ? 2 : 1))
         }

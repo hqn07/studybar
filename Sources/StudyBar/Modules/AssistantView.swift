@@ -67,7 +67,7 @@ struct ContextPill: View {
         }
         .foregroundStyle(long ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
         .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(long ? AnyShapeStyle(.orange.opacity(0.12)) : AnyShapeStyle(Color.sbSurface),
+        .background(long ? AnyShapeStyle(.orange.opacity(0.12)) : AnyShapeStyle(.background.secondary),
                     in: Capsule())
         .help(long
               ? "This conversation is getting long (~\(Self.format(tokens)) tokens). Start a New chat to keep the assistant fast and focused."
@@ -182,7 +182,7 @@ private struct AssistantChat: View {
                         }
                     }
                     .padding(10).contentShape(Rectangle())
-                    .background(s.featured ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(Color.sbSurface),
+                    .background(s.featured ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.background.secondary),
                                 in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10)
                         .stroke(s.featured ? AnyShapeStyle(.tint.opacity(0.4)) : AnyShapeStyle(.clear), lineWidth: 1))
@@ -206,7 +206,7 @@ private struct AssistantChat: View {
                 .focused($focused)
                 .onSubmit(send)
                 .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 9))
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 9))
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }
@@ -302,7 +302,7 @@ private struct MessageView: View {
             }
         }
         .padding(9)
-        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 9))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 9))
         .opacity(skipped ? 0.55 : 1)
     }
 
