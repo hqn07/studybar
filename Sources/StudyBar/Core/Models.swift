@@ -13,6 +13,7 @@ struct Course: Identifiable, Codable, Hashable {
     var grade: String = ""          // letter grade, e.g. "A-", for GPA
     var colorHex: String = "#4F8DFD"
     var canvasID: Int? = nil        // Canvas course id (for sync dedup)
+    var term: String = ""           // e.g. "Fall 2026"; empty = current term (decode-safe)
     var createdAt: Date = .now
 
     var color: Color { Color(hex: colorHex) ?? .accentColor }
