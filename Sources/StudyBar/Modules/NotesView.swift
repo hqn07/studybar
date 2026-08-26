@@ -117,7 +117,7 @@ struct NoteRow: View {
                 Spacer()
             }
             .padding(DS.Space.m).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -164,7 +164,7 @@ struct NoteEditor: View {
             if let img = screenshotImage(draft.imagePath) {
                 Image(nsImage: img).resizable().scaledToFit()
                     .frame(maxHeight: 200).frame(maxWidth: .infinity)
-                    .background(.background.secondary)
+                    .background(Color.sbSurface)
                 Divider()
             }
             if !showPreview {
@@ -334,7 +334,7 @@ struct NoteEditor: View {
                     }
                 }
                 .frame(maxHeight: 240)
-                .background(.background.secondary)
+                .background(Color.sbSurface)
             }
         } else {
             RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor)
@@ -387,7 +387,7 @@ struct NoteEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }.frame(maxHeight: 130)
         }
-        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(8).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, 8).padding(.top, 6)
     }
 

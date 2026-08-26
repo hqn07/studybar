@@ -50,7 +50,7 @@ struct VoiceView: View {
                     Text(voice.transcript)
                         .font(.callout).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .frame(maxHeight: 220)
 

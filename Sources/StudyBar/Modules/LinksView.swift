@@ -105,7 +105,7 @@ struct LinkRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, DS.Space.m)
     }
     private func open() {

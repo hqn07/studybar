@@ -71,9 +71,9 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The popover uses macOS's translucent vibrancy material, so the desktop bleeds
-        // through as a muddy tint — paint an opaque background so it reads as a solid panel.
-        .background(surface == .popover ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(Color.clear))
+        // Paint the base surface: kills the popover's translucent vibrancy (desktop
+        // bleed) and gives the window a themed near-black base in dark mode.
+        .background(Color.sbBase)
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
@@ -356,7 +356,7 @@ struct SearchField: View {
             }
         }
         .padding(.horizontal, 7).padding(.vertical, 4)
-        .background(.background.secondary, in: Capsule())
+        .background(Color.sbSurface, in: Capsule())
     }
 }
 

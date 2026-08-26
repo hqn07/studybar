@@ -70,7 +70,7 @@ struct ClipRow: View {
             }.font(.caption)
         }
         .padding(9)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .contextMenu {
             Button { copy() } label: { Label("Copy", systemImage: "doc.on.doc") }
             Button { toNote() } label: { Label("Save as Note", systemImage: "note.text") }

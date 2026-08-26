@@ -106,7 +106,7 @@ struct TodoRow: View {
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func dueLabel(_ d: Date) -> String {
@@ -164,7 +164,7 @@ struct TodoEditor: View {
                     Text("Notes").font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $draft.notes).frame(height: 60).font(.callout)
                         .scrollContentBackground(.hidden)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                 }
             }.padding(14)
             Divider()

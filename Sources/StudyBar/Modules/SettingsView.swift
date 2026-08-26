@@ -100,7 +100,7 @@ struct SettingsView: View {
         }
         .frame(width: 216)
         .scrollIndicators(.hidden)
-        .background(.background.secondary)
+        .background(Color.sbSurface)
     }
 
     private var navSeparator: some View {
@@ -530,7 +530,7 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Text(key).font(.caption.monospaced())
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 4))
+                .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 4))
             Text(desc).font(.caption)
             Spacer()
         }

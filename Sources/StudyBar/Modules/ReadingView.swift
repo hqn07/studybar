@@ -153,7 +153,7 @@ struct ReadingView: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).stroke(bookSearchFocused ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear)))
         .padding(.horizontal, 10).padding(.top, 8)
     }
@@ -183,7 +183,7 @@ struct ReadingView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(8).contentShape(Rectangle())
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
@@ -269,7 +269,7 @@ struct BookCard: View {
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(10).contentShape(Rectangle())
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -340,7 +340,7 @@ struct ReadingDetailView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("NOTES").font(.caption2.bold()).foregroundStyle(.secondary)
                                 Text(item.notes).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+                            }.padding(12).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }.padding(16)
                 }
@@ -424,7 +424,7 @@ struct ReadingDetailView: View {
             }
         }
         .padding(14).frame(maxWidth: .infinity)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func chaptersBlock(_ item: ReadingItem) -> some View {
@@ -448,7 +448,7 @@ struct ReadingDetailView: View {
                         Button { deleteUnit(u) } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                     }
-                    .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    .padding(8).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                 }
             } else {
                 Text("Reading by chapter or topic? Add them here to track progress instead of pages.")
@@ -465,7 +465,7 @@ struct ReadingDetailView: View {
                 Spacer()
             }
         }
-        .padding(12).background(.background.secondary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .padding(12).background(Color.sbSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func addChapter() {
@@ -499,7 +499,7 @@ struct ReadingDetailView: View {
             Button { state.rereadBook(itemID) } label: {
                 Label("Read again", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
             }.buttonStyle(.bordered)
-        }.padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        }.padding(12).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func highlightsBlock(_ item: ReadingItem) -> some View {
@@ -513,7 +513,7 @@ struct ReadingDetailView: View {
                     Button { deleteHighlight(h) } label: { Image(systemName: "xmark") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                 }
-                .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                .padding(8).background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             }
             HStack(spacing: 6) {
                 TextField("p#", text: $hlPage).textFieldStyle(.roundedBorder).frame(width: 44)
@@ -619,7 +619,7 @@ struct BookLookupView: View {
                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
             }
             .padding(8).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -806,7 +806,7 @@ struct ReadingEditor: View {
                     field("Notes") {
                         TextEditor(text: $draft.notes).frame(height: 70).font(.callout)
                             .scrollContentBackground(.hidden)
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                     }
                     HStack {
                         Text("Course").font(.caption).foregroundStyle(.secondary)

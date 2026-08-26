@@ -91,7 +91,7 @@ struct LookupView: View {
             }.buttonStyle(.bordered).controlSize(.small)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func wikiCard(_ w: WikiSummary) -> some View {
@@ -107,7 +107,7 @@ struct LookupView: View {
             }.buttonStyle(.bordered).controlSize(.small)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func paperCard(_ p: Paper) -> some View {
@@ -132,7 +132,7 @@ struct LookupView: View {
             }.buttonStyle(.bordered).controlSize(.small)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func authorLine(_ p: Paper) -> String {

@@ -127,7 +127,7 @@ struct TodayView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(DS.Space.l)
             .frame(minHeight: 74)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(stripe.opacity(0.25), lineWidth: 0.5))
         }.buttonStyle(.plain)
     }
@@ -199,7 +199,7 @@ struct TodayView: View {
         }
         .padding(DS.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Stat row
@@ -221,7 +221,7 @@ struct TodayView: View {
                 if let spark { Sparkline(values: spark).frame(height: 16).padding(.top, 1) }
             }
             .frame(maxWidth: .infinity).padding(.vertical, DS.Space.m)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -309,7 +309,7 @@ struct TodayView: View {
                 if !label.isEmpty { Chip(label, .status(urgent ? .now : .week)) }
             }
             .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -328,7 +328,7 @@ struct TodayView: View {
                 Image(systemName: "calendar").font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
 
@@ -348,7 +348,7 @@ struct TodayView: View {
             Button { state.bumpReading(item.id, by: 10) } label: { Text("+10").font(.caption) }.buttonStyle(.bordered)
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Pieces

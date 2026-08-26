@@ -51,7 +51,7 @@ struct AssignmentEditor: View {
                     field("Notes") {
                         TextEditor(text: $draft.notes).frame(height: 70)
                             .font(.callout).scrollContentBackground(.hidden)
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                            .background(Color.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                     }
                 }.padding(14)
             }
