@@ -32,7 +32,7 @@ enum Palette {
     /// `swatches` (per-course colors), and kept clear of the semantic red / amber used
     /// for state so the accent never reads as an urgency signal.
     static let accents = [
-        "#4F8DFD", "#0EA5E9", "#06B6D4", "#0EA5A4", "#10B981", "#6366F1",
-        "#8B5CF6", "#A855F7", "#EC4899", "#F43F5E", "#64748B", "#52525B"
+        "#007AFF", "#4F8DFD", "#0EA5E9", "#06B6D4", "#0EA5A4", "#10B981",
+        "#6366F1", "#8B5CF6", "#A855F7", "#EC4899", "#F43F5E", "#64748B", "#52525B"
     ]
 }
