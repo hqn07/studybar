@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         WindowOpener.open = { [weak self] _ in self?.showWindow() }
+        installMainMenu()
         SpotlightIndexer.reindex(state.data)
         refreshStatus()
         // Pull assignment due dates from subscribed Canvas/LMS calendar feeds (no API/token):
@@ -124,6 +125,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = m
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    /// Menu-bar accessory apps ship no menu bar, so standard editing shortcuts
+    /// (⌘Z/⌘⇧Z undo-redo, ⌘X/C/V, ⌘A) have no key equivalent and silently do
+    /// nothing in text fields. Install a minimal main menu so they route to the
+    /// first responder. Purely editing actions — nothing here touches stored data.
+    private func installMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit StudyBar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem(); main.addItem(editItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+
+        NSApp.mainMenu = main
     }
 
     private func refreshFeeds() {

@@ -373,6 +373,18 @@ final class FoldingTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    /// The app has no menu bar (menu-bar accessory), so ⌘Z / ⌘⇧Z have no menu key
+    /// equivalent — drive this text view's own undo manager directly.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "z", let um = undoManager {
+            if event.modifierFlags.contains(.shift) {
+                if um.canRedo { um.redo(); return true }
+            } else if um.canUndo { um.undo(); return true }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     private func toggle(_ fold: FoldAttachment, at charIndex: Int) {
         guard let ts = textStorage else { return }
         ts.beginEditing()
