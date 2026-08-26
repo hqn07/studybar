@@ -8,6 +8,7 @@ struct ClassifyView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var scanning = true
+    @State private var expanded: Set<String> = []
 
     private var groups: [(tag: String, items: [Assignment])] { CanvasFeedImport.classifyGroups(state) }
     private var tagged: [(tag: String, items: [Assignment])] { groups.filter { !$0.tag.isEmpty } }
@@ -31,8 +32,8 @@ struct ClassifyView: View {
                         }
 
                         if !tagged.isEmpty {
-                            section("Detected by course code — one tap each") {
-                                ForEach(tagged, id: \.tag) { g in tagRow(g.tag, g.items.count) }
+                            section("Detected by course code — expand to verify") {
+                                ForEach(tagged, id: \.tag) { g in tagGroup(g.tag, g.items) }
                                 if tagged.count > 1 {
                                     Button { createAll() } label: {
                                         Label("Create courses for all codes", systemImage: "square.stack.3d.up")
@@ -61,25 +62,65 @@ struct ClassifyView: View {
 
     // MARK: rows
 
-    private func tagRow(_ tag: String, _ count: Int) -> some View {
-        HStack(spacing: DS.Space.m) {
-            Chip(tag, .tag)
-            Text("\(count) item\(count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+    private func tagGroup(_ tag: String, _ items: [Assignment]) -> some View {
+        let isOpen = expanded.contains(tag)
+        return VStack(spacing: 0) {
+            HStack(spacing: DS.Space.m) {
+                Button {
+                    if isOpen { expanded.remove(tag) } else { expanded.insert(tag) }
+                } label: {
+                    HStack(spacing: DS.Space.s) {
+                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                            .font(.caption2).foregroundStyle(.secondary).frame(width: 10)
+                        Chip(tag, .tag)
+                        Text("\(items.count) item\(items.count == 1 ? "" : "s")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Spacer(minLength: DS.Space.s)
+                Menu {
+                    Button { create(tag) } label: { Label("Create course “\(tag)”", systemImage: "plus") }
+                    if !state.data.courses.isEmpty {
+                        Divider()
+                        ForEach(state.data.courses) { c in
+                            Button(c.name.isEmpty ? c.code : c.name) { assign(tag, to: c.id) }
+                        }
+                    }
+                } label: { Label("Sort", systemImage: "plus.circle").font(.callout) }
+                    .menuStyle(.borderlessButton).fixedSize()
+            }
+            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
+
+            if isOpen {
+                Divider().padding(.leading, DS.Space.l)
+                VStack(spacing: 0) {
+                    ForEach(items) { itemRow($0, currentTag: tag) }
+                }
+            }
+        }
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    /// One item inside an expanded group — title + a move menu (other codes / a course).
+    private func itemRow(_ a: Assignment, currentTag: String) -> some View {
+        HStack(spacing: DS.Space.s) {
+            Text(a.title.isEmpty ? "Untitled" : a.title).font(.caption).lineLimit(1)
             Spacer(minLength: DS.Space.s)
             Menu {
-                Button { create(tag) } label: { Label("Create course “\(tag)”", systemImage: "plus") }
+                let others = tagged.map(\.tag).filter { $0 != currentTag }
+                if !others.isEmpty {
+                    Section("Move to code") { ForEach(others, id: \.self) { t in Button("[\(t)]") { retag(a.id, to: t) } } }
+                }
                 if !state.data.courses.isEmpty {
-                    Divider()
-                    ForEach(state.data.courses) { c in
-                        Button(c.name.isEmpty ? c.code : c.name) { assign(tag, to: c.id) }
+                    Section("Assign to course") {
+                        ForEach(state.data.courses) { c in Button(c.name.isEmpty ? c.code : c.name) { assignItem(a.id, to: c.id) } }
                     }
                 }
             } label: {
-                Label("Sort", systemImage: "plus.circle").font(.callout)
+                Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.secondary)
             }.menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(.horizontal, DS.Space.l).padding(.vertical, 6)
     }
 
     private func manualRow(_ a: Assignment) -> some View {
@@ -111,6 +152,13 @@ struct ClassifyView: View {
     }
     private func assignItem(_ item: UUID, to id: UUID) {
         state.withUndo("Sorted item") { CanvasFeedImport.assign(ids: [item], to: id, state: state) }
+    }
+    private func retag(_ item: UUID, to tag: String) {
+        state.withUndo("Moved to \(tag)") {
+            if let i = state.data.assignments.firstIndex(where: { $0.id == item }) {
+                state.data.assignments[i].sourceCourseTag = tag
+            }
+        }
     }
     private func createAll() {
         state.withUndo("Created courses from Canvas") {
