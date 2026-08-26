@@ -118,9 +118,13 @@ two-column / wider layouts in the window that a 380 pt popover can't hold.
 
 ## Phasing (each phase ships on its own)
 
-- **Phase 1 — split the roots.** Extract `PopoverRoot` (capped glance + launcher) and
-  `WindowRoot` (today's `RootView`). Popover instantly becomes the calm quick surface;
-  window unchanged. Deep-links/Spotlight point at the window. *Low risk — reuses views.*
+- **Phase 1 — split the roots. ✅ shipped (`79d7d93`).** `RootView(surface:)` forks the
+  body: `.popover` = search + Today glance + module launcher (Favorites → All) + ⋯ menu;
+  `.window` = the full sidebar + content. Navigation hand-off via
+  `WindowOpener.routeToWindow` (popover watches `selectedModuleID`, AppDelegate opens the
+  window + dismisses the popover, no-op unless the popover is active) — zero call-site
+  churn. Deep-links/Spotlight/notifications already route to the window via
+  `AppActions.open`. *Was low risk — reused views.*
 - **Phase 2 — window as home.** Frame persistence, min size, native toolbar, "Open
   StudyBar" entry points, Dock-toggle setting. Allow sheets/inspectors where they help.
 - **Phase 3 — customization surface.** Build the mocked Appearance surface (theme grid +
