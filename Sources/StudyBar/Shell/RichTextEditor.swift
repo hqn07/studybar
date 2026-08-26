@@ -37,6 +37,11 @@ final class RichTextController: ObservableObject {
 
     static let baseFont = NSFont.systemFont(ofSize: 13)
 
+    /// Undo/redo the text view's own edits (typing + formatting). Backs the
+    /// toolbar buttons and the ⌘Z / ⌘⇧Z shortcuts.
+    func undo() { if let um = textView?.undoManager, um.canUndo { textView?.window?.makeFirstResponder(textView); um.undo() } }
+    func redo() { if let um = textView?.undoManager, um.canRedo { textView?.window?.makeFirstResponder(textView); um.redo() } }
+
     /// Resolve the dynamic label color to a concrete color for a view's appearance —
     /// so rendered math matches the text (white in dark mode, not a dynamic gray).
     static func resolvedLabel(_ view: NSView) -> NSColor {

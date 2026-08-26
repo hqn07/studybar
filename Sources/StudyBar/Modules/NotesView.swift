@@ -244,6 +244,9 @@ struct NoteEditor: View {
     private var formatBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 11) {
+                fmtBtn("arrow.uturn.backward") { editor.undo() }
+                fmtBtn("arrow.uturn.forward") { editor.redo() }
+                sep
                 fmtBtn("bold") { editor.toggleTrait(.boldFontMask) }
                 fmtBtn("italic") { editor.toggleTrait(.italicFontMask) }
                 fmtBtn("underline") { editor.toggleAttribute(.underlineStyle) }
