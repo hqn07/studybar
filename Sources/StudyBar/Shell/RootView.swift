@@ -8,6 +8,8 @@ enum WindowOpener {
     /// of the ~380 pt popover. AppDelegate wires this and no-ops when the popover
     /// isn't the active surface.
     @MainActor static var routeToWindow: ((String) -> Void)?
+    /// Sets the main window's title to the current module (e.g. "StudyBar — Notes").
+    @MainActor static var setWindowTitle: ((String) -> Void)?
 }
 
 /// StudyBar renders on two surfaces with different jobs (see docs/PHILOSOPHY.md):
@@ -33,6 +35,27 @@ struct RootView: View {
     }
 
     var body: some View {
+        shell
+            .overlay { if showPalette { CommandPalette(isPresented: $showPalette) } }
+            .overlay { if breakScreen && inBreak { BreakOverlay() } }
+            .overlay { if !onboarded { OnboardingView(done: { onboarded = true }) } }
+            .overlay(alignment: .bottom) { undoToast }
+            .animation(.spring(response: 0.35), value: state.undo)
+            .background { shortcutKeys }
+            .onAppear { onAppearSetup() }
+            .onChange(of: state.paletteRequested) { _, v in
+                if v { showPalette = true; state.paletteRequested = false }
+            }
+            // In the popover, selecting a module (from Today, the launcher, search or ⌘K)
+            // hands off to the window so deep views get real room; the window instance
+            // just retitles. AppDelegate also no-ops the hand-off unless the popover shows.
+            .onChange(of: state.selectedModuleID) { _, id in
+                if surface == .popover { WindowOpener.routeToWindow?(id) }
+                else { WindowOpener.setWindowTitle?(ModuleRegistry.info(id)?.title ?? "StudyBar") }
+            }
+    }
+
+    private var shell: some View {
         VStack(spacing: 0) {
             if surface == .popover {
                 popoverBar
@@ -47,52 +70,36 @@ struct RootView: View {
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
-        .background {
-            Button("") { showPalette.toggle() }
-                .keyboardShortcut("k", modifiers: .command).opacity(0).accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var undoToast: some View {
+        if let u = state.undo {
+            UndoToast(label: u.label, onUndo: { state.performUndo() }, onDismiss: { state.dismissUndo() })
+                .padding(DS.Space.l)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        .overlay {
-            if showPalette { CommandPalette(isPresented: $showPalette) }
+    }
+
+    /// Invisible buttons that carry the window/popover keyboard shortcuts.
+    @ViewBuilder private var shortcutKeys: some View {
+        Button("") { showPalette.toggle() }
+            .keyboardShortcut("k", modifiers: .command).opacity(0).accessibilityHidden(true)
+        if state.undo != nil {
+            Button("") { state.performUndo() }
+                .keyboardShortcut("z", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
-        .overlay {
-            if breakScreen && inBreak { BreakOverlay() }
+        Button("") { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } }
+            .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
+    }
+
+    private func onAppearSetup() {
+        ServicesProvider.register()
+        GlobalShortcuts.configure()
+        if UserDefaults.standard.bool(forKey: "globalHotkey") && !HotKeyManager.shared.registered {
+            HotKeyManager.shared.register()
         }
-        .overlay {
-            if !onboarded { OnboardingView(done: { onboarded = true }) }
-        }
-        .overlay(alignment: .bottom) {
-            if let u = state.undo {
-                UndoToast(label: u.label, onUndo: { state.performUndo() }, onDismiss: { state.dismissUndo() })
-                    .padding(DS.Space.l)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.35), value: state.undo)
-        .background {
-            if state.undo != nil {
-                Button("") { state.performUndo() }
-                    .keyboardShortcut("z", modifiers: .command).opacity(0).accessibilityHidden(true)
-            }
-        }
-        .background {
-            Button("") { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } }
-                .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
-        }
-        .onAppear {
-            ServicesProvider.register()
-            GlobalShortcuts.configure()
-            if UserDefaults.standard.bool(forKey: "globalHotkey") && !HotKeyManager.shared.registered {
-                HotKeyManager.shared.register()
-            }
-        }
-        .onChange(of: state.paletteRequested) { _, v in
-            if v { showPalette = true; state.paletteRequested = false }
-        }
-        // In the popover, selecting a module (from Today, the launcher, search or ⌘K)
-        // hands off to the window so deep views get real room. The window instance
-        // ignores this; AppDelegate also no-ops it unless the popover is showing.
-        .onChange(of: state.selectedModuleID) { _, id in
-            if surface == .popover { WindowOpener.routeToWindow?(id) }
+        if surface == .window {
+            WindowOpener.setWindowTitle?(ModuleRegistry.info(state.selectedModuleID)?.title ?? "StudyBar")
         }
     }
 

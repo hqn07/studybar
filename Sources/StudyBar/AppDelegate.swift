@@ -53,7 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Test/dev hook: SB_DOCK=1 promotes StudyBar to a regular Dock app so UI-automation
         // tools (which can't target an LSUIElement accessory app) can drive the window.
         // No effect on normal launches — 1.0 stays a pure menu-bar app.
-        if ProcessInfo.processInfo.environment["SB_DOCK"] == "1" {
+        if ProcessInfo.processInfo.environment["SB_DOCK"] == "1"
+            || UserDefaults.standard.bool(forKey: "showDock") {
             NSApp.setActivationPolicy(.regular)
         }
         Notifier.requestAuthorization()
@@ -80,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.state.selectedModuleID = id
             self.popover.performClose(nil)
             self.showWindow()
+        }
+        WindowOpener.setWindowTitle = { [weak self] t in
+            self?.window?.title = (t.isEmpty || t == "StudyBar") ? "StudyBar" : "StudyBar — \(t)"
         }
         installMainMenu()
         SpotlightIndexer.reindex(state.data)
@@ -242,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              backing: .buffered, defer: false)
             w.title = "StudyBar"
             w.titlebarAppearsTransparent = true
+            w.minSize = NSSize(width: 720, height: 480)
             w.center()
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("StudyBarMain")

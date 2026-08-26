@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
@@ -14,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("focusStartShortcut") private var focusStartShortcut = ""
     @AppStorage("focusEndShortcut") private var focusEndShortcut = ""
     @AppStorage("spotlightIndex") private var spotlightIndex = true
+    @AppStorage("showDock") private var showDock = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var iCloud = false
     @State private var exporting = false
@@ -130,6 +132,15 @@ struct SettingsView: View {
         Section("Startup") {
             Toggle("Launch StudyBar at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, v in LaunchAtLogin.set(v) }
+        }
+        Section("Window") {
+            Toggle("Show StudyBar in the Dock", isOn: $showDock)
+                .onChange(of: showDock) { _, v in
+                    NSApp.setActivationPolicy(v ? .regular : .accessory)
+                    if v { NSApp.activate(ignoringOtherApps: true) }
+                }
+            Text("Adds a Dock icon and a full app menu. StudyBar stays in the menu bar either way.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         Section("Breaks") {
             Toggle("Break reminders", isOn: Binding(get: { state.breaks.enabled }, set: { state.breaks.enabled = $0 }))

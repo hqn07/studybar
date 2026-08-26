@@ -13,8 +13,13 @@ final class AppState: ObservableObject {
 
     // UI state (not persisted here; settings persisted via @AppStorage in views)
     @Published var selectedModuleID: String = "today" {
-        didSet { modulePrefs.recordUse(selectedModuleID) }
+        didSet {
+            if !restoringModule { modulePrefs.recordUse(selectedModuleID) }
+            UserDefaults.standard.set(selectedModuleID, forKey: "lastModule")
+        }
     }
+    /// Set while restoring the last module on launch so it doesn't count as a "use".
+    private var restoringModule = false
     @Published var globalSearch: String = ""
     /// Set by the command palette to ask a module to open its "new item" editor.
     @Published var pendingNew: String? = nil
@@ -117,6 +122,13 @@ final class AppState: ObservableObject {
         clipboard = ClipboardMonitor(state: self)
         clipboard.start()
         AppState.current = self
+
+        // The window remembers the last module you were in (validated → falls back to
+        // Today). The popover always opens on the Today glance regardless.
+        if let last = UserDefaults.standard.string(forKey: "lastModule"),
+           ModuleRegistry.info(last) != nil {
+            restoringModule = true; selectedModuleID = last; restoringModule = false
+        }
 
         // When the app returns to the foreground, pick up any external change to the
         // data file (another device via iCloud, or another instance) so this running
