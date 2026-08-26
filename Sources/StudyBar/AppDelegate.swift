@@ -67,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--ai-selftest") {
             exit(AIToolSelfTest.run())
         }
+        if CommandLine.arguments.contains("--calendar-dedup-test") {
+            exit(CalendarDedupTest.run())
+        }
         if CommandLine.arguments.contains("--ollama-stream-test") {
             Task { exit(await OllamaStreamTest.run()) }
             return

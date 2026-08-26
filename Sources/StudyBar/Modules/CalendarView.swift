@@ -17,8 +17,35 @@ struct AgendaItem: Identifiable {
     let link: String?
     var jump: String? = nil          // module id to open on tap
     var assignmentID: UUID? = nil    // set for items already tracked as assignments
-    /// key for de-duplicating the same event coming from two sources
+    /// Full-title key — course-distinct (keeps the `[CODE]`), for StudyBar-vs-StudyBar dedup.
     var dedupKey: String { "\(title.lowercased())|\(Int(start.timeIntervalSince1970 / 60))" }
+    /// Title minus a trailing `[CODE]` tag, plus the minute — for matching the same event
+    /// across sources (the macOS-Calendar copy usually lacks the `[CODE]` the feed adds).
+    var strippedTitleKey: String {
+        let base = title
+            .replacingOccurrences(of: #"\s*\[[^\]]+\]\s*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces).lowercased()
+        return "\(base)|\(Int(start.timeIntervalSince1970 / 60))"
+    }
+
+    /// Collapse the same event arriving from two sources. A macOS-Calendar copy is dropped
+    /// when StudyBar already tracks the event (a feed/assignment/class with the same
+    /// stripped title + minute); the richer StudyBar copy is kept. StudyBar items dedup
+    /// among themselves by full title, so two different-course items that share a base
+    /// title at the same time both survive. Prefer a tracked assignment, then class, feed.
+    static func deduped(_ items: [AgendaItem]) -> [AgendaItem] {
+        let sbStripped = Set(items.filter { $0.kind != .calendar }.map(\.strippedTitleKey))
+        func priority(_ k: Kind) -> Int {
+            switch k { case .assignment: return 0; case .klass: return 1; case .feed: return 2; case .calendar: return 3 }
+        }
+        var seen = Set<String>()
+        var out: [AgendaItem] = []
+        for item in items.sorted(by: { priority($0.kind) < priority($1.kind) }) {
+            if item.kind == .calendar, sbStripped.contains(item.strippedTitleKey) { continue }
+            if seen.insert(item.dedupKey).inserted { out.append(item) }
+        }
+        return out.sorted { $0.start < $1.start }
+    }
 }
 
 // MARK: - Merged Calendar + Feeds module
@@ -312,16 +339,7 @@ struct CalendarView: View {
                 }
             }
         }
-        // De-dup the same event arriving from two sources; prefer calendar > class > assignment > feed.
-        func priority(_ k: AgendaItem.Kind) -> Int {
-            switch k { case .calendar: return 0; case .klass: return 1; case .assignment: return 2; case .feed: return 3 }
-        }
-        var seen = Set<String>()
-        var deduped: [AgendaItem] = []
-        for item in out.sorted(by: { priority($0.kind) < priority($1.kind) }) {
-            if seen.insert(item.dedupKey).inserted { deduped.append(item) }
-        }
-        return deduped.sorted { $0.start < $1.start }
+        return AgendaItem.deduped(out)
     }
 
     private var grouped: [(Date, [AgendaItem])] {
@@ -506,5 +524,37 @@ struct NewEventView: View {
         let calr = Calendar.current
         let next = calr.date(bySettingHour: (calr.component(.hour, from: .now) + 1), minute: 0, second: 0, of: .now)
         return next ?? .now
+    }
+}
+
+// MARK: - Headless test for calendar dedup (StudyBar --calendar-dedup-test)
+
+enum CalendarDedupTest {
+    static func run() -> Int32 {
+        var fail = 0
+        func check(_ n: String, _ c: Bool) { print((c ? "  ok   " : "FAIL   ") + n); if !c { fail += 1 } }
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        func item(_ title: String, _ kind: AgendaItem.Kind) -> AgendaItem {
+            AgendaItem(id: UUID().uuidString, start: t, end: nil, allDay: false,
+                       title: title, subtitle: "", color: .blue, kind: kind, link: nil)
+        }
+        // 1. macOS-Calendar copy + StudyBar feed copy (coded) → collapse to the StudyBar one.
+        let r1 = AgendaItem.deduped([item("L2 section 1.2", .calendar), item("L2 section 1.2 [MAP2302]", .feed)])
+        check("cross-source pair → 1 kept", r1.count == 1)
+        check("keeps the StudyBar copy", r1.first?.kind == .feed)
+        // 2. Two different-course items sharing a base title + time must BOTH survive.
+        let r2 = AgendaItem.deduped([item("Quiz 1 [MAP2302]", .feed), item("Quiz 1 [PHY2049]", .feed)])
+        check("different courses both kept", r2.count == 2)
+        // 3. A calendar event StudyBar doesn't track stays.
+        check("lone calendar event kept", AgendaItem.deduped([item("Dentist", .calendar)]).count == 1)
+        // 4. Feed + assignment of the same item → the tracked assignment wins.
+        let r4 = AgendaItem.deduped([item("HW1 [PHY2049]", .feed), item("HW1 [PHY2049]", .assignment)])
+        check("feed+assignment → assignment", r4.count == 1 && r4.first?.kind == .assignment)
+        // 5. Two uncoded calendar copies + two coded courses → keep the two courses, drop both calendars.
+        let r5 = AgendaItem.deduped([item("Quiz 1", .calendar), item("Quiz 1", .calendar),
+                                     item("Quiz 1 [MAP2302]", .feed), item("Quiz 1 [PHY2049]", .feed)])
+        check("2 cal + 2 courses → 2 kept", r5.count == 2 && r5.allSatisfy { $0.kind == .feed })
+        print(fail == 0 ? "CALENDAR DEDUP TEST: ALL PASS" : "CALENDAR DEDUP TEST: \(fail) FAILURE(S)")
+        return fail == 0 ? 0 : 1
     }
 }
