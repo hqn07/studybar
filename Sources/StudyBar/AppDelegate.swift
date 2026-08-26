@@ -134,6 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let size = (PopoverSize(rawValue: UserDefaults.standard.string(forKey: "popoverSize") ?? "") ?? .medium).dimensions
             popover.contentSize = size
+            // Activating the app for the popover's text fields would drag the workspace
+            // window in front of whatever the student is doing — hide it first so the
+            // menu bar shows only the popover. Reopen the window explicitly (click the
+            // app icon, or a launcher item) to bring it back.
+            if window?.isVisible == true { window?.orderOut(nil) }
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             // Make the popover key so its text fields accept keyboard input.
