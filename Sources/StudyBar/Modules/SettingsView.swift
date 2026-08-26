@@ -167,26 +167,46 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var appearanceSections: some View {
-        Section("Appearance") {
-            Picker("Theme", selection: $appearance) {
-                Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
+        Section("Theme") {
+            Picker("Appearance", selection: $appearance) {
+                Text("Light").tag("light"); Text("Dark").tag("dark"); Text("Device").tag("system")
             }.pickerStyle(.segmented)
             Picker("Density", selection: $density) {
                 Text("Comfortable").tag("comfortable"); Text("Compact").tag("compact")
             }.pickerStyle(.segmented)
-            LabeledContent("Accent") {
-                HStack(spacing: 6) {
-                    ForEach(Palette.swatches.prefix(6), id: \.self) { hex in
-                        Button { accentHex = hex } label: {
-                            Circle().fill(Color(hex: hex) ?? .gray).frame(width: 18, height: 18)
-                                .overlay(Circle().stroke(.primary, lineWidth: accentHex == hex ? 2 : 0))
-                        }.buttonStyle(.plain)
-                    }
-                    ColorPicker("", selection: Binding(
-                        get: { Color(hex: accentHex) ?? .accentColor }, set: { accentHex = $0.hexString })).labelsHidden()
-                }
-            }
         }
+        Section("Accent") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 34), spacing: 10)], spacing: 10) {
+                ForEach(Palette.accents, id: \.self) { hex in accentSwatch(hex) }
+            }
+            .padding(.vertical, 4)
+            LabeledContent("Custom") {
+                ColorPicker("", selection: Binding(
+                    get: { Color(hex: accentHex) ?? .accentColor },
+                    set: { accentHex = $0.hexString }), supportsOpacity: false).labelsHidden()
+            }
+            Text("Status colors — due, overdue, done — keep their fixed red / amber / teal on every theme.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func accentSwatch(_ hex: String) -> some View {
+        let selected = accentHex.caseInsensitiveCompare(hex) == .orderedSame
+        let color = Color(hex: hex) ?? .gray
+        return Button { accentHex = hex } label: {
+            Circle().fill(color).frame(width: 26, height: 26)
+                .overlay {
+                    if selected {
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                    }
+                }
+                .overlay(Circle().strokeBorder(.primary.opacity(selected ? 0 : 0.08)))
+                .shadow(color: color.opacity(selected ? 0.5 : 0), radius: 4)
+        }
+        .buttonStyle(.plain)
+        .help(hex)
+        .accessibilityLabel("Accent \(hex)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder private var shortcutsSections: some View {
