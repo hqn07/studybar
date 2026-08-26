@@ -70,6 +70,10 @@ struct RootView: View {
                 windowBody
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The popover uses macOS's translucent vibrancy material, so the desktop bleeds
+        // through as a muddy tint — paint an opaque background so it reads as a solid panel.
+        .background(surface == .popover ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(Color.clear))
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
