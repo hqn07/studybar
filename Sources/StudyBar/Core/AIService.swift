@@ -527,6 +527,11 @@ enum AIProtocol {
     - list_classes        args: {}                      → weekly class schedule
     - list_links          args: {}                      → quick links
     - get_grades          args: { "course"?: string }   → GPA + current standing / what-if
+    - get_study_stats     args: {}                      → time studied today/week, by course, streak, pomodoros, retention
+    - get_course          args: { "course": string }    → one course's grade, assignments, notes, hours logged, classes
+    - get_semester        args: {}                      → term name, week number, % through
+    - list_snippets       args: {}                      → saved snippet keywords
+    - get_scratchpad      args: {}                      → the scratchpad contents
     - search              args: { "query": string }     → matches across notes, tasks, reading, citations
     """
 
@@ -562,6 +567,7 @@ enum AIProtocol {
     static let readTools: Set<String> = [
         "get_note", "list_notes", "list_assignments", "list_todos", "list_reading",
         "list_decks", "list_citations", "list_classes", "list_links", "get_grades", "search",
+        "get_study_stats", "get_course", "get_semester", "list_snippets", "get_scratchpad",
     ]
 
     /// Extract the growing value of the `"reply"` field from a partial JSON envelope,
@@ -742,6 +748,20 @@ enum StudyContext {
             lines.append("Next class today: \(cc.isEmpty ? next.session.title : cc) in \(next.minutesUntil)m.")
         }
         lines.append("Library: \(d.notes.count) notes, \(d.decks.count) decks, \(d.flashcards.count) cards, \(d.reading.count) books, \(d.todos.filter { !$0.done }.count) open to-dos.")
+
+        // Effort + standing + term — so the assistant can plan realistically without a read.
+        let sm = StudyStats.secondsToday(d) / 60, sw = StudyStats.secondsThisWeek(d) / 60
+        lines.append("Studied today \(sm)m; this week \(sw/60)h\(sw%60)m; streak \(StudyStats.currentStreak(d))d.")
+        let graded = d.courses.filter { $0.gradePoints != nil }
+        let den = graded.reduce(0.0) { $0 + $1.credits }
+        if den > 0 {
+            let num = graded.reduce(0.0) { $0 + ($1.gradePoints ?? 0) * $1.credits }
+            lines.append(String(format: "Projected GPA: %.2f.", num / den))
+        }
+        if !d.termName.isEmpty, let start = d.termStart {
+            lines.append("Term: \(d.termName), week \(max(1, Int(Date().timeIntervalSince(start) / (7 * 86400)) + 1)).")
+        }
+        lines.append("(Deeper detail: get_study_stats, get_course, get_semester, and the list_/get_ read tools.)")
         return lines.joined(separator: "\n")
     }
 }
@@ -804,12 +824,85 @@ enum AIReader {
         case "get_grades":
             return grades(state, courseQuery: r.str("course"))
 
+        case "get_study_stats":
+            return studyStats(state)
+
+        case "get_course":
+            return courseDetail(state, query: r.str("course") ?? r.str("name"))
+
+        case "get_semester":
+            return semester(state)
+
+        case "list_snippets":
+            return "SNIPPETS: " + (d.snippets.isEmpty ? "none" : d.snippets.prefix(60).map {
+                $0.keyword.isEmpty ? ($0.title.isEmpty ? "(untitled)" : $0.title) : $0.keyword
+            }.joined(separator: "; "))
+
+        case "get_scratchpad":
+            return d.scratchpad.isEmpty ? "SCRATCHPAD: empty."
+                                        : "SCRATCHPAD: \(d.scratchpad.prefix(1600))"
+
         case "search":
             return search(r.str("query") ?? "", state: state)
 
         default:
             return "\(r.tool): unknown read tool."
         }
+    }
+
+    /// Effort/time across the app — the piece the assistant needs to plan realistically.
+    static func studyStats(_ state: AppState) -> String {
+        let d = state.data
+        let today = StudyStats.secondsToday(d) / 60
+        let week = StudyStats.secondsThisWeek(d) / 60
+        var lines = ["Studied today \(today)m; this week \(week/60)h\(week%60)m; streak \(StudyStats.currentStreak(d))d; pomodoros today \(StudyStats.pomodorosToday(d))."]
+        let byCourse = StudyStats.weekByCourse(d).filter { $0.seconds > 0 }.sorted { $0.seconds > $1.seconds }
+        if !byCourse.isEmpty {
+            lines.append("This week by course: " + byCourse.prefix(8).map {
+                "\(state.course($0.courseID)?.code ?? state.course($0.courseID)?.name ?? "Unlabeled") \($0.seconds/60)m"
+            }.joined(separator: ", ") + ".")
+        }
+        if let ret = StudyStats.flashcardRetention(d) {
+            lines.append("Flashcards: \(StudyStats.cardsDueToday(d)) due today, \(Int(ret*100))% retention.")
+        }
+        return "STUDY STATS — " + lines.joined(separator: " ")
+    }
+
+    /// Everything linked to one course — the cross-module join ("ecosystem" view).
+    static func courseDetail(_ state: AppState, query: String?) -> String {
+        let d = state.data
+        guard let q = query?.trimmingCharacters(in: .whitespaces), !q.isEmpty,
+              let c = d.courses.first(where: { $0.name.localizedCaseInsensitiveContains(q) || $0.code.localizedCaseInsensitiveContains(q) })
+        else { return "get_course: name the course by code or title." }
+        let open = d.assignments.filter { $0.courseID == c.id && $0.status != .done }
+            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+        let done = d.assignments.filter { $0.courseID == c.id && $0.status == .done }.count
+        let notes = d.notes.filter { $0.courseID == c.id }.count
+        let mins = d.timeEntries.filter { $0.courseID == c.id }.reduce(0) { $0 + $1.seconds } / 60
+        let classes = d.classes.filter { $0.courseID == c.id }.count
+        var lines = ["COURSE \(c.name)\(c.code.isEmpty ? "" : " [\(c.code)]") — \(Int(c.credits)) cr\(c.grade.isEmpty ? "" : ", grade \(c.grade)")\(c.instructor.isEmpty ? "" : ", \(c.instructor)")."]
+        if let next = open.first {
+            let due = next.daysUntilDue.map { $0 == 0 ? "due today" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
+            lines.append("\(open.count) open assignment(s); next: \(next.title) (\(due)). \(done) done.")
+        } else { lines.append("No open assignments; \(done) done.") }
+        lines.append("\(notes) notes, \(mins)m logged, \(classes) weekly class(es).")
+        let g = state.gradeItems.filter { $0.courseID == c.id && $0.graded }
+        let gw = g.reduce(0.0) { $0 + $1.weight }
+        if gw > 0 {
+            let earned = g.reduce(0.0) { $0 + $1.weight * $1.score / 100 }
+            lines.append(String(format: "Grade so far: %.1f%% on %d%% graded.", earned / gw * 100, Int(gw)))
+        }
+        return lines.joined(separator: " ")
+    }
+
+    static func semester(_ state: AppState) -> String {
+        let d = state.data
+        let name = d.termName.isEmpty ? "current term" : d.termName
+        guard let start = d.termStart, let end = d.termEnd else { return "SEMESTER: \(name) (no dates set)." }
+        let total = end.timeIntervalSince(start), elapsed = Date().timeIntervalSince(start)
+        let pct = total > 0 ? max(0, min(100, Int(elapsed / total * 100))) : 0
+        let wk = max(1, Int(elapsed / (7 * 86400)) + 1)
+        return "SEMESTER \(name): week \(wk), \(pct)% through (\(start.dayMonth)–\(end.dayMonth))."
     }
 
     static func grades(_ state: AppState, courseQuery: String?) -> String {
@@ -1239,6 +1332,11 @@ enum AIToolCatalog {
         tool("list_classes", "List the weekly class schedule."),
         tool("list_links", "List saved quick links."),
         tool("get_grades", "GPA and current standing; pass a course for its what-if breakdown.", [("course", S)]),
+        tool("get_study_stats", "Time studied today and this week, by course, study streak, pomodoros, and flashcard retention."),
+        tool("get_course", "Everything for one course: grade, open/done assignments, notes, hours logged, classes.", [("course", S)], ["course"]),
+        tool("get_semester", "The current term's name, week number and percent complete."),
+        tool("list_snippets", "Saved text-snippet keywords."),
+        tool("get_scratchpad", "The scratchpad contents."),
         tool("search", "Search across notes, tasks, reading and citations.", [("query", S)], ["query"]),
     ]
 
@@ -1403,7 +1501,7 @@ enum AIToolSelfTest {
         // 1. Catalog covers exactly the read + write tools the app understands.
         let names = Set(AIToolCatalog.all.map { $0.name })
         check("catalog = read+write tools", names == AIProtocol.readTools.union(AIProtocol.writeTools))
-        check("catalog count 28", AIToolCatalog.all.count == 28)
+        check("catalog count 33", AIToolCatalog.all.count == 33)
 
         // 2. Every tool has a non-empty description and an object schema.
         check("all tools have description", AIToolCatalog.all.allSatisfy { !$0.description.isEmpty })
@@ -1411,7 +1509,7 @@ enum AIToolSelfTest {
 
         // 3. Anthropic payload shape.
         let ap = AIToolCatalog.anthropic
-        check("anthropic payload count", ap.count == 28)
+        check("anthropic payload count", ap.count == 33)
         check("anthropic payload keys", ap.allSatisfy { $0["name"] != nil && $0["description"] != nil && $0["input_schema"] != nil })
 
         // 4. A required-arg schema is right (create_course requires name).
@@ -1446,6 +1544,24 @@ enum AIToolSelfTest {
 
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1
+    }
+}
+
+/// End-to-end assistant harness (StudyBar --ai-ask "question"). Runs the full pipeline
+/// against the active engine + the real data — proving the reads/context work live.
+enum AIAskTest {
+    @MainActor static func run(_ q: String, state: AppState) async -> Int32 {
+        print("ENGINE: \(AIConfig.mode.title)\nQ: \(q)\n")
+        do {
+            let turn = try await AIService.send(history: [AIMessage(role: .user, text: q)], state: state) { p in
+                print("  …\(p)")
+            }
+            print("\nREPLY: \(turn.reply)")
+            if !turn.actions.isEmpty { print("ACTIONS: " + turn.actions.map { $0.label }.joined(separator: " | ")) }
+            return 0
+        } catch {
+            print("ERROR: \(error.localizedDescription)"); return 1
+        }
     }
 }
 
