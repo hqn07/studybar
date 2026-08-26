@@ -53,6 +53,9 @@ struct RootView: View {
                 if surface == .popover { WindowOpener.routeToWindow?(id) }
                 else { WindowOpener.setWindowTitle?(ModuleRegistry.info(id)?.title ?? "StudyBar") }
             }
+            // Drive the window appearance at the AppKit level so switching to "Device"
+            // reliably re-follows the system (preferredColorScheme(nil) alone doesn't).
+            .onChange(of: appearance) { _, _ in applyAppearanceSetting() }
     }
 
     private var shell: some View {

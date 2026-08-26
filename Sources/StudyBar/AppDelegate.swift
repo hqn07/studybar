@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || UserDefaults.standard.bool(forKey: "showDock") {
             NSApp.setActivationPolicy(.regular)
         }
+        applyAppearanceSetting()
         Notifier.requestAuthorization()
 
         popover.behavior = .transient
@@ -278,5 +279,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Apply the saved "appearance" setting at the AppKit level. `.preferredColorScheme(nil)`
+/// alone doesn't reliably clear a previously-forced window appearance when switching back
+/// to "Device", so set NSApp.appearance directly: nil = follow the system.
+@MainActor func applyAppearanceSetting() {
+    switch UserDefaults.standard.string(forKey: "appearance") {
+    case "light": NSApp.appearance = NSAppearance(named: .aqua)
+    case "dark":  NSApp.appearance = NSAppearance(named: .darkAqua)
+    default:      NSApp.appearance = nil    // "system"/Device → follow the OS
     }
 }
