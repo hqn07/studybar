@@ -1565,6 +1565,22 @@ enum AIAskTest {
     }
 }
 
+/// Prints the deterministic daily brief, then runs "plan my day" through the live engine
+/// against the real data (StudyBar --ai-plan).
+enum AIPlanTest {
+    @MainActor static func run(state: AppState) async -> Int32 {
+        print("=== DAILY BRIEF (deterministic) ===\n\(DailyPlan.brief(state.data))\n")
+        print("=== PLAN (\(AIConfig.mode.title)) ===")
+        do {
+            let turn = try await AIService.send(history: [AIMessage(role: .user, text: DailyPlan.prompt(state.data))],
+                                                state: state) { p in print("  …\(p)") }
+            print("\nREPLY: \(turn.reply)")
+            if !turn.actions.isEmpty { print("ACTIONS: " + turn.actions.map { $0.label }.joined(separator: " | ")) }
+            return 0
+        } catch { print("ERROR: \(error.localizedDescription)"); return 1 }
+    }
+}
+
 /// Live smoke test for Ollama streaming (StudyBar --ollama-stream-test). Needs Ollama up.
 enum OllamaStreamTest {
     @MainActor static func run() async -> Int32 {

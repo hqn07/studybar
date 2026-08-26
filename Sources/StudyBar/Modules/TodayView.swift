@@ -250,7 +250,7 @@ struct TodayView: View {
             if showParsePreview { parsePreview }
             if AIConfig.isReady {
                 Button {
-                    AppActions.assistant("Look at my open assignments, due dates and classes, and give me a short prioritized plan for today. Propose tasks or study blocks I can add.")
+                    AppActions.assistant(DailyPlan.prompt(state.data))
                 } label: {
                     Label("Plan my day", systemImage: "sparkles").frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered).controlSize(.large).tint(.accentColor)
