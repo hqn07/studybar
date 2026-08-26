@@ -30,6 +30,56 @@ struct GradeCalcView: View {
         return (String(format: "Need %.1f%% on the remaining %d%% to hit %d%%.", need, Int(ungradedWeight), Int(target)), .primary)
     }
 
+    // MARK: projected GPA (all courses, from their graded components)
+
+    private func coursePct(_ cid: UUID) -> Double? {
+        let its = state.gradeItems.filter { $0.courseID == cid && $0.graded }
+        let w = its.reduce(0) { $0 + $1.weight }
+        guard w > 0 else { return nil }
+        return its.reduce(0) { $0 + $1.weight * $1.score / 100 } / w * 100
+    }
+    private func gpaPoints(_ pct: Double) -> Double {
+        switch pct {
+        case 93...: 4.0; case 90..<93: 3.7; case 87..<90: 3.3; case 83..<87: 3.0
+        case 80..<83: 2.7; case 77..<80: 2.3; case 73..<77: 2.0; case 70..<73: 1.7
+        case 67..<70: 1.3; case 63..<67: 1.0; case 60..<63: 0.7; default: 0.0
+        }
+    }
+    private var gpaCourses: [(course: Course, pct: Double)] {
+        state.data.courses.compactMap { c in coursePct(c.id).map { (c, $0) } }
+    }
+    private var projectedGPA: Double? {
+        let rows = gpaCourses
+        let credits = rows.reduce(0) { $0 + $1.course.credits }
+        guard credits > 0 else { return nil }
+        return rows.reduce(0) { $0 + gpaPoints($1.pct) * $1.course.credits } / credits
+    }
+
+    private var gpaCard: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(projectedGPA.map { String(format: "%.2f", $0) } ?? "—")
+                    .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
+                Text("GPA").font(.title3.bold()).foregroundStyle(.tint)
+                Spacer()
+                Text("projected · \(gpaCourses.count) course\(gpaCourses.count == 1 ? "" : "s")")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            ForEach(gpaCourses, id: \.course.id) { row in
+                HStack(spacing: DS.Space.s) {
+                    Circle().fill(row.course.color).frame(width: 7, height: 7)
+                    Text(row.course.code.isEmpty ? row.course.name : row.course.code)
+                        .font(.caption).lineLimit(1)
+                    Spacer()
+                    Text(letter(row.pct)).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    Text(String(format: "%.0f%%", row.pct)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(DS.Space.l).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
     var body: some View {
         NavigationStack {
             ModulePane(title: "Grade Calc") {
@@ -44,6 +94,7 @@ struct GradeCalcView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
+                            if projectedGPA != nil { gpaCard }
                             summary
                             targetCard
                             componentsList
