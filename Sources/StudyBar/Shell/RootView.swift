@@ -8,6 +8,7 @@ struct RootView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
     @AppStorage("density") private var densityRaw = "comfortable"
+    @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
     @AppStorage("onboarded") private var onboarded = false
     @AppStorage("breakScreen") private var breakScreen = true
     @State private var showPalette = false
@@ -22,10 +23,19 @@ struct RootView: View {
             header
             Divider()
             if state.globalSearch.isEmpty {
-                HStack(spacing: 0) {
-                    SidebarView(prefs: state.modulePrefs).frame(width: 176)
-                    Divider()
-                    content
+                GeometryReader { geo in
+                    let forced = geo.size.width < 440          // Compact popover → auto-rail
+                    let railed = forced || sidebarCollapsed
+                    HStack(spacing: 0) {
+                        VStack(spacing: 0) {
+                            collapseBar(forced: forced, railed: railed)
+                            SidebarView(prefs: state.modulePrefs, collapsed: railed)
+                        }
+                        .frame(width: railed ? 48 : 176)
+                        Divider()
+                        content
+                    }
+                    .animation(.spring(response: 0.3), value: railed)
                 }
             } else {
                 UnifiedSearchView(query: state.globalSearch)
@@ -60,6 +70,10 @@ struct RootView: View {
                 Button("") { state.performUndo() }
                     .keyboardShortcut("z", modifiers: .command).opacity(0).accessibilityHidden(true)
             }
+        }
+        .background {
+            Button("") { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } }
+                .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
         .onAppear {
             ServicesProvider.register()
@@ -101,6 +115,20 @@ struct RootView: View {
         }
     }
 
+    // MARK: Sidebar collapse toggle
+
+    @ViewBuilder private func collapseBar(forced: Bool, railed: Bool) -> some View {
+        if !forced {
+            Button { withAnimation(.spring(response: 0.3)) { sidebarCollapsed.toggle() } } label: {
+                Image(systemName: "sidebar.leading")
+            }
+            .buttonStyle(.borderless).controlSize(.small)
+            .help(railed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
+            .frame(maxWidth: .infinity, alignment: railed ? .center : .trailing)
+            .padding(.horizontal, railed ? 0 : 8).padding(.top, 6)
+        }
+    }
+
     // MARK: Content
 
     private var content: some View {
@@ -119,12 +147,60 @@ struct RootView: View {
 struct SidebarView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var prefs: ModulePrefs
+    var collapsed: Bool = false
 
     private var selection: Binding<String?> {
         Binding(get: { state.selectedModuleID }, set: { if let v = $0 { state.selectedModuleID = v } })
     }
 
     var body: some View {
+        if collapsed { rail } else { fullList }
+    }
+
+    // MARK: Icon-only rail
+
+    private var rail: some View {
+        ScrollView {
+            VStack(spacing: 3) {
+                let favs = prefs.favorites.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
+                if !favs.isEmpty { ForEach(favs) { railButton($0) }; railDivider }
+                if prefs.order == .category {
+                    ForEach(prefs.orderedCategories(), id: \.self) { cat in
+                        let visible = ModuleRegistry.all.filter { $0.category == cat && prefs.isVisible($0.id) }
+                        if !visible.isEmpty { ForEach(visible) { railButton($0) }; railDivider }
+                    }
+                } else {
+                    let flat = prefs.orderedIDs().compactMap { ModuleRegistry.info($0) }
+                        .filter { prefs.isVisible($0.id) && !prefs.isFavorite($0.id) }
+                    ForEach(flat) { railButton($0) }
+                }
+            }.padding(.vertical, DS.Space.s)
+        }
+        .scrollIndicators(.hidden)
+    }
+    private var railDivider: some View { Divider().padding(.horizontal, DS.Space.m).padding(.vertical, 2) }
+
+    private func railButton(_ m: ModuleInfo) -> some View {
+        let sel = state.selectedModuleID == m.id
+        return Button { state.selectedModuleID = m.id } label: {
+            Image(systemName: m.symbol)
+                .font(.system(size: 15))
+                .frame(width: 34, height: 30)
+                .background(sel ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
+                            in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .overlay(alignment: .topTrailing) {
+                    if badge(for: m.id) != nil {
+                        Circle().fill(.red).frame(width: 6, height: 6).offset(x: -3, y: 3)
+                    }
+                }
+        }
+        .buttonStyle(.plain).help(m.title)
+    }
+
+    // MARK: Full list
+
+    private var fullList: some View {
         List(selection: selection) {
             let favs = prefs.favorites.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
             if !favs.isEmpty {
