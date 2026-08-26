@@ -96,7 +96,7 @@ struct ReadingView: View {
                                                     Label("Add to Reading List", systemImage: "bookmark")
                                                 }
                                                 Divider()
-                                                Button(role: .destructive) { state.data.reading.removeAll { $0.id == item.id } } label: {
+                                                Button(role: .destructive) { state.withUndo("Deleted book") { state.data.reading.removeAll { $0.id == item.id } } } label: {
                                                     Label("Delete book", systemImage: "trash")
                                                 }
                                             }
@@ -533,7 +533,7 @@ struct ReadingDetailView: View {
     }
 
     private func deleteBook() {
-        state.data.reading.removeAll { $0.id == itemID }
+        state.withUndo("Deleted book") { state.data.reading.removeAll { $0.id == itemID } }
         dismiss()
     }
     private func setRating(_ n: Int) { guard let i = idx else { return }; state.data.reading[i].rating = n }
@@ -777,7 +777,7 @@ struct ReadingEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader("Edit Book") {
-                Button("Delete", role: .destructive) { state.data.reading.removeAll { $0.id == draft.id }; dismiss() }
+                Button("Delete", role: .destructive) { state.withUndo("Deleted book") { state.data.reading.removeAll { $0.id == draft.id } }; dismiss() }
             }
             Divider()
             ScrollView {

@@ -101,7 +101,7 @@ struct TodoRow: View {
             Button { cyclePriority() } label: {
                 Circle().fill(colors[item.priority]).frame(width: 8, height: 8)
             }.buttonStyle(.plain).help("Priority")
-            Button { state.data.todos.removeAll { $0.id == item.id } } label: {
+            Button { state.withUndo("Deleted task") { state.data.todos.removeAll { $0.id == item.id } } } label: {
                 Image(systemName: "xmark")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
@@ -137,7 +137,7 @@ struct TodoEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader("Task") {
-                Button("Delete", role: .destructive) { state.data.todos.removeAll { $0.id == draft.id }; dismiss() }
+                Button("Delete", role: .destructive) { state.withUndo("Deleted task") { state.data.todos.removeAll { $0.id == draft.id } }; dismiss() }
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {

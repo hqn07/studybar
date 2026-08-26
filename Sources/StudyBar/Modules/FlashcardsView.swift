@@ -277,8 +277,10 @@ struct DeckView: View {
         // selectedTags intentionally kept — consecutive cards reuse the same tags.
     }
     private func deleteDeck() {
-        state.data.flashcards.removeAll { $0.deckID == deck.id }
-        state.data.decks.removeAll { $0.id == deck.id }
+        state.withUndo("Deleted deck") {
+            state.data.flashcards.removeAll { $0.deckID == deck.id }
+            state.data.decks.removeAll { $0.id == deck.id }
+        }
         dismiss()
     }
     private func resetProgress() {
@@ -511,7 +513,7 @@ struct CardEditor: View {
         VStack(spacing: 0) {
             SubHeader("Card") {
                 Button("Delete", role: .destructive) {
-                    state.data.flashcards.removeAll { $0.id == draft.id }; dismiss()
+                    state.withUndo("Deleted card") { state.data.flashcards.removeAll { $0.id == draft.id } }; dismiss()
                 }
             }
             Divider()

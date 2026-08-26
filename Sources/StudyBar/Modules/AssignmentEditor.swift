@@ -124,7 +124,7 @@ struct AssignmentEditor: View {
     }
 
     private func delete() {
-        state.data.assignments.removeAll { $0.id == draft.id }
+        state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == draft.id } }
         Notifier.cancel(id: draft.id.uuidString)
         dismiss()
     }

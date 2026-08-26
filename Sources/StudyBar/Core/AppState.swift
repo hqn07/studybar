@@ -22,6 +22,35 @@ final class AppState: ObservableObject {
 
     @Published var modulePrefs = ModulePrefs()
 
+    // MARK: Undo — Gmail-style one-level undo for destructive actions.
+    struct UndoEntry: Identifiable, Equatable {
+        let id = UUID(); let label: String; let snapshot: AppData
+        static func == (l: UndoEntry, r: UndoEntry) -> Bool { l.id == r.id }
+    }
+    @Published var undo: UndoEntry? = nil
+    private var undoClearTask: Task<Void, Never>?
+
+    /// Run a destructive mutation with one-level undo: snapshots `data` first,
+    /// then shows an undo banner for ~6s.
+    func withUndo(_ label: String, _ mutation: () -> Void) {
+        let snapshot = data
+        mutation()
+        let entry = UndoEntry(label: label, snapshot: snapshot)
+        undo = entry
+        undoClearTask?.cancel()
+        undoClearTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            await MainActor.run { if self?.undo?.id == entry.id { self?.undo = nil } }
+        }
+    }
+    func performUndo() {
+        guard let u = undo else { return }
+        data = u.snapshot
+        undo = nil
+        undoClearTask?.cancel()
+    }
+    func dismissUndo() { undo = nil; undoClearTask?.cancel() }
+
     // AI assistant conversation (ephemeral; not persisted).
     let aiChat = AIChat()
 

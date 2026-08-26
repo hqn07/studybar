@@ -47,6 +47,20 @@ struct RootView: View {
         .overlay {
             if !onboarded { OnboardingView(done: { onboarded = true }) }
         }
+        .overlay(alignment: .bottom) {
+            if let u = state.undo {
+                UndoToast(label: u.label, onUndo: { state.performUndo() }, onDismiss: { state.dismissUndo() })
+                    .padding(DS.Space.l)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35), value: state.undo)
+        .background {
+            if state.undo != nil {
+                Button("") { state.performUndo() }
+                    .keyboardShortcut("z", modifiers: .command).opacity(0).accessibilityHidden(true)
+            }
+        }
         .onAppear {
             ServicesProvider.register()
             GlobalShortcuts.configure()
@@ -193,5 +207,28 @@ struct SearchField: View {
         }
         .padding(.horizontal, 7).padding(.vertical, 4)
         .background(.background.secondary, in: Capsule())
+    }
+}
+
+/// Snackbar shown after a destructive action, with a one-tap Undo.
+struct UndoToast: View {
+    let label: String
+    let onUndo: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: "trash").font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.callout).lineLimit(1)
+            Spacer(minLength: DS.Space.m)
+            Button("Undo", action: onUndo).buttonStyle(.borderedProminent).controlSize(.small)
+            Button { onDismiss() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.separator))
+        .shadow(radius: 12)
+        .frame(maxWidth: 320)
     }
 }

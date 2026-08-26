@@ -449,7 +449,7 @@ struct NoteEditor: View {
         AppActions.assistant(make(draft))
     }
     private func delete() {
-        state.data.notes.removeAll { $0.id == draft.id }
+        state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == draft.id } }
         dismiss()
     }
 }

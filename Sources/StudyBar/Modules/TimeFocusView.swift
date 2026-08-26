@@ -710,7 +710,7 @@ private struct SessionsSection: View {
             Text(timeStr(e.seconds)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Menu {
                 Button("Rename") { renaming = e; newLabel = e.label }
-                Button("Delete", role: .destructive) { state.data.timeEntries.removeAll { $0.id == e.id } }
+                Button("Delete", role: .destructive) { state.withUndo("Deleted session") { state.data.timeEntries.removeAll { $0.id == e.id } } }
             } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
         }
         .padding(DS.Space.m).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
