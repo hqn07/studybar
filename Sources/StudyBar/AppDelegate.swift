@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var window: NSWindow?
+    /// When the menu-bar item was last clicked — so the reopen handler can tell a
+    /// status-item interaction (show the popover) from a real app-icon click (show the window).
+    private var lastStatusClickAt = Date.distantPast
     private var timer: Timer?
     private var feedTimer: Timer?
 
@@ -21,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu-bar app always is — sends a reopen event. Without this, nothing happened and
     /// the window was only reachable from the menu bar. Open the window on reopen.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Clicking the menu-bar item activates the app, which also fires reopen — don't
+        // treat that as an app-icon click, or the window pops up over the popover.
+        if Date().timeIntervalSince(lastStatusClickAt) < 0.8 { return true }
         if !flag { showWindow() }
         return true
     }
@@ -113,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Status item
 
     @objc private func statusClicked(_ sender: NSStatusBarButton) {
+        lastStatusClickAt = Date()
         if NSApp.currentEvent?.type == .rightMouseUp {
             showRightMenu()
         } else {

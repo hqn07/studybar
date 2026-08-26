@@ -176,7 +176,7 @@ struct CalendarView: View {
                         .padding(6)
                         .background(item.color.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).fill(item.color).frame(width: 3), alignment: .leading)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).help(tip(item))
                 }
             }
         }
@@ -196,6 +196,7 @@ struct CalendarView: View {
                     }
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(item.color.opacity(0.14), in: Capsule())
+                    .help(tip(item))
                 }
             }.padding(.horizontal, 12)
         }
@@ -232,6 +233,7 @@ struct CalendarView: View {
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }
         .buttonStyle(.plain)
+        .help(tip(item))
         .padding(.horizontal, 10)
     }
 
@@ -371,6 +373,22 @@ struct CalendarView: View {
     private func icon(_ k: AgendaItem.Kind) -> String {
         switch k { case .calendar: return "calendar"; case .feed: return "dot.radiowaves.up.forward"
         case .assignment: return "checklist"; case .klass: return "graduationcap" }
+    }
+    /// Where an item came from — shown on hover so duplicates from different sources
+    /// are distinguishable (e.g. a macOS Calendar subscription vs a StudyBar feed import).
+    private func sourceLabel(_ item: AgendaItem) -> String {
+        switch item.kind {
+        case .calendar:   return item.subtitle.isEmpty ? "macOS Calendar" : "macOS Calendar · \(item.subtitle)"
+        case .feed:       return item.subtitle.isEmpty ? "Subscribed feed" : "Feed · \(item.subtitle)"
+        case .assignment: return "StudyBar assignment"
+        case .klass:      return "Class schedule"
+        }
+    }
+    /// Multi-line hover tooltip: title · source · time · link.
+    private func tip(_ item: AgendaItem) -> String {
+        var lines = [item.title, "Source: \(sourceLabel(item))", timeText(item)]
+        if let link = item.link, !link.isEmpty { lines.append(link) }
+        return lines.joined(separator: "\n")
     }
     private func open(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"
