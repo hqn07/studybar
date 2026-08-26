@@ -137,8 +137,11 @@ two-column / wider layouts in the window that a 380 pt popover can't hold.
   arrange" half) already ships in Settings ▸ Modules. *Honest scope:* StudyBar themes the
   accent + light/dark; surface tokens stay system materials (surface theming = a later,
   bigger change). *Remaining:* ship-minimal-by-default defaults pass.
-- **Phase 4 — surface-aware modules.** Give the heavy modules (Notes, Calendar, Insights,
-  Board, Reading) roomier two-column window layouts distinct from any popover slice.
+- **Phase 4 — surface-aware modules. ✅ shipped (`8696a72`).** `ModuleInfo.wide` flag:
+  spatial modules (Insights, Calendar, Board, Reading) fill the window; text/list modules
+  get a centered readable column (max 820 pt) — engages only once the window is widened
+  past its default, so no regression at default size. *Deferred:* Notes list+editor
+  master-detail (riskier per-module refactor of the daily driver; weak to verify headlessly).
 
 ## Risks / open questions
 
