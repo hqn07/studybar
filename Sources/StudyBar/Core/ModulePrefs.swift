@@ -21,6 +21,19 @@ final class ModulePrefs: ObservableObject {
     /// Modules that can never be hidden (needed to reach settings / home).
     static let locked: Set<String> = ["today", "settings"]
 
+    /// The calm starter set shown to a brand-new user — everything else is hidden but one
+    /// tap away in Settings ▸ Modules (philosophy: calm default, breadth opt-in).
+    static let starterVisible: Set<String> = [
+        "today", "assignments", "notes", "calendar", "todos",
+        "courses", "flashcards", "timefocus", "assistant", "settings",
+    ]
+    /// The modules a new install starts with hidden. Pure — safe to call anytime.
+    static func starterHidden() -> Set<String> {
+        Set(ModuleRegistry.all.map(\.id)).subtracting(starterVisible)
+    }
+    /// Hide the long tail for a new user. Only call on a fresh install (see AppState).
+    func seedStarterSet() { hidden = ModulePrefs.starterHidden() }
+
     init() {
         hidden = Set(UserDefaults.standard.stringArray(forKey: "hiddenModules") ?? [])
         favorites = UserDefaults.standard.stringArray(forKey: "favoriteModules") ?? []

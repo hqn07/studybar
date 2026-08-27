@@ -207,6 +207,11 @@ final class AppState: ObservableObject {
                 || data.courses.contains { $0.name != "Getting Started" }
                 || data.notes.count > 1 || !data.decks.isEmpty
             UserDefaults.standard.set(hasContent, forKey: "onboarded")
+            // Brand-new install → ship a calm starter set; the long tail stays one tap
+            // away in Settings ▸ Modules. Never touches an existing user's setup.
+            if !hasContent && UserDefaults.standard.object(forKey: "hiddenModules") == nil {
+                modulePrefs.seedStarterSet()
+            }
         }
     }
 

@@ -412,6 +412,9 @@ enum AIService {
         if let anthropic = provider as? AnthropicProvider {
             return try await sendWithTools(provider: anthropic, history: history, state: state)
         }
+        if let openai = provider as? OpenAIProvider {
+            return try await sendWithToolsOpenAI(provider: openai, history: history, state: state)
+        }
         let system = systemPrompt(state: state)
         var convo = history
         var last = AITurn(reply: "", actions: [])
@@ -1379,6 +1382,11 @@ enum AIToolCatalog {
     static var anthropic: [[String: Any]] {
         all.map { ["name": $0.name, "description": $0.description, "input_schema": $0.schema] }
     }
+    /// OpenAI `tools` payload (function-calling shape).
+    static var openai: [[String: Any]] {
+        all.map { ["type": "function",
+                   "function": ["name": $0.name, "description": $0.description, "parameters": $0.schema]] }
+    }
 }
 
 extension AnthropicProvider {
@@ -1427,6 +1435,40 @@ extension AnthropicProvider {
     }
 }
 
+extension OpenAIProvider {
+    struct ToolUse { let id: String; let name: String; let input: [String: Any] }
+
+    /// One tool-enabled round-trip. `messages` are OpenAI chat messages. Returns the raw
+    /// assistant message (to replay verbatim), its text, and any tool calls.
+    func completeTools(messages: [[String: Any]],
+                       tools: [[String: Any]]) async throws -> (assistant: [String: Any], text: String, toolUses: [ToolUse]) {
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["model": model, "max_tokens": 2048, "messages": messages, "tools": tools]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            throw AIError.http(code, ((o?["error"] as? [String: Any])?["message"] as? String) ?? (String(data: data, encoding: .utf8) ?? ""))
+        }
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let msg = ((obj?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any]) ?? [:]
+        let text = msg["content"] as? String ?? ""
+        var uses: [ToolUse] = []
+        for tc in (msg["tool_calls"] as? [[String: Any]] ?? []) {
+            guard let id = tc["id"] as? String,
+                  let fn = tc["function"] as? [String: Any], let name = fn["name"] as? String else { continue }
+            let argStr = fn["arguments"] as? String ?? "{}"
+            let input = (try? JSONSerialization.jsonObject(with: Data(argStr.utf8))) as? [String: Any] ?? [:]
+            uses.append(ToolUse(id: id, name: name, input: input))
+        }
+        return (msg, text, uses)
+    }
+}
+
 extension AIService {
     /// Cloud tool-use loop: reads execute + feed back; writes become proposed actions.
     static func sendWithTools(provider: AnthropicProvider, history: [AIMessage], state: AppState) async throws -> AITurn {
@@ -1455,6 +1497,29 @@ extension AIService {
                  "content": AIReader.one(AIAction(tool: tu.name, label: "", args: tu.input), state: state)]
             }
             messages.append(["role": "user", "content": results])
+        }
+        return present(AITurn(reply: replyText, actions: []))
+    }
+
+    /// OpenAI variant of the tool-use loop (same guarantees; OpenAI message shape).
+    static func sendWithToolsOpenAI(provider: OpenAIProvider, history: [AIMessage], state: AppState) async throws -> AITurn {
+        let tools = AIToolCatalog.openai
+        var messages: [[String: Any]] = [["role": "system", "content": toolSystemPrompt(state: state)]]
+        messages += history.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var replyText = ""
+        for _ in 0..<maxRoundsTool {
+            let (assistant, text, toolUses) = try await provider.completeTools(messages: messages, tools: tools)
+            if !text.isEmpty { replyText = text }
+            let writes = toolUses.filter { AIProtocol.writeTools.contains($0.name) }
+            let reads  = toolUses.filter { AIProtocol.readTools.contains($0.name) }
+            if !writes.isEmpty || reads.isEmpty {
+                return present(AITurn(reply: replyText, actions: writes.map { proposedAction($0.name, $0.input) }))
+            }
+            messages.append(assistant)   // replay the assistant turn (carries the tool_calls)
+            for tu in reads {
+                messages.append(["role": "tool", "tool_call_id": tu.id,
+                                 "content": AIReader.one(AIAction(tool: tu.name, label: "", args: tu.input), state: state)])
+            }
         }
         return present(AITurn(reply: replyText, actions: []))
     }
@@ -1539,6 +1604,15 @@ enum AIToolSelfTest {
         check("parseContent one tool_use", parsed.toolUses.count == 1 && parsed.toolUses.first?.name == "add_task")
         check("parseContent input carried", (parsed.toolUses.first?.input["text"] as? String) == "read chapter 3")
 
+        // 5b. OpenAI payload shape (function-calling).
+        let op = AIToolCatalog.openai
+        check("openai payload count", op.count == 33)
+        check("openai payload shape", op.allSatisfy {
+            ($0["type"] as? String) == "function"
+            && (($0["function"] as? [String: Any])?["name"]) != nil
+            && (($0["function"] as? [String: Any])?["parameters"]) != nil
+        })
+
         // 6. A write tool_use maps to a proposed action with a real label.
         let a = AIService.proposedAction("create_assignment", ["title": "Lab report"])
         check("proposedAction label", a.label == "Add assignment: Lab report")
@@ -1558,6 +1632,12 @@ enum AIToolSelfTest {
         check("replySoFar complete", AIProtocol.replySoFar("{\"reads\":[],\"reply\":\"Done.\",\"actions\":[]}") == "Done.")
         check("replySoFar escapes", AIProtocol.replySoFar("{\"reply\":\"a \\\"b\\\" c\\nd\"}") == "a \"b\" c\nd")
         check("replySoFar not started", AIProtocol.replySoFar("{\"reads\":[{\"tool\":\"get_note\"") == nil)
+
+        // 9. Ship-minimal starter set: long tail hidden, core + locked shown.
+        let starterHidden = ModulePrefs.starterHidden()
+        check("starter hides the long tail (insights)", starterHidden.contains("insights"))
+        check("starter shows a core module (assignments)", !starterHidden.contains("assignments"))
+        check("starter never hides today/settings", !starterHidden.contains("today") && !starterHidden.contains("settings"))
 
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1
