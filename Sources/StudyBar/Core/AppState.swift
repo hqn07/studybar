@@ -362,6 +362,17 @@ final class AppState: ObservableObject {
         withUndo("Delete block") { timeBlocks.removeAll { $0.id == id } }
     }
 
+    /// Start a focus session for a planned block: it inherits the block's course and
+    /// linked assignment (so the logged time lands back on them) and runs for the block's
+    /// planned length. Caller-independent — also jumps to the Time & Focus module so the
+    /// running timer is visible.
+    func focusTimeBlock(_ b: TimeBlock) {
+        pomodoro.focusMinutes = max(5, min(180, b.durationMinutes))
+        let label = b.title.isEmpty ? (course(b.courseID)?.name ?? "Focus") : b.title
+        pomodoro.startFocus(label: label, courseID: b.courseID, assignmentID: b.assignmentID)
+        selectedModuleID = "timefocus"
+    }
+
     // MARK: Derived / badges
 
     /// Assignments due within `days`, not done, sorted by due date.

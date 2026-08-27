@@ -254,6 +254,7 @@ struct TimeBlockView: View {
         .onTapGesture { editing = b }
         .gesture(moveGesture(b))
         .contextMenu {
+            Button { state.focusTimeBlock(b) } label: { Label("Focus this block", systemImage: "timer") }
             Button(b.done ? "Mark not done" : "Mark done") { toggleDone(b) }
             Divider()
             Button("Delete", role: .destructive) { state.deleteTimeBlock(b.id) }
@@ -488,6 +489,9 @@ struct TimeBlockEditor: View {
             }
             Divider()
             HStack {
+                Button { focusNow() } label: { Label("Focus", systemImage: "timer") }
+                    .buttonStyle(.bordered)
+                    .help("Save and start a focus session for this block")
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") { save() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
@@ -511,9 +515,21 @@ struct TimeBlockEditor: View {
     }
 
     private func save() {
-        // Keep end after start (min 15 min).
-        if draft.endMinutes <= draft.startMinutes { draft.endMinutes = min(24 * 60, draft.startMinutes + 15) }
+        normalize()
         state.upsertTimeBlock(draft)
         dismiss()
+    }
+
+    /// Save any edits, then start a focus session for this block (routes to Time & Focus).
+    private func focusNow() {
+        normalize()
+        state.upsertTimeBlock(draft)
+        state.focusTimeBlock(draft)
+        dismiss()
+    }
+
+    /// Keep end after start (min 15 min).
+    private func normalize() {
+        if draft.endMinutes <= draft.startMinutes { draft.endMinutes = min(24 * 60, draft.startMinutes + 15) }
     }
 }
