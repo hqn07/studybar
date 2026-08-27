@@ -464,6 +464,7 @@ struct RichTextEditor: NSViewRepresentable {
         /// When the caret leaves a math expression it was editing, re-render it in place.
         func textViewDidChangeSelection(_ notification: Notification) {
             controller.detectLinkContext()
+            (notification.object as? FoldingTextView)?.dismissGhost()
             guard controller.mathEditing, let tv = notification.object as? NSTextView,
                   let ts = tv.textStorage else { return }
             if MathSupport.caretInsideMath(tv.string, tv.selectedRange().location) { return }
@@ -486,6 +487,7 @@ final class FoldingTextView: NSTextView {
     weak var mathController: RichTextController?
 
     override func mouseDown(with event: NSEvent) {
+        clearGhost()
         guard let ts = textStorage, let lm = layoutManager, let tc = textContainer else {
             super.mouseDown(with: event); return
         }
@@ -651,9 +653,97 @@ final class FoldingTextView: NSTextView {
         return true
     }
 
-    override func insertTab(_ sender: Any?) { if adjustListIndent(by: 1) { return }; super.insertTab(sender) }
+    override func insertTab(_ sender: Any?) {
+        if ghost != nil { acceptGhost(); return }        // Tab accepts an autocomplete suggestion
+        if adjustListIndent(by: 1) { return }
+        super.insertTab(sender)
+    }
     override func insertBacktab(_ sender: Any?) { if adjustListIndent(by: -1) { return }; super.insertBacktab(sender) }
     override func insertNewline(_ sender: Any?) { if continueList() { return }; super.insertNewline(sender) }
+
+    // MARK: - Ghost-text autocomplete (Ollama, opt-in)
+    //
+    // The suggestion is drawn in an overlay label — it never enters the document, so
+    // there is no path for it to be saved (data-safety). Tab accepts it (inserting real
+    // text); any other key or a caret move dismisses it.
+
+    private var ghost: String?
+    private var ghostTask: Task<Void, Never>?
+    private lazy var ghostLabel: NSTextField = {
+        let l = NSTextField(labelWithString: "")
+        l.textColor = .tertiaryLabelColor
+        l.isBezeled = false; l.drawsBackground = false; l.isEditable = false; l.isSelectable = false
+        l.lineBreakMode = .byTruncatingTail; l.isHidden = true
+        return l
+    }()
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        clearGhost()
+        super.insertText(string, replacementRange: replacementRange)
+        scheduleGhost()
+    }
+
+    /// Dismiss the ghost when the caret moves (arrows / delete / click) — called from the
+    /// delegate's selection-change hook. Safe during typing: the selection change fires
+    /// inside `super.insertText` *before* `scheduleGhost`, so the fresh task survives.
+    func dismissGhost() { if ghost != nil { clearGhost() } }
+    private func clearGhost() { ghostTask?.cancel(); ghost = nil; ghostLabel.isHidden = true }
+
+    /// After a keystroke pause, ask Ollama for a continuation and show it — but only at
+    /// the end of a line (never mid-word), with a collapsed caret that hasn't moved.
+    private func scheduleGhost() {
+        ghostTask?.cancel()
+        guard NoteAutocomplete.enabled else { return }
+        let sel = selectedRange()
+        guard sel.length == 0 else { return }
+        let ns = string as NSString
+        let atEnd = sel.location >= ns.length
+            || ns.substring(with: NSRange(location: sel.location, length: 1)) == "\n"
+        guard atEnd else { return }
+        let prefix = ns.substring(to: min(sel.location, ns.length))
+        let anchor = sel.location
+        ghostTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let suggestion = await NoteAutocomplete.suggest(prefix: prefix)
+            guard !Task.isCancelled,
+                  self.selectedRange() == NSRange(location: anchor, length: 0),
+                  let s = suggestion, !s.isEmpty else { return }
+            self.showGhost(s, at: anchor)
+        }
+    }
+
+    private func showGhost(_ text: String, at loc: Int) {
+        guard let caret = caretRect(at: loc) else { return }
+        ghost = text
+        ghostLabel.stringValue = text
+        ghostLabel.font = font ?? RichTextController.baseFont
+        ghostLabel.sizeToFit()
+        let maxW = max(0, bounds.width - caret.maxX - 8)
+        ghostLabel.frame = NSRect(x: caret.maxX + 1, y: caret.minY,
+                                  width: min(ghostLabel.frame.width, maxW), height: caret.height)
+        if ghostLabel.superview == nil { addSubview(ghostLabel) }
+        ghostLabel.isHidden = false
+    }
+
+    private func acceptGhost() {
+        guard let g = ghost else { return }
+        clearGhost()
+        let loc = selectedRange().location
+        let r = NSRange(location: loc, length: 0)
+        if shouldChangeText(in: r, replacementString: g) {
+            textStorage?.replaceCharacters(in: r, with: NSAttributedString(string: g, attributes: typingAttributes))
+            didChangeText()
+            setSelectedRange(NSRange(location: loc + (g as NSString).length, length: 0))
+        }
+    }
+
+    /// Caret rectangle in this view's coordinates (for placing the ghost label).
+    private func caretRect(at loc: Int) -> NSRect? {
+        let screen = firstRect(forCharacterRange: NSRange(location: loc, length: 0), actualRange: nil)
+        guard let win = window, screen.height > 0 else { return nil }
+        return convert(win.convertFromScreen(screen), from: nil)
+    }
 
     private func toggle(_ fold: FoldAttachment, at charIndex: Int) {
         guard let ts = textStorage else { return }

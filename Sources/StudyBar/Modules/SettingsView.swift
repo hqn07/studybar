@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("focusStartShortcut") private var focusStartShortcut = ""
     @AppStorage("focusEndShortcut") private var focusEndShortcut = ""
     @AppStorage("spotlightIndex") private var spotlightIndex = true
+    @AppStorage("notesAutocomplete") private var notesAutocomplete = false
     @AppStorage("showDock") private var showDock = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var iCloud = false
@@ -463,6 +464,11 @@ struct SettingsView: View {
                         .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
                 }
                 Text("Install Ollama from ollama.com, then run `ollama pull \(aiModel.isEmpty ? "llama3.1" : aiModel)` in Terminal. Runs fully on your Mac — no key, no cloud.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Smart typing") {
+                Toggle("Autocomplete in Notes", isOn: $notesAutocomplete)
+                Text("As you type in a note, Ollama suggests the next few words in grey — press Tab to accept. Runs on your Mac, only with a local (Ollama) engine. It finishes your phrasing, not your homework.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         } else if aiMode == .onDevice {
