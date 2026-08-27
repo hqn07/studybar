@@ -45,6 +45,29 @@ struct UnifiedSearchView: View {
             out.append(.init(moduleID: "courses", symbol: "graduationcap",
                              title: c.name, subtitle: c.code))
         }
+        for b in state.data.reading where has(b.title) || has(b.author) {
+            out.append(.init(moduleID: "reading", symbol: "book",
+                             title: b.title, subtitle: b.author.isEmpty ? "Reading" : b.author))
+        }
+        for c in state.data.references where has(c.title) || c.authors.contains(where: has) {
+            out.append(.init(moduleID: "citations", symbol: "quote.opening",
+                             title: c.title.isEmpty ? "Citation" : c.title,
+                             subtitle: c.authors.first ?? (c.year.isEmpty ? "Citation" : c.year)))
+        }
+        for r in state.data.readingList where has(r.title) || has(r.url) {
+            out.append(.init(moduleID: "readinglist", symbol: "books.vertical",
+                             title: r.title.isEmpty ? r.url : r.title, subtitle: r.url))
+        }
+        for card in state.data.flashcards where has(card.front) || has(card.back) {
+            let deck = state.data.decks.first { $0.id == card.deckID }?.name ?? "Flashcards"
+            out.append(.init(moduleID: "flashcards", symbol: "rectangle.on.rectangle.angled",
+                             title: String(card.front.prefix(48)), subtitle: deck))
+        }
+        for cl in state.data.classes where has(cl.title) || has(state.course(cl.courseID)?.name ?? "") {
+            out.append(.init(moduleID: "schedule", symbol: "graduationcap",
+                             title: cl.title.isEmpty ? (state.course(cl.courseID)?.name ?? "Class") : cl.title,
+                             subtitle: cl.startString))
+        }
         return out
     }
 
