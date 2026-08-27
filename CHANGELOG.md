@@ -5,6 +5,7 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Notes, upgraded** — the editor gains checklists (tap a box to check it off), numbered lists, block quotes and dividers, with inline formatting preserved when you list-ify a line. In the window, Notes is now a **two-pane workspace** — the note list and editor sit side-by-side, so you can browse and switch without leaving what you're writing (it falls back to the single-note view when the window is narrow). And notes can **link to each other**: type `[[` to autocomplete a note title, click a link to jump there (or create it), and a "Linked from" bar shows what points back.
 - **Time blocking** — a new day-timeline module (Schedule & Calendar): plan *when* you'll do your work. Your classes show as faint context bands so you plan around them; drag a planned block to reschedule it or drag its bottom edge to resize, snapped to 15 minutes. A "Plan" strip lists your open assignments and to-dos — drag one onto the timeline to drop it at a precise time (or tap to drop it at the next free hour); the block links back to the item and carries its course. Deletes are undoable and land in Trash, and blocks sync with the same conflict-safe 3-way merge as everything else.
 
 ## [1.5.0] — 2026-08-26
