@@ -18,6 +18,7 @@ struct TimeBlockView: View {
     @State private var dragKind: DragKind = .move
     @State private var dragOffset: CGFloat = 0     // px moved this gesture
     @State private var dropHint: Int?              // start-minute under a tray drag
+    @State private var createRange: ClosedRange<Int>?   // minutes being swiped out on empty timeline
 
     // Timeline metrics.
     private let hourHeight: CGFloat = 56
@@ -108,15 +109,21 @@ struct TimeBlockView: View {
             GeometryReader { geo in
                 let contentWidth = max(0, geo.size.width - gutter - 12)
                 ZStack(alignment: .topLeading) {
-                    hourGrid(lo: lo, hi: hi, width: geo.size.width)
+                    // Background catches a click-drag on empty time → create a block.
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .frame(width: geo.size.width, height: totalHeight)
+                        .gesture(createGesture(lo: lo))
+                    hourGrid(lo: lo, hi: hi, width: geo.size.width).allowsHitTesting(false)
                     ForEach(classes) { c in classBand(c, lo: lo, width: contentWidth) }
+                        .allowsHitTesting(false)   // read-only context; let the create-drag pass through
+                    if let r = createRange { createGhost(r, lo: lo, width: contentWidth).allowsHitTesting(false) }
                     ForEach(TimeBlock.layout(blocks), id: \.id) { p in
                         if let b = blocks.first(where: { $0.id == p.id }) {
                             blockCard(b, placed: p, lo: lo, width: contentWidth)
                         }
                     }
-                    if let m = dropHint { dropIndicator(m, lo: lo, width: geo.size.width) }
-                    if isToday { nowLine(lo: lo, hi: hi, width: geo.size.width) }
+                    if let m = dropHint { dropIndicator(m, lo: lo, width: geo.size.width).allowsHitTesting(false) }
+                    if isToday { nowLine(lo: lo, hi: hi, width: geo.size.width).allowsHitTesting(false) }
                 }
                 .frame(width: geo.size.width, height: totalHeight, alignment: .topLeading)
                 .contentShape(Rectangle())
@@ -146,6 +153,38 @@ struct TimeBlockView: View {
             Rectangle().fill(.tint).frame(height: 2)
         }
         .offset(y: y(m, lo: lo))
+    }
+
+    /// Click-drag on empty time to sketch a new block; release opens the editor prefilled.
+    private func createGesture(lo: Int) -> some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { g in
+                let a = minutes(fromY: g.startLocation.y, lo: lo)
+                let b = minutes(fromY: g.location.y, lo: lo)
+                createRange = min(a, b)...max(min(a, b) + 15, max(a, b))
+            }
+            .onEnded { g in
+                let a = minutes(fromY: g.startLocation.y, lo: lo)
+                let b = minutes(fromY: g.location.y, lo: lo)
+                let s = min(a, b), e = max(s + 15, max(a, b))
+                createRange = nil
+                editing = TimeBlock(day: day, startMinutes: s, endMinutes: min(24 * 60, e))
+            }
+    }
+
+    private func createGhost(_ r: ClosedRange<Int>, lo: Int, width: CGFloat) -> some View {
+        let h = max(minBlockHeight, CGFloat(r.upperBound - r.lowerBound) * pxPerMin)
+        return VStack(alignment: .leading, spacing: 1) {
+            Text("\(ClassSession.hm(r.lowerBound)) – \(ClassSession.hm(r.upperBound))")
+                .font(.caption2.weight(.medium)).foregroundStyle(.tint)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 5).padding(.vertical, 3)
+        .frame(width: width, height: h, alignment: .topLeading)
+        .background(.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control)
+            .strokeBorder(.tint.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .offset(x: gutter, y: y(r.lowerBound, lo: lo))
     }
 
     private func hourGrid(lo: Int, hi: Int, width: CGFloat) -> some View {
