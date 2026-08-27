@@ -349,13 +349,13 @@ struct NoteEditor: View {
     private var formatBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 11) {
-                fmtBtn("arrow.uturn.backward") { editor.undo() }
-                fmtBtn("arrow.uturn.forward") { editor.redo() }
+                fmtBtn("arrow.uturn.backward", "Undo (⌘Z)") { editor.undo() }
+                fmtBtn("arrow.uturn.forward", "Redo (⌘⇧Z)") { editor.redo() }
                 sep
-                fmtBtn("bold") { editor.toggleTrait(.boldFontMask) }
-                fmtBtn("italic") { editor.toggleTrait(.italicFontMask) }
-                fmtBtn("underline") { editor.toggleAttribute(.underlineStyle) }
-                fmtBtn("strikethrough") { editor.toggleAttribute(.strikethroughStyle) }
+                fmtBtn("bold", "Bold") { editor.toggleTrait(.boldFontMask) }
+                fmtBtn("italic", "Italic") { editor.toggleTrait(.italicFontMask) }
+                fmtBtn("underline", "Underline") { editor.toggleAttribute(.underlineStyle) }
+                fmtBtn("strikethrough", "Strikethrough") { editor.toggleAttribute(.strikethroughStyle) }
                 sep
                 Menu {
                     Button("Body") { editor.setHeading(.body) }
@@ -363,22 +363,25 @@ struct NoteEditor: View {
                     Button("Heading 2") { editor.setHeading(.h2) }
                     Button("Heading 3") { editor.setHeading(.h3) }
                 } label: { Image(systemName: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
-                fmtBtn("list.bullet") { editor.toggleBullet() }
-                fmtBtn("list.number") { editor.toggleNumbered() }
-                fmtBtn("checklist") { editor.toggleChecklist() }
-                fmtBtn("text.quote") { editor.toggleQuote() }
-                fmtBtn("minus") { editor.insertDivider() }
-                fmtBtn("rectangle.compress.vertical") {
+                    .help("Text style — Body / Heading 1–3")
+                fmtBtn("list.bullet", "Bullet list — Tab to indent, Return to continue") { editor.toggleBullet() }
+                fmtBtn("list.number", "Numbered list — Tab to indent, Return to continue") { editor.toggleNumbered() }
+                fmtBtn("checklist", "Checklist — tap a box to check it off") { editor.toggleChecklist() }
+                fmtBtn("text.quote", "Block quote") { editor.toggleQuote() }
+                fmtBtn("minus", "Divider") { editor.insertDivider() }
+                fmtBtn("rectangle.compress.vertical", "Collapse selection into a section") {
                     if editor.hasSelection { foldTitle = ""; foldPrompt = true }
                 }
                 sep
                 Button { colorMode = (colorMode == .highlight ? nil : .highlight) } label: { Image(systemName: "highlighter") }
                     .buttonStyle(.borderless).foregroundStyle(colorMode == .highlight ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .help("Highlight color")
                 Button { colorMode = (colorMode == .foreground ? nil : .foreground) } label: { Image(systemName: "paintpalette") }
                     .buttonStyle(.borderless).foregroundStyle(colorMode == .foreground ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .help("Text color")
                 sep
-                fmtBtn("photo") { editor.insertImage() }
-                fmtBtn("character.book.closed") { define() }
+                fmtBtn("photo", "Insert image") { editor.insertImage() }
+                fmtBtn("character.book.closed", "Define the selected word") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
     }
@@ -569,8 +572,8 @@ struct NoteEditor: View {
         .padding(.horizontal, 8).padding(.top, 6)
     }
 
-    private func fmtBtn(_ icon: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: icon).frame(width: 18) }.buttonStyle(.borderless)
+    private func fmtBtn(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon).frame(width: 18) }.buttonStyle(.borderless).help(help)
     }
     private var sep: some View { Divider().frame(height: 14) }
 
