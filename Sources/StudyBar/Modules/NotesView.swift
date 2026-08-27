@@ -259,6 +259,10 @@ struct NoteEditor: View {
                     Button("Heading 3") { editor.setHeading(.h3) }
                 } label: { Image(systemName: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
                 fmtBtn("list.bullet") { editor.toggleBullet() }
+                fmtBtn("list.number") { editor.toggleNumbered() }
+                fmtBtn("checklist") { editor.toggleChecklist() }
+                fmtBtn("text.quote") { editor.toggleQuote() }
+                fmtBtn("minus") { editor.insertDivider() }
                 fmtBtn("rectangle.compress.vertical") {
                     if editor.hasSelection { foldTitle = ""; foldPrompt = true }
                 }

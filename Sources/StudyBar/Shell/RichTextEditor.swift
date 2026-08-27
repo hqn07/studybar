@@ -199,16 +199,108 @@ final class RichTextController: ObservableObject {
 
     // MARK: Lists
 
-    func toggleBullet() {
+    func toggleBullet() { togglePrefix("• ", alts: []) }
+    /// Tappable checklist — prefixes each line with ☐; clicking the box (see
+    /// FoldingTextView) flips ☐⇄☑ and strikes the item through.
+    func toggleChecklist() { togglePrefix("☐ ", alts: ["☑ "]) }
+
+    /// Numbered list: adds `1. 2. 3.` across the selected lines, or strips an existing
+    /// `N. ` prefix off them. Doesn't live-renumber on edit (kept simple, like bullets).
+    func toggleNumbered() {
+        withParagraphStarts { starts, ts, full in
+            let re = try! NSRegularExpression(pattern: #"^\d+\.\s"#)
+            func marker(at loc: Int) -> Int? {
+                let rest = NSRange(location: loc, length: min(12, full.length - loc))
+                return re.firstMatch(in: full as String, range: rest)?.range.length
+            }
+            let removing = starts.first.flatMap { marker(at: $0) } != nil
+            ts.beginEditing()
+            for (n, loc) in starts.enumerated().reversed() {
+                if removing {
+                    if let len = marker(at: loc) { ts.replaceCharacters(in: NSRange(location: loc, length: len), with: "") }
+                } else if marker(at: loc) == nil {
+                    ts.replaceCharacters(in: NSRange(location: loc, length: 0),
+                        with: NSAttributedString(string: "\(n + 1). ", attributes: typingAttrs))
+                }
+            }
+            ts.endEditing()
+        }
+    }
+
+    /// Blockquote: indents the selected paragraphs and greys them (a pure paragraph-style
+    /// change, so inline formatting and images survive). Toggles off when already quoted.
+    func toggleQuote() {
         guard let tv = textView, let ts = tv.textStorage else { return }
-        let para = paragraphRange()
-        let str = (ts.string as NSString).substring(with: para)
-        let bulleted = str.hasPrefix("• ")
-        let replacement = bulleted ? String(str.dropFirst(2)) : "• " + str
-        if tv.shouldChangeText(in: para, replacementString: replacement) {
-            ts.replaceCharacters(in: para, with: replacement)
+        let para = (tv.string as NSString).paragraphRange(for: tv.selectedRange())
+        guard para.length >= 0 else { return }
+        let existing = (ts.length > para.location
+            ? ts.attribute(.paragraphStyle, at: para.location, effectiveRange: nil) as? NSParagraphStyle : nil)
+        let quoted = (existing?.headIndent ?? 0) > 0
+        let ps = NSMutableParagraphStyle()
+        if !quoted { ps.headIndent = 18; ps.firstLineHeadIndent = 18 }
+        ts.beginEditing()
+        ts.addAttribute(.paragraphStyle, value: ps, range: para)
+        ts.addAttribute(.foregroundColor, value: quoted ? NSColor.labelColor : NSColor.secondaryLabelColor, range: para)
+        ts.endEditing()
+        tv.didChangeText()
+    }
+
+    /// Insert a horizontal divider on its own line.
+    func insertDivider() {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let loc = tv.selectedRange().location
+        let atLineStart = loc == 0 || (ts.string as NSString).substring(with: NSRange(location: loc - 1, length: 1)) == "\n"
+        let rule = NSMutableAttributedString(string: (atLineStart ? "" : "\n") + "──────────\n",
+            attributes: [.font: Self.baseFont, .foregroundColor: NSColor.tertiaryLabelColor])
+        if tv.shouldChangeText(in: NSRange(location: loc, length: 0), replacementString: rule.string) {
+            ts.insert(rule, at: loc)
             tv.didChangeText()
         }
+    }
+
+    private var typingAttrs: [NSAttributedString.Key: Any] {
+        textView?.typingAttributes ?? [.font: Self.baseFont, .foregroundColor: NSColor.labelColor]
+    }
+
+    /// Add/remove a line prefix on every paragraph intersecting the selection, by pure
+    /// insert/delete at line starts — preserving each paragraph's inline formatting
+    /// (unlike a full-paragraph rewrite). Removes if the first line already carries the
+    /// prefix (or one of `alts`), else adds.
+    private func togglePrefix(_ prefix: String, alts: [String]) {
+        withParagraphStarts { starts, ts, full in
+            let markers = [prefix] + alts
+            func existing(at loc: Int) -> Int? {
+                for m in markers where loc + m.count <= full.length &&
+                    full.substring(with: NSRange(location: loc, length: m.count)) == m { return m.count }
+                return nil
+            }
+            let removing = starts.first.flatMap { existing(at: $0) } != nil
+            ts.beginEditing()
+            for loc in starts.reversed() {
+                if removing {
+                    if let len = existing(at: loc) { ts.replaceCharacters(in: NSRange(location: loc, length: len), with: "") }
+                } else if existing(at: loc) == nil {
+                    ts.replaceCharacters(in: NSRange(location: loc, length: 0),
+                        with: NSAttributedString(string: prefix, attributes: typingAttrs))
+                }
+            }
+            ts.endEditing()
+        }
+    }
+
+    /// Run `body` with the start index of every paragraph the selection touches (absolute,
+    /// pre-mutation — iterate reversed so edits don't shift later indices).
+    private func withParagraphStarts(_ body: ([Int], NSTextStorage, NSString) -> Void) {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let full = ts.string as NSString
+        let para = full.paragraphRange(for: tv.selectedRange())
+        var starts: [Int] = []
+        full.enumerateSubstrings(in: para, options: [.byParagraphs, .substringNotRequired]) { _, r, _, _ in
+            starts.append(r.location)
+        }
+        if starts.isEmpty { starts = [para.location] }
+        body(starts, ts, full)
+        tv.didChangeText()
     }
 
     // MARK: Collapsible section
@@ -375,7 +467,39 @@ final class FoldingTextView: NSTextView {
                 return   // consume — don't move the caret
             }
         }
+        // Tap a ☐/☑ checkbox to flip it.
+        for cand in [idx, idx - 1] where cand >= 0 && cand < ts.length {
+            let ch = (ts.string as NSString).substring(with: NSRange(location: cand, length: 1))
+            if ch == "☐" || ch == "☑" { toggleCheckbox(at: cand, done: ch == "☑"); return }
+        }
         super.mouseDown(with: event)
+    }
+
+    /// Flip a checklist box and strike/unstrike the rest of its line.
+    private func toggleCheckbox(at loc: Int, done: Bool) {
+        guard let ts = textStorage else { return }
+        let ns = ts.string as NSString
+        let para = ns.paragraphRange(for: NSRange(location: loc, length: 0))
+        var bodyStart = loc + 1
+        if bodyStart < ns.length, ns.substring(with: NSRange(location: bodyStart, length: 1)) == " " { bodyStart += 1 }
+        var bodyEnd = para.location + para.length
+        if bodyEnd > para.location, ns.substring(with: NSRange(location: bodyEnd - 1, length: 1)) == "\n" { bodyEnd -= 1 }
+        let attrs = ts.attributes(at: loc, effectiveRange: nil)
+        ts.beginEditing()
+        ts.replaceCharacters(in: NSRange(location: loc, length: 1),
+                             with: NSAttributedString(string: done ? "☐" : "☑", attributes: attrs))
+        let body = NSRange(location: bodyStart, length: max(0, bodyEnd - bodyStart))
+        if body.length > 0 {
+            if done {   // was checked → uncheck: clear strike + restore color
+                ts.removeAttribute(.strikethroughStyle, range: body)
+                ts.addAttribute(.foregroundColor, value: NSColor.labelColor, range: body)
+            } else {
+                ts.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: body)
+                ts.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: body)
+            }
+        }
+        ts.endEditing()
+        didChangeText()
     }
 
     /// The app has no menu bar (menu-bar accessory), so ⌘Z / ⌘⇧Z have no menu key
