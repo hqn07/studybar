@@ -12,6 +12,13 @@ struct TimeBlockView: View {
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var editing: TimeBlock?
 
+    // Live drag state (transient; committed to the store on release).
+    private enum DragKind { case move, resize }
+    @State private var dragID: UUID?
+    @State private var dragKind: DragKind = .move
+    @State private var dragOffset: CGFloat = 0     // px moved this gesture
+    @State private var dropHint: Int?              // start-minute under a tray drag
+
     // Timeline metrics.
     private let hourHeight: CGFloat = 56
     private let gutter: CGFloat = 52
@@ -40,14 +47,12 @@ struct TimeBlockView: View {
     var body: some View {
         NavigationStack {
             ModulePane(title: "Time Blocking") {
-                HStack(spacing: 6) {
-                    unscheduledMenu
-                    Button { addBlock() } label: { Image(systemName: "plus") }
-                        .help("Add a block")
-                }
+                Button { addBlock() } label: { Image(systemName: "plus") }
+                    .help("Add a block")
             } content: {
                 VStack(spacing: 0) {
                     dayBar
+                    unscheduledTray
                     Divider()
                     timeline
                 }
@@ -110,15 +115,38 @@ struct TimeBlockView: View {
                             blockCard(b, placed: p, lo: lo, width: contentWidth)
                         }
                     }
+                    if let m = dropHint { dropIndicator(m, lo: lo, width: geo.size.width) }
                     if isToday { nowLine(lo: lo, hi: hi, width: geo.size.width) }
                 }
                 .frame(width: geo.size.width, height: totalHeight, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .dropDestination(for: String.self) { items, location in
+                    dropHint = nil
+                    guard let payload = items.first else { return false }
+                    return scheduleFromPayload(payload, at: minutes(fromY: location.y, lo: lo))
+                } isTargeted: { over in
+                    if !over { dropHint = nil }
+                }
             }
             .frame(height: totalHeight)
         }
     }
 
     private func y(_ minutes: Int, lo: Int) -> CGFloat { CGFloat(minutes - lo) * pxPerMin }
+    /// Inverse of `y`: a drop/drag y-coordinate → a snapped start minute on the timeline.
+    private func minutes(fromY yPos: CGFloat, lo: Int) -> Int {
+        snap15(lo + Int((yPos / pxPerMin).rounded()))
+    }
+    private func snap15(_ m: Int) -> Int { max(0, min(24 * 60, Int((Double(m) / 15).rounded()) * 15)) }
+
+    private func dropIndicator(_ m: Int, lo: Int, width: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Text(ClassSession.hm(m)).font(.caption2.bold()).foregroundStyle(.tint)
+                .frame(width: gutter - 6, alignment: .trailing)
+            Rectangle().fill(.tint).frame(height: 2)
+        }
+        .offset(y: y(m, lo: lo))
+    }
 
     private func hourGrid(lo: Int, hi: Int, width: CGFloat) -> some View {
         ForEach(Array(stride(from: lo, through: hi, by: 60)), id: \.self) { m in
@@ -152,9 +180,13 @@ struct TimeBlockView: View {
     private func blockCard(_ b: TimeBlock, placed p: TimeBlock.Placed, lo: Int, width: CGFloat) -> some View {
         let laneWidth = (width - CGFloat(p.lanes - 1) * 4) / CGFloat(p.lanes)
         let x = gutter + CGFloat(p.lane) * (laneWidth + 4)
-        let h = max(minBlockHeight, CGFloat(b.durationMinutes) * pxPerMin)
+        let dragging = dragID == b.id
+        // Live preview while dragging: move shifts y, resize grows height.
+        let moveDY = (dragging && dragKind == .move) ? dragOffset : 0
+        let resizeDH = (dragging && dragKind == .resize) ? dragOffset : 0
+        let h = max(minBlockHeight, CGFloat(b.durationMinutes) * pxPerMin + resizeDH)
         let color = state.course(b.courseID)?.color ?? .accentColor
-        return Button { editing = b } label: {
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 5) {
                 RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3)
                 VStack(alignment: .leading, spacing: 1) {
@@ -163,25 +195,79 @@ struct TimeBlockView: View {
                         .strikethrough(b.done, color: .secondary)
                         .foregroundStyle(b.done ? .secondary : .primary)
                     if h > 34 {
-                        Text("\(b.startString) – \(b.endString)")
-                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        Text(dragging ? livePreviewTime(b) : "\(b.startString) – \(b.endString)")
+                            .font(.caption2).foregroundStyle(dragging ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
                 if b.done { Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(Color.dsDone) }
             }
             .padding(.horizontal, 5).padding(.vertical, 3)
-            .frame(width: laneWidth, height: h, alignment: .topLeading)
-            .background(color.opacity(b.done ? 0.06 : 0.16), in: RoundedRectangle(cornerRadius: DS.Radius.control))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(color.opacity(0.35), lineWidth: 0.5))
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .frame(width: laneWidth, height: h, alignment: .topLeading)
+        .background(color.opacity(b.done ? 0.06 : 0.16), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control)
+            .strokeBorder(color.opacity(dragging ? 0.9 : 0.35), lineWidth: dragging ? 1.5 : 0.5))
+        .overlay(alignment: .bottom) { resizeHandle(b) }
+        .contentShape(Rectangle())
+        .onTapGesture { editing = b }
+        .gesture(moveGesture(b))
         .contextMenu {
             Button(b.done ? "Mark not done" : "Mark done") { toggleDone(b) }
             Divider()
             Button("Delete", role: .destructive) { state.deleteTimeBlock(b.id) }
         }
-        .offset(x: x, y: y(b.startMinutes, lo: lo))
+        .zIndex(dragging ? 10 : 0)
+        .offset(x: x, y: y(b.startMinutes, lo: lo) + moveDY)
+    }
+
+    /// The 6-pt grabber at a block's bottom edge; drag it to change the end time.
+    private func resizeHandle(_ b: TimeBlock) -> some View {
+        Capsule().fill(.secondary.opacity(0.5))
+            .frame(width: 26, height: 3).padding(.bottom, 2)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle().inset(by: -8))
+            .gesture(resizeGesture(b))
+    }
+
+    private func moveGesture(_ b: TimeBlock) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { g in dragID = b.id; dragKind = .move; dragOffset = g.translation.height }
+            .onEnded { g in
+                let dur = b.endMinutes - b.startMinutes
+                let newStart = clampStart(snap15(b.startMinutes + Int((g.translation.height / pxPerMin).rounded())), dur: dur)
+                var x = b; x.startMinutes = newStart; x.endMinutes = newStart + dur
+                if x.startMinutes != b.startMinutes { state.upsertTimeBlock(x) }
+                resetDrag()
+            }
+    }
+    private func resizeGesture(_ b: TimeBlock) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { g in dragID = b.id; dragKind = .resize; dragOffset = g.translation.height }
+            .onEnded { g in
+                let newEnd = max(b.startMinutes + 15,
+                                 min(24 * 60, snap15(b.endMinutes + Int((g.translation.height / pxPerMin).rounded()))))
+                var x = b; x.endMinutes = newEnd
+                if x.endMinutes != b.endMinutes { state.upsertTimeBlock(x) }
+                resetDrag()
+            }
+    }
+    private func clampStart(_ start: Int, dur: Int) -> Int { max(0, min(start, 24 * 60 - dur)) }
+    private func resetDrag() { dragID = nil; dragOffset = 0 }
+
+    /// The time range a block would land at given the current live drag.
+    private func livePreviewTime(_ b: TimeBlock) -> String {
+        let deltaMin = Int((dragOffset / pxPerMin).rounded())
+        if dragKind == .move {
+            let dur = b.endMinutes - b.startMinutes
+            let s = clampStart(snap15(b.startMinutes + deltaMin), dur: dur)
+            return "\(ClassSession.hm(s)) – \(ClassSession.hm(s + dur))"
+        } else {
+            let e = max(b.startMinutes + 15, min(24 * 60, snap15(b.endMinutes + deltaMin)))
+            return "\(b.startString) – \(ClassSession.hm(e))"
+        }
     }
 
     private func nowLine(lo: Int, hi: Int, width: CGFloat) -> some View {
@@ -199,38 +285,48 @@ struct TimeBlockView: View {
         }
     }
 
-    // MARK: Unscheduled work → drop onto the day
+    // MARK: Unscheduled work → drag (or tap) onto the day
 
-    private var unscheduledMenu: some View {
-        Menu {
-            let assigns = openAssignments
-            let todos = openTodos
-            if assigns.isEmpty && todos.isEmpty {
-                Text("Nothing open to schedule")
-            }
-            if !assigns.isEmpty {
-                Section("Assignments") {
+    /// A slim strip of open assignments / to-dos. Drag a chip onto the timeline to drop
+    /// it at a precise time, or tap it to schedule at the next free hour. Hidden when
+    /// there's nothing open to plan.
+    @ViewBuilder private var unscheduledTray: some View {
+        let assigns = openAssignments, todos = openTodos
+        if !(assigns.isEmpty && todos.isEmpty) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DS.Space.s) {
+                    Text("PLAN").font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
                     ForEach(assigns) { a in
-                        Button { scheduleAssignment(a) } label: {
-                            Label(a.title.isEmpty ? "Untitled" : a.title, systemImage: "checklist")
-                        }
+                        trayChip(a.title.isEmpty ? "Untitled" : a.title, symbol: "checklist",
+                                 color: state.course(a.courseID)?.color)
+                            .onTapGesture { scheduleAssignment(a, at: defaultStart()) }
+                            .draggable("a:\(a.id.uuidString)")
                     }
-                }
-            }
-            if !todos.isEmpty {
-                Section("To-Do") {
                     ForEach(todos) { t in
-                        Button { scheduleTodo(t) } label: {
-                            Label(t.text.isEmpty ? "Task" : t.text, systemImage: "checkmark.circle")
-                        }
+                        trayChip(t.text.isEmpty ? "Task" : t.text, symbol: "checkmark.circle",
+                                 color: state.course(t.courseID)?.color)
+                            .onTapGesture { scheduleTodo(t, at: defaultStart()) }
+                            .draggable("t:\(t.id.uuidString)")
                     }
                 }
+                .padding(.horizontal, 14).padding(.vertical, DS.Space.s)
             }
-        } label: {
-            Image(systemName: "tray.and.arrow.down")
+            .background(.background.secondary.opacity(0.4))
         }
-        .menuIndicator(.hidden)
-        .help("Plan an open assignment or to-do onto this day")
+    }
+
+    private func trayChip(_ text: String, symbol: String, color: Color?) -> some View {
+        HStack(spacing: 4) {
+            if let color { Circle().fill(color).frame(width: 6, height: 6) }
+            Image(systemName: symbol).font(.system(size: 9, weight: .semibold))
+            Text(text).lineLimit(1)
+        }
+        .font(.caption2.weight(.medium))
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .frame(maxWidth: 150)
+        .background(.background, in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
+        .help("Drag onto the timeline, or tap to schedule")
     }
 
     private var openAssignments: [Assignment] {
@@ -274,17 +370,30 @@ struct TimeBlockView: View {
         editing = TimeBlock(day: day, startMinutes: s, endMinutes: min(s + 60, 24 * 60))
     }
 
-    private func scheduleAssignment(_ a: Assignment) {
-        let s = defaultStart()
+    private func scheduleAssignment(_ a: Assignment, at s: Int) {
         state.upsertTimeBlock(TimeBlock(title: a.title.isEmpty ? "Assignment" : a.title,
                                         day: day, startMinutes: s, endMinutes: min(s + 60, 24 * 60),
                                         courseID: a.courseID, assignmentID: a.id))
     }
-    private func scheduleTodo(_ t: TodoItem) {
-        let s = defaultStart()
+    private func scheduleTodo(_ t: TodoItem, at s: Int) {
         state.upsertTimeBlock(TimeBlock(title: t.text.isEmpty ? "Task" : t.text,
                                         day: day, startMinutes: s, endMinutes: min(s + 60, 24 * 60),
                                         courseID: t.courseID, todoID: t.id))
+    }
+
+    /// Handle a chip dropped on the timeline: create a block at the drop time from the
+    /// dragged assignment/todo payload ("a:<uuid>" / "t:<uuid>").
+    private func scheduleFromPayload(_ payload: String, at start: Int) -> Bool {
+        let s = min(start, 24 * 60 - 15)
+        if payload.hasPrefix("a:"), let id = UUID(uuidString: String(payload.dropFirst(2))),
+           let a = state.data.assignments.first(where: { $0.id == id }) {
+            scheduleAssignment(a, at: s); return true
+        }
+        if payload.hasPrefix("t:"), let id = UUID(uuidString: String(payload.dropFirst(2))),
+           let t = state.data.todos.first(where: { $0.id == id }) {
+            scheduleTodo(t, at: s); return true
+        }
+        return false
     }
     private func toggleDone(_ b: TimeBlock) {
         var x = b; x.done.toggle(); state.upsertTimeBlock(x)
