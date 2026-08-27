@@ -174,6 +174,25 @@ struct AssignmentPicker: View {
     }
 }
 
+// MARK: - Native tooltip
+//
+// SwiftUI's `.help()` is unreliable in this app's AppKit-hosted views (NSPopover /
+// detached NSWindow) — tooltips often never appear. This overlays a real NSView that
+// carries the `toolTip`; AppKit's tooltip manager tracks it by tool-rect (independent of
+// hit-testing), and `hitTest` returns nil so clicks fall straight through to the control.
+
+private struct AppKitTooltip: NSViewRepresentable {
+    let text: String
+    func makeNSView(context: Context) -> NSView { let v = PassthroughTipView(); v.toolTip = text; return v }
+    func updateNSView(_ v: NSView, context: Context) { v.toolTip = text }
+    final class PassthroughTipView: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
+}
+
+extension View {
+    /// Reliable hover tooltip (use instead of `.help` on toolbar/icon buttons here).
+    func tooltip(_ text: String) -> some View { overlay(AppKitTooltip(text: text)) }
+}
+
 extension Date {
     var relativeShort: String {
         let f = RelativeDateTimeFormatter()

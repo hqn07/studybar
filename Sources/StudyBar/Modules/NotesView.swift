@@ -334,14 +334,17 @@ struct NoteEditor: View {
             .buttonStyle(.borderless).foregroundStyle(splitLive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .disabled(showPreview)
             .help("Live math preview — edit above, see it render below")
+            .tooltip("Live math preview — edit above, see it render below")
             Button { if !showPreview { persist() }; showPreview.toggle() } label: {
                 Image(systemName: showPreview ? "eye.fill" : "eye")
             }
             .buttonStyle(.borderless).foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .help("Full preview (renders Markdown & LaTeX)")
+            .tooltip(showPreview ? "Back to editing" : "Preview (renders Markdown & LaTeX)")
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
+            .tooltip(draft.pinned ? "Unpin note" : "Pin note")
         }.padding(12)
     }
 
@@ -363,7 +366,7 @@ struct NoteEditor: View {
                     Button("Heading 2") { editor.setHeading(.h2) }
                     Button("Heading 3") { editor.setHeading(.h3) }
                 } label: { Image(systemName: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
-                    .help("Text style — Body / Heading 1–3")
+                    .help("Text style — Body / Heading 1–3").tooltip("Text style — Body / Heading 1–3")
                 fmtBtn("list.bullet", "Bullet list — Tab to indent, Return to continue") { editor.toggleBullet() }
                 fmtBtn("list.number", "Numbered list — Tab to indent, Return to continue") { editor.toggleNumbered() }
                 fmtBtn("checklist", "Checklist — tap a box to check it off") { editor.toggleChecklist() }
@@ -375,10 +378,10 @@ struct NoteEditor: View {
                 sep
                 Button { colorMode = (colorMode == .highlight ? nil : .highlight) } label: { Image(systemName: "highlighter") }
                     .buttonStyle(.borderless).foregroundStyle(colorMode == .highlight ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                    .help("Highlight color")
+                    .help("Highlight color").tooltip("Highlight color")
                 Button { colorMode = (colorMode == .foreground ? nil : .foreground) } label: { Image(systemName: "paintpalette") }
                     .buttonStyle(.borderless).foregroundStyle(colorMode == .foreground ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                    .help("Text color")
+                    .help("Text color").tooltip("Text color")
                 sep
                 fmtBtn("photo", "Insert image") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
@@ -573,7 +576,8 @@ struct NoteEditor: View {
     }
 
     private func fmtBtn(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: icon).frame(width: 18) }.buttonStyle(.borderless).help(help)
+        Button(action: action) { Image(systemName: icon).frame(width: 18) }
+            .buttonStyle(.borderless).help(help).tooltip(help)
     }
     private var sep: some View { Divider().frame(height: 14) }
 
