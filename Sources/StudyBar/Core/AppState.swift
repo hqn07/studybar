@@ -93,11 +93,22 @@ final class AppState: ObservableObject {
             case "classes":      add(\.classes, ClassSession.self)
             case "courses":      add(\.courses, Course.self)
             case "clips":        add(\.clips, ClipItem.self)
+            case "timeBlocks":   restoreTimeBlock(t.payload)
             default: break
             }
         }
         data.trash?.removeAll { ids.contains($0.id) }
         if data.trash?.isEmpty == true { data.trash = nil }
+    }
+
+    /// Restore a trashed time block (optional collection → own helper, since the generic
+    /// `add` above works on non-optional `[T]` key paths).
+    private func restoreTimeBlock(_ payload: Data) {
+        guard let x = try? JSONDecoder.studybar.decode(TimeBlock.self, from: payload) else { return }
+        var blocks = data.timeBlocks ?? []
+        guard !blocks.contains(where: { $0.id == x.id }) else { return }
+        blocks.append(x)
+        data.timeBlocks = blocks
     }
 
     func purgeFromTrash(_ ids: Set<UUID>) {
@@ -325,6 +336,30 @@ final class AppState: ObservableObject {
     var fileRefs: [FileRef] {
         get { data.fileRefs ?? [] }
         set { data.fileRefs = newValue }
+    }
+    /// Planned work blocks (stored optional in AppData; exposed as a plain array).
+    var timeBlocks: [TimeBlock] {
+        get { data.timeBlocks ?? [] }
+        set { data.timeBlocks = newValue.isEmpty ? nil : newValue }
+    }
+
+    /// Blocks planned for a given calendar day, sorted by start time.
+    func timeBlocks(on day: Date) -> [TimeBlock] {
+        let d = Calendar.current.startOfDay(for: day)
+        return timeBlocks.filter { Calendar.current.isDate($0.day, inSameDayAs: d) }
+            .sorted { $0.startMinutes < $1.startMinutes }
+    }
+
+    /// Insert or update a block (bumps `updatedAt` so a sync tie resolves to the edit).
+    func upsertTimeBlock(_ block: TimeBlock) {
+        var b = block; b.updatedAt = .now
+        var blocks = timeBlocks
+        if let i = blocks.firstIndex(where: { $0.id == b.id }) { blocks[i] = b } else { blocks.append(b) }
+        timeBlocks = blocks
+    }
+
+    func deleteTimeBlock(_ id: UUID) {
+        withUndo("Delete block") { timeBlocks.removeAll { $0.id == id } }
     }
 
     // MARK: Derived / badges

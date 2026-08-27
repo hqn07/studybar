@@ -103,6 +103,7 @@ extension AppData {
         r.rssFeeds    = mergeOptLists(base: base.rssFeeds,   mine: mine.rssFeeds,   theirs: theirs.rssFeeds)
         r.fileRefs    = mergeOptLists(base: base.fileRefs,   mine: mine.fileRefs,   theirs: theirs.fileRefs)
         r.trash       = mergeOptLists(base: base.trash,      mine: mine.trash,      theirs: theirs.trash)
+        r.timeBlocks  = mergeOptLists(base: base.timeBlocks, mine: mine.timeBlocks, theirs: theirs.timeBlocks)
         // Scalars.
         r.scratchpad  = merge3(base.scratchpad, mine.scratchpad, theirs.scratchpad)
         r.termName    = merge3(base.termName,   mine.termName,   theirs.termName)
@@ -138,6 +139,7 @@ extension FileRef:         MergeItem { var mergeStamp: Date { addedAt } }
 extension GradeItem:       MergeItem { var mergeStamp: Date { .distantPast } }
 extension RSSFeed:         MergeItem { var mergeStamp: Date { .distantPast } }
 extension TrashedItem:     MergeItem { var mergeStamp: Date { deletedAt } }
+extension TimeBlock:       MergeItem { var mergeStamp: Date { updatedAt } }
 
 // MARK: - Headless self-test
 // Run with `StudyBar --merge-selftest` (see AppDelegate). Exercises the merge

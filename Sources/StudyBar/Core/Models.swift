@@ -162,6 +162,71 @@ struct TimeEntry: Identifiable, Codable, Hashable {
     var kind: String = "pomodoro"   // pomodoro | stopwatch | focus
 }
 
+// MARK: - Time blocking — plan work onto a day timeline
+
+/// A *planned* block of work at a specific day + time. Distinct from a logged
+/// `TimeEntry` (past study, in Time & Focus) and a recurring `ClassSession` — this is
+/// intention: when you plan to do a piece of work. Optionally tied to a course and a
+/// specific assignment or todo, so blocking a day pulls the real week onto a timeline.
+struct TimeBlock: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var title: String = ""
+    var day: Date = Calendar.current.startOfDay(for: .now)   // the calendar day (startOfDay)
+    var startMinutes: Int = 9 * 60      // minutes from midnight
+    var endMinutes: Int = 10 * 60
+    var courseID: UUID? = nil
+    var assignmentID: UUID? = nil       // planning a specific assignment
+    var todoID: UUID? = nil             // …or a specific to-do
+    var notes: String = ""
+    var done: Bool = false
+    var createdAt: Date = .now
+    var updatedAt: Date = .now          // bumped on move/resize/edit — breaks merge ties
+
+    /// Never shorter than 15 min (keeps a block tappable on the timeline).
+    var durationMinutes: Int { max(15, endMinutes - startMinutes) }
+    var startString: String { ClassSession.hm(startMinutes) }
+    var endString: String { ClassSession.hm(endMinutes) }
+}
+
+extension TimeBlock {
+    /// Where one block sits when blocks overlap. `lane` is its column, `lanes` the
+    /// number of columns its overlap cluster needs — the view multiplies width by
+    /// `1/lanes` and offsets by `lane`.
+    struct Placed: Equatable, Hashable { let id: UUID; let lane: Int; let lanes: Int }
+
+    /// Column layout for a day's blocks: side-by-side lanes for overlaps, grouped by
+    /// connected-overlap cluster (greedy interval partition). Pure → unit-testable via
+    /// `--timeblock-selftest`.
+    static func layout(_ blocks: [TimeBlock]) -> [Placed] {
+        let sorted = blocks.sorted { ($0.startMinutes, $0.endMinutes) < ($1.startMinutes, $1.endMinutes) }
+        var result: [Placed] = []
+        var cluster: [TimeBlock] = []
+        var laneEnd: [Int] = []            // end-minute currently occupying each lane
+        var laneOf: [UUID: Int] = [:]
+        var clusterMaxEnd = Int.min
+
+        func flush() {
+            let lanes = max(1, laneEnd.count)
+            for b in cluster { result.append(Placed(id: b.id, lane: laneOf[b.id] ?? 0, lanes: lanes)) }
+            cluster.removeAll(); laneEnd.removeAll(); laneOf.removeAll(); clusterMaxEnd = Int.min
+        }
+
+        for b in sorted {
+            // A block starting at/after everything so far ends begins a fresh cluster.
+            if !cluster.isEmpty && b.startMinutes >= clusterMaxEnd { flush() }
+            let free = laneEnd.firstIndex { $0 <= b.startMinutes }
+            let lane: Int
+            if let free { lane = free; laneEnd[free] = b.endMinutes }
+            else { lane = laneEnd.count; laneEnd.append(b.endMinutes) }
+            laneOf[b.id] = lane
+            cluster.append(b)
+            clusterMaxEnd = max(clusterMaxEnd, b.endMinutes)
+        }
+        flush()
+        return result
+    }
+}
+
 // MARK: - Citations / Bibliography (26, 27)
 
 enum RefType: String, Codable, CaseIterable {
@@ -410,6 +475,7 @@ struct AppData: Codable, Equatable {
     var rssFeeds: [RSSFeed]? = nil
     var fileRefs: [FileRef]? = nil     // pinned files grouped into collapsible tags
     var trash: [TrashedItem]? = nil    // soft-deleted items, recoverable (decode-safe)
+    var timeBlocks: [TimeBlock]? = nil // planned work on a day timeline (decode-safe)
 }
 
 extension AppData {
@@ -440,6 +506,77 @@ extension AppData {
         t += removed("classes", "graduationcap", before.classes, after.classes) { "Class: \($0.title.isEmpty ? "Class" : $0.title)" }
         t += removed("courses", "graduationcap.fill", before.courses, after.courses) { "Course: \($0.name)" }
         t += removed("clips", "doc.on.clipboard", before.clips, after.clips) { "Clip: \(String($0.text.prefix(32)))" }
+        t += removed("timeBlocks", "calendar.day.timeline.left", before.timeBlocks ?? [], after.timeBlocks ?? []) { "Time block: \($0.title.isEmpty ? "Untitled" : $0.title)" }
         return (t.isEmpty || t.count > 25) ? [] : t     // bulk op → leave to backups
+    }
+}
+
+// MARK: - Time-block layout self-test
+// Run with `StudyBar --timeblock-selftest` (see AppDelegate). Exercises the pure
+// overlap→lane layout without any GUI; prints per-case results, exits 0/1.
+
+enum TimeBlockSelfTest {
+    static func run() -> Int32 {
+        var failures = 0
+        func check(_ name: String, _ cond: Bool) {
+            print((cond ? "  ok   " : "FAIL   ") + name)
+            if !cond { failures += 1 }
+        }
+        func block(_ start: Int, _ end: Int) -> TimeBlock {
+            TimeBlock(title: "\(start)-\(end)", startMinutes: start, endMinutes: end)
+        }
+        func placed(_ blocks: [TimeBlock]) -> [UUID: TimeBlock.Placed] {
+            Dictionary(TimeBlock.layout(blocks).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        }
+
+        // 1. Empty → empty.
+        check("empty → []", TimeBlock.layout([]).isEmpty)
+
+        // 2. Non-overlapping back-to-back → all single-lane.
+        do {
+            let a = block(540, 600), b = block(600, 660), c = block(660, 720)
+            let p = placed([a, b, c])
+            check("sequential → 1 lane each", [a, b, c].allSatisfy { p[$0.id]?.lanes == 1 && p[$0.id]?.lane == 0 })
+        }
+        // 3. Two overlapping → two lanes, distinct columns.
+        do {
+            let a = block(540, 660), b = block(600, 720)
+            let p = placed([a, b])
+            check("overlap → 2 lanes", p[a.id]?.lanes == 2 && p[b.id]?.lanes == 2)
+            check("overlap → distinct lanes", p[a.id]?.lane != p[b.id]?.lane)
+        }
+        // 4. Lane reused after a gap (a|b overlap, c after both → c back to a fresh cluster, 1 lane).
+        do {
+            let a = block(540, 600), b = block(540, 600), c = block(660, 720)
+            let p = placed([a, b, c])
+            check("gap starts new cluster", p[c.id]?.lanes == 1)
+            check("still-overlapping pair keeps 2 lanes", p[a.id]?.lanes == 2 && p[b.id]?.lanes == 2)
+        }
+        // 5. Three-way overlap → three lanes.
+        do {
+            let a = block(540, 720), b = block(560, 620), c = block(600, 680)
+            let p = placed([a, b, c])
+            check("triple overlap → 3 lanes", [a, b, c].allSatisfy { p[$0.id]?.lanes == 3 })
+            let lanes = Set([a, b, c].compactMap { p[$0.id]?.lane })
+            check("triple overlap → 3 distinct columns", lanes == Set([0, 1, 2]))
+        }
+        // 6. Touching edges (end == next start) do NOT overlap.
+        do {
+            let a = block(540, 600), b = block(600, 660)
+            let p = placed([a, b])
+            check("touching edges → not overlapping", p[a.id]?.lanes == 1 && p[b.id]?.lanes == 1)
+        }
+        // 7. A short block fits a freed lane while a long block spans (staircase).
+        do {
+            let long = block(540, 720)                 // spans whole cluster
+            let s1 = block(560, 600), s2 = block(620, 660)  // two shorts, non-overlapping with each other
+            let p = placed([long, s1, s2])
+            check("staircase → 2 lanes (shorts share lane 1)", [long, s1, s2].allSatisfy { p[$0.id]?.lanes == 2 })
+            check("staircase → shorts reuse the same lane", p[s1.id]?.lane == p[s2.id]?.lane)
+            check("staircase → long keeps its own lane", p[long.id]?.lane != p[s1.id]?.lane)
+        }
+
+        print(failures == 0 ? "TIMEBLOCK SELFTEST: ALL PASS" : "TIMEBLOCK SELFTEST: \(failures) FAILURE(S)")
+        return failures == 0 ? 0 : 1
     }
 }
