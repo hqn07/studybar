@@ -35,6 +35,15 @@ final class RichTextController: ObservableObject {
     /// so we know to re-render it when they move away.
     var mathEditing = false
 
+    // MARK: Wikilinks — `[[Note Title]]` note-to-note links
+    /// The text typed after an open `[[` at the caret (drives the autocomplete strip);
+    /// nil when the caret isn't inside an unclosed `[[`.
+    @Published var linkQuery: String?
+    /// The `[[query` span the autocomplete would replace when a suggestion is picked.
+    private var linkReplaceRange: NSRange?
+    /// Called when a `[[link]]` is clicked (title passed up so the view can navigate).
+    var onOpenLink: (String) -> Void = { _ in }
+
     static let baseFont = NSFont.systemFont(ofSize: 13)
 
     /// Undo/redo the text view's own edits (typing + formatting). Backs the
@@ -358,6 +367,36 @@ final class RichTextController: ObservableObject {
         guard let tv = textView else { return NSRange(location: 0, length: 0) }
         return (tv.string as NSString).paragraphRange(for: tv.selectedRange())
     }
+
+    // MARK: Wikilink autocomplete
+
+    /// Refresh `linkQuery` from the text just before the caret: set it to whatever
+    /// follows the nearest unclosed `[[` on the line, else clear it. Called on every
+    /// edit and caret move.
+    func detectLinkContext() {
+        guard let tv = textView, tv.selectedRange().length == 0 else { linkQuery = nil; return }
+        let ns = tv.string as NSString
+        let caret = min(tv.selectedRange().location, ns.length)
+        let open = ns.range(of: "[[", options: .backwards, range: NSRange(location: 0, length: caret))
+        guard open.location != NSNotFound else { linkQuery = nil; return }
+        let queryRange = NSRange(location: open.location + 2, length: caret - (open.location + 2))
+        let query = ns.substring(with: queryRange)
+        if query.contains("]") || query.contains("\n") { linkQuery = nil; return }
+        linkReplaceRange = NSRange(location: open.location, length: caret - open.location)
+        linkQuery = query
+    }
+
+    /// Replace the open `[[query` with a finished `[[title]]` link and dismiss the strip.
+    func completeLink(_ title: String) {
+        guard let tv = textView, let r = linkReplaceRange else { linkQuery = nil; return }
+        let text = "[[\(title)]]"
+        if tv.shouldChangeText(in: r, replacementString: text) {
+            tv.textStorage?.replaceCharacters(in: r, with: NSAttributedString(string: text, attributes: typingAttrs))
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: r.location + (text as NSString).length, length: 0))
+        }
+        linkQuery = nil; linkReplaceRange = nil
+    }
 }
 
 // MARK: - NSTextView host
@@ -399,7 +438,7 @@ struct RichTextEditor: NSViewRepresentable {
         tv.drawsBackground = false
         tv.delegate = context.coordinator
         tv.mathController = controller
-        let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv))
+        let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv)).installingWikilinks()
         if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor]
@@ -418,11 +457,13 @@ struct RichTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             if let tv = notification.object as? NSTextView { controller.snapshot = tv.attributedString() }
+            controller.detectLinkContext()
             controller.onEdit()
         }
 
         /// When the caret leaves a math expression it was editing, re-render it in place.
         func textViewDidChangeSelection(_ notification: Notification) {
+            controller.detectLinkContext()
             guard controller.mathEditing, let tv = notification.object as? NSTextView,
                   let ts = tv.textStorage else { return }
             if MathSupport.caretInsideMath(tv.string, tv.selectedRange().location) { return }
@@ -472,7 +513,24 @@ final class FoldingTextView: NSTextView {
             let ch = (ts.string as NSString).substring(with: NSRange(location: cand, length: 1))
             if ch == "☐" || ch == "☑" { toggleCheckbox(at: cand, done: ch == "☑"); return }
         }
+        // Tap a [[wikilink]] to open (or create) that note.
+        if let title = wikilinkTitle(at: idx) { mathController?.onOpenLink(title); return }
         super.mouseDown(with: event)
+    }
+
+    /// The link title if `idx` falls inside a `[[…]]` span on its line, else nil.
+    private func wikilinkTitle(at idx: Int) -> String? {
+        guard let ts = textStorage, ts.length > 0 else { return nil }
+        let ns = ts.string as NSString
+        let para = ns.paragraphRange(for: NSRange(location: min(idx, ns.length - 1), length: 0))
+        let line = ns.substring(with: para) as NSString
+        for m in NSAttributedString.wikilinkRegex.matches(in: line as String, range: NSRange(location: 0, length: line.length)) {
+            let abs = NSRange(location: para.location + m.range.location, length: m.range.length)
+            if idx >= abs.location && idx < abs.location + abs.length {
+                return line.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
     }
 
     /// Flip a checklist box and strike/unstrike the rest of its line.
@@ -560,6 +618,25 @@ final class FoldingTextView: NSTextView {
 
 extension NSAttributedString.Key {
     static let foldMember = NSAttributedString.Key("sbFoldMember")
+}
+
+// MARK: - Wikilinks — style `[[Note Title]]` spans on load
+
+extension NSAttributedString {
+    static let wikilinkRegex = try! NSRegularExpression(pattern: #"\[\[([^\]\n]+?)\]\]"#)
+
+    /// Tint + underline every `[[…]]` span so links read as links. The text stays literal
+    /// `[[Title]]` (so it round-trips through RTFD/search untouched); clicks are resolved
+    /// by scanning the line (see FoldingTextView.wikilinkTitle), not by an attribute.
+    func installingWikilinks() -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: self)
+        let ns = m.string as NSString
+        for match in Self.wikilinkRegex.matches(in: m.string, range: NSRange(location: 0, length: ns.length)) {
+            m.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: match.range)
+            m.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+        }
+        return m
+    }
 }
 
 /// A collapsed section: a clickable chip carrying its (hidden) rich body.

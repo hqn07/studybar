@@ -41,7 +41,11 @@ struct NotesView: View {
                 ModulePane(title: "Notes") { toolbar(split: split) } content: {
                     if split { splitBody } else { stackBody }
                 }
-                .navigationDestination(item: $editing) { NoteEditor(note: $0) }
+                .navigationDestination(item: $editing) { note in
+                    NoteEditor(note: note, onNavigate: { id in
+                        if let n = state.data.notes.first(where: { $0.id == id }) { editing = n }
+                    })
+                }
                 .onAppear { consumePending(split: split) }
                 .onChange(of: state.pendingNew) { _, _ in consumePending(split: split) }
             }
@@ -108,7 +112,9 @@ struct NotesView: View {
 
     @ViewBuilder private var detailPane: some View {
         if let sel = selection, let note = noteForSelection(sel) {
-            NoteEditor(note: note, embedded: true, onClose: { selection = nil; newDraft = nil })
+            NoteEditor(note: note, embedded: true,
+                       onClose: { selection = nil; newDraft = nil },
+                       onNavigate: { select($0) })
                 .id(sel)   // switching notes rebuilds the editor → old one autosaves on teardown
         } else {
             EmptyState(symbol: "note.text", title: "No note selected",
@@ -230,12 +236,15 @@ struct NoteEditor: View {
     var embedded = false
     /// Called instead of `dismiss()` when embedded (e.g. after delete → clear selection).
     var onClose: () -> Void = {}
+    /// Open another note by id (a clicked `[[link]]` or a backlink).
+    var onNavigate: (UUID) -> Void = { _ in }
 
     enum ColorMode { case highlight, foreground }
 
-    init(note: Note, embedded: Bool = false, onClose: @escaping () -> Void = {}) {
+    init(note: Note, embedded: Bool = false, onClose: @escaping () -> Void = {}, onNavigate: @escaping (UUID) -> Void = { _ in }) {
         self.embedded = embedded
         self.onClose = onClose
+        self.onNavigate = onNavigate
         _draft = State(initialValue: note)
         _tagText = State(initialValue: note.tags.joined(separator: ", "))
         if let data = note.rich, let a = NSAttributedString.fromRTFD(data) {
@@ -263,13 +272,18 @@ struct NoteEditor: View {
             }
             if let defineResult { defineCard(defineResult) }
             editorOrPreview
+            if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
+            else if !backlinks.isEmpty { Divider(); backlinksBar }
             Divider()
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
         .toolbar(.hidden, for: .windowToolbar)
-        .onAppear { editor.onEdit = { scheduleAutosave(); refreshLive() } }
+        .onAppear {
+            editor.onEdit = { scheduleAutosave(); refreshLive() }
+            editor.onOpenLink = { openLink($0) }
+        }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
         // flushes on teardown (e.g. switching modules from the sidebar).
         .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
@@ -467,6 +481,75 @@ struct NoteEditor: View {
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
         }.padding(10)
+    }
+
+    // MARK: Wikilinks — autocomplete strip + backlinks
+
+    /// Notes referenced by a finished `[[title]]` matching this note, or a "Create" option.
+    private var linkMatches: [Note] {
+        let q = (editor.linkQuery ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        return state.data.notes
+            .filter { $0.id != draft.id && !$0.title.isEmpty }
+            .filter { q.isEmpty || $0.title.lowercased().contains(q) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(6).map { $0 }
+    }
+    private var linkAutocompleteBar: some View {
+        let q = (editor.linkQuery ?? "").trimmingCharacters(in: .whitespaces)
+        let exact = state.data.notes.contains { $0.title.caseInsensitiveCompare(q) == .orderedSame }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: "link").font(.caption2).foregroundStyle(.secondary)
+                ForEach(linkMatches) { n in
+                    Button { editor.completeLink(n.title) } label: {
+                        Text(n.title).font(.caption2.weight(.medium)).lineLimit(1)
+                    }.buttonStyle(.borderless)
+                }
+                if !q.isEmpty && !exact {
+                    Button { editor.completeLink(q) } label: {
+                        Label("Create “\(q)”", systemImage: "plus").font(.caption2)
+                    }.buttonStyle(.borderless).foregroundStyle(.tint)
+                }
+                if linkMatches.isEmpty && q.isEmpty {
+                    Text("Type a note title…").font(.caption2).foregroundStyle(.secondary)
+                }
+            }.padding(.horizontal, 12).padding(.vertical, 6)
+        }.background(.background.secondary)
+    }
+
+    /// Notes whose body links to this one via `[[this title]]`.
+    private var backlinks: [Note] {
+        let t = draft.title.trimmingCharacters(in: .whitespaces)
+        guard t.count >= 2 else { return [] }
+        let needle = "[[\(t.lowercased())]]"
+        return state.data.notes.filter { $0.id != draft.id && $0.body.lowercased().contains(needle) }
+    }
+    private var backlinksBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s) {
+                Label("Linked from", systemImage: "arrow.turn.up.left")
+                    .font(.caption2.weight(.bold)).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                ForEach(backlinks) { n in
+                    Button { persist(); onNavigate(n.id) } label: {
+                        Text(n.title.isEmpty ? "Untitled" : n.title).font(.caption2.weight(.medium)).lineLimit(1)
+                    }.buttonStyle(.borderless)
+                }
+            }.padding(.horizontal, 12).padding(.vertical, 6)
+        }.background(.background.secondary.opacity(0.5))
+    }
+
+    /// Open a clicked `[[link]]`: navigate to the note of that title, creating it if new.
+    private func openLink(_ title: String) {
+        let t = title.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        persist()
+        if let existing = state.data.notes.first(where: { $0.title.caseInsensitiveCompare(t) == .orderedSame }) {
+            onNavigate(existing.id)
+        } else {
+            let n = Note(title: t)
+            state.data.notes.append(n)
+            onNavigate(n.id)
+        }
     }
 
     private func defineCard(_ def: String) -> some View {
