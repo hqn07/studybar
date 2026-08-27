@@ -572,6 +572,89 @@ final class FoldingTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
+    // MARK: - Smart lists (Tab indent · Return continues / ends)
+
+    /// One list line: its paragraph range, marker length, the marker to start the next
+    /// item with, and whether it's empty (Return on an empty item ends the list).
+    private struct ListItem { let para: NSRange; let markerLen: Int; let nextMarker: String; let empty: Bool }
+    private static let numberedListRE = try! NSRegularExpression(pattern: #"^(\d+)\. "#)
+
+    private func listItem(at loc: Int) -> ListItem? {
+        guard let ts = textStorage, ts.length > 0 else { return nil }
+        let ns = ts.string as NSString
+        let para = ns.paragraphRange(for: NSRange(location: min(loc, ns.length), length: 0))
+        let line = ns.substring(with: para)
+        func item(_ markerLen: Int, _ next: String) -> ListItem {
+            let content = String(line.dropFirst(markerLen)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return ListItem(para: para, markerLen: markerLen, nextMarker: next, empty: content.isEmpty)
+        }
+        if line.hasPrefix("• ") { return item(2, "• ") }
+        if line.hasPrefix("☐ ") { return item(2, "☐ ") }
+        if line.hasPrefix("☑ ") { return item(2, "☐ ") }       // next item starts unchecked
+        if let m = Self.numberedListRE.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) {
+            let n = (Int((line as NSString).substring(with: m.range(at: 1))) ?? 1) + 1
+            return item(m.range.length, "\(n). ")
+        }
+        return nil
+    }
+
+    /// Tab / Shift-Tab on a list item shifts its indent a level (20 pt) via paragraph
+    /// style — moving the marker and the wrapped text together. Returns false when the
+    /// selection isn't a list, so the caller falls back to a normal tab.
+    fileprivate func adjustListIndent(by delta: Int) -> Bool {
+        guard let ts = textStorage else { return false }
+        let ns = ts.string as NSString
+        let sel = ns.paragraphRange(for: selectedRange())
+        var starts: [Int] = []
+        ns.enumerateSubstrings(in: sel, options: [.byParagraphs, .substringNotRequired]) { _, r, _, _ in starts.append(r.location) }
+        if starts.isEmpty { starts = [sel.location] }
+        guard let first = starts.first, listItem(at: first) != nil else { return false }
+        ts.beginEditing()
+        for loc in starts where listItem(at: loc) != nil {
+            let para = ns.paragraphRange(for: NSRange(location: loc, length: 0))
+            let cur = (ts.attribute(.paragraphStyle, at: loc, effectiveRange: nil) as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
+            let level = max(0, min(6, Int((cur / 20).rounded()) + delta))
+            let ps = NSMutableParagraphStyle()
+            ps.firstLineHeadIndent = CGFloat(level) * 20
+            ps.headIndent = CGFloat(level) * 20
+            ts.addAttribute(.paragraphStyle, value: ps, range: para)
+        }
+        ts.endEditing()
+        didChangeText()
+        return true
+    }
+
+    /// Return inside a list item: an empty item ends the list (marker removed); otherwise
+    /// a new item is started with the next marker at the same indent. Returns false when
+    /// not in a list.
+    fileprivate func continueList() -> Bool {
+        guard let ts = textStorage, let item = listItem(at: selectedRange().location) else { return false }
+        if item.empty {
+            let markerRange = NSRange(location: item.para.location, length: item.markerLen)
+            if shouldChangeText(in: markerRange, replacementString: "") {
+                ts.replaceCharacters(in: markerRange, with: "")
+                let line = (ts.string as NSString).paragraphRange(for: NSRange(location: min(markerRange.location, ts.length), length: 0))
+                ts.addAttribute(.paragraphStyle, value: NSParagraphStyle.default, range: line)
+                didChangeText()
+            }
+            return true
+        }
+        let caret = selectedRange()
+        let ps = ts.attribute(.paragraphStyle, at: max(0, caret.location - 1), effectiveRange: nil) as? NSParagraphStyle
+        let insert = NSMutableAttributedString(string: "\n" + item.nextMarker, attributes: typingAttributes)
+        if let ps { insert.addAttribute(.paragraphStyle, value: ps, range: NSRange(location: 0, length: insert.length)) }
+        if shouldChangeText(in: caret, replacementString: insert.string) {
+            ts.replaceCharacters(in: caret, with: insert)
+            didChangeText()
+            setSelectedRange(NSRange(location: caret.location + insert.length, length: 0))
+        }
+        return true
+    }
+
+    override func insertTab(_ sender: Any?) { if adjustListIndent(by: 1) { return }; super.insertTab(sender) }
+    override func insertBacktab(_ sender: Any?) { if adjustListIndent(by: -1) { return }; super.insertBacktab(sender) }
+    override func insertNewline(_ sender: Any?) { if continueList() { return }; super.insertNewline(sender) }
+
     private func toggle(_ fold: FoldAttachment, at charIndex: Int) {
         guard let ts = textStorage else { return }
         ts.beginEditing()
