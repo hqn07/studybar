@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Time blocking** — a new day-timeline module (Schedule & Calendar): plan *when* you'll do your work. Your classes show as faint context bands so you plan around them; drag a planned block to reschedule it or drag its bottom edge to resize, snapped to 15 minutes. A "Plan" strip lists your open assignments and to-dos — drag one onto the timeline to drop it at a precise time (or tap to drop it at the next free hour); the block links back to the item and carries its course. Deletes are undoable and land in Trash, and blocks sync with the same conflict-safe 3-way merge as everything else.
+
 ## [1.5.0] — 2026-08-26
 
 - **Resizable window** — StudyBar is now a full windowed app with the menu bar as a quick-glance companion. The popover shows Today plus a module launcher; open the window (click the app icon, or pick a module) for the full workspace. It remembers your last module and titles itself for the current one, and you can add a Dock icon in Settings ▸ General ▸ Window.
