@@ -7,9 +7,14 @@ enum NoteSort: String, CaseIterable, Identifiable {
 
 struct NotesView: View {
     @EnvironmentObject var state: AppState
-    @State private var editing: Note?
+    @State private var editing: Note?           // narrow/popover: pushed note
+    @State private var selection: UUID?         // wide window: selected note in the split
+    @State private var newDraft: Note?          // wide window: a not-yet-saved new note
     @State private var search = ""
     @State private var sort = NoteSort.updated
+
+    /// The split (list + editor) needs real width; below this we push one note at a time.
+    private let splitMinWidth: CGFloat = 640
 
     private var notes: [Note] {
         var list = state.data.notes
@@ -30,45 +35,111 @@ struct NotesView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ModulePane(title: "Notes") {
-                HStack(spacing: 8) {
-                    Menu {
-                        ForEach(NoteSort.allCases) { s in
-                            Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
-                        }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    Button { screenshotNote() } label: { Image(systemName: "camera.viewfinder") }.help("Screenshot to note")
-                    Button { newNote() } label: { Image(systemName: "square.and.pencil") }
+        GeometryReader { geo in
+            let split = geo.size.width >= splitMinWidth
+            NavigationStack {
+                ModulePane(title: "Notes") { toolbar(split: split) } content: {
+                    if split { splitBody } else { stackBody }
                 }
-            } content: {
-                VStack(spacing: 0) {
-                    if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
-                    if notes.isEmpty {
-                        EmptyState(symbol: "note.text",
-                                   title: state.data.notes.isEmpty ? "No notes yet" : "No matches",
-                                   subtitle: state.data.notes.isEmpty ? "Capture ideas, lecture notes and reminders. Markdown supported." : "Try a different search.")
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 6) {
-                                ForEach(notes) { n in NoteRow(note: n) { editing = n } }
-                            }.padding(10)
-                        }
-                    }
-                }
+                .navigationDestination(item: $editing) { NoteEditor(note: $0) }
+                .onAppear { consumePending(split: split) }
+                .onChange(of: state.pendingNew) { _, _ in consumePending(split: split) }
             }
-            .navigationDestination(item: $editing) { NoteEditor(note: $0) }
-            .onAppear(perform: consumePending)
-            .onChange(of: state.pendingNew) { _, _ in consumePending() }
         }
     }
 
-    private func consumePending() {
-        if state.pendingNew == "notes" { state.pendingNew = nil; newNote() }
+    @ViewBuilder private func toolbar(split: Bool) -> some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(NoteSort.allCases) { s in
+                    Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
+                }
+            } label: { Image(systemName: "ellipsis.circle") }
+            Button { screenshotNote(split: split) } label: { Image(systemName: "camera.viewfinder") }.help("Screenshot to note")
+            Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil") }
+                .keyboardShortcut("n", modifiers: .command).help("New note")
+        }
     }
-    private func newNote() { editing = Note() }        // insert only on Save
 
-    private func screenshotNote() {
+    // MARK: Narrow / popover — list that pushes one note
+
+    private var stackBody: some View {
+        VStack(spacing: 0) {
+            if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
+            if notes.isEmpty {
+                notesEmptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(notes) { n in NoteRow(note: n) { editing = n } }
+                    }.padding(10)
+                }
+            }
+        }
+    }
+
+    // MARK: Wide window — master-detail split
+
+    private var splitBody: some View {
+        HStack(spacing: 0) {
+            listPane.frame(width: 268)
+            Divider()
+            detailPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var listPane: some View {
+        VStack(spacing: 0) {
+            if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
+            if notes.isEmpty {
+                notesEmptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(notes) { n in
+                            NoteRow(note: n, selected: n.id == selection) { select(n.id) }
+                        }
+                    }.padding(8)
+                }
+            }
+        }
+        .background(.background.secondary.opacity(0.35))
+    }
+
+    @ViewBuilder private var detailPane: some View {
+        if let sel = selection, let note = noteForSelection(sel) {
+            NoteEditor(note: note, embedded: true, onClose: { selection = nil; newDraft = nil })
+                .id(sel)   // switching notes rebuilds the editor → old one autosaves on teardown
+        } else {
+            EmptyState(symbol: "note.text", title: "No note selected",
+                       subtitle: "Pick a note from the list, or ⌘N to start a new one.")
+        }
+    }
+
+    private var notesEmptyState: some View {
+        EmptyState(symbol: "note.text",
+                   title: state.data.notes.isEmpty ? "No notes yet" : "No matches",
+                   subtitle: state.data.notes.isEmpty ? "Capture ideas, lecture notes and reminders. Markdown supported." : "Try a different search.")
+    }
+
+    /// The note behind the current selection — a saved note, or the pending new draft.
+    private func noteForSelection(_ id: UUID) -> Note? {
+        state.data.notes.first { $0.id == id } ?? (newDraft?.id == id ? newDraft : nil)
+    }
+    private func select(_ id: UUID) { selection = id; newDraft = nil }
+
+    // MARK: Actions (fork by surface width)
+
+    private func consumePending(split: Bool) {
+        if state.pendingNew == "notes" { state.pendingNew = nil; newNote(split: split) }
+    }
+    private func newNote(split: Bool) {
+        let n = Note()
+        if split { newDraft = n; selection = n.id }   // editor inserts it on first edit
+        else { editing = n }                          // insert only on Save
+    }
+
+    private func screenshotNote(split: Bool) {
         // Append first so the note survives if the popover dismisses during capture.
         let note = Note(title: "Screenshot \(Date().dayMonth)")
         let id = note.id
@@ -77,7 +148,8 @@ struct NotesView: View {
             guard let i = state.data.notes.firstIndex(where: { $0.id == id }) else { return }
             if let name {
                 state.data.notes[i].imagePath = name
-                editing = state.data.notes[i]     // opens the editor if the popover is still up
+                if split { selection = id; newDraft = nil }
+                else { editing = state.data.notes[i] }
             } else {
                 state.data.notes.remove(at: i)     // cancelled → discard
             }
@@ -94,7 +166,12 @@ func screenshotImage(_ name: String) -> NSImage? {
 struct NoteRow: View {
     @EnvironmentObject var state: AppState
     let note: Note
+    var selected: Bool = false
     let onOpen: () -> Void
+
+    init(note: Note, selected: Bool = false, onOpen: @escaping () -> Void) {
+        self.note = note; self.selected = selected; self.onOpen = onOpen
+    }
 
     var body: some View {
         Button(action: onOpen) {
@@ -117,7 +194,13 @@ struct NoteRow: View {
                 Spacer()
             }
             .padding(DS.Space.m).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.background.secondary),
+                        in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.5), lineWidth: 1)
+                }
+            }
         }.buttonStyle(.plain)
     }
 
@@ -143,10 +226,16 @@ struct NoteEditor: View {
     @State private var liveText = ""
     @State private var liveTask: Task<Void, Never>?
     private let initialAttributed: NSAttributedString
+    /// Embedded in the window's master-detail split (no back-nav; selection drives it).
+    var embedded = false
+    /// Called instead of `dismiss()` when embedded (e.g. after delete → clear selection).
+    var onClose: () -> Void = {}
 
     enum ColorMode { case highlight, foreground }
 
-    init(note: Note) {
+    init(note: Note, embedded: Bool = false, onClose: @escaping () -> Void = {}) {
+        self.embedded = embedded
+        self.onClose = onClose
         _draft = State(initialValue: note)
         _tagText = State(initialValue: note.tags.joined(separator: ", "))
         if let data = note.rich, let a = NSAttributedString.fromRTFD(data) {
@@ -220,8 +309,10 @@ struct NoteEditor: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Button { save() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
-                .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
+            if !embedded {
+                Button { save() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+                    .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
+            }
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
             Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
                 Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
@@ -373,7 +464,7 @@ struct NoteEditor: View {
                 .disabled(!AIConfig.isReady)
                 .help(AIConfig.isReady ? "Organize with the assistant" : "Enable the assistant in Settings ▸ Intelligence")
                 Button("Delete", role: .destructive) { delete() }
-                Button("Done") { save() }.keyboardShortcut(.defaultAction)
+                if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
         }.padding(10)
     }
@@ -457,6 +548,6 @@ struct NoteEditor: View {
     }
     private func delete() {
         state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == draft.id } }
-        dismiss()
+        embedded ? onClose() : dismiss()
     }
 }

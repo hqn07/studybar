@@ -42,7 +42,7 @@ enum ModuleRegistry {
 
         // Capture
         .init(id: "notes", title: "Notes", symbol: "note.text",
-              category: .capture) { AnyView(NotesView()) },
+              category: .capture, wide: true) { AnyView(NotesView()) },
         .init(id: "scratchpad", title: "Scratchpad", symbol: "pencil.and.scribble",
               category: .capture) { AnyView(ScratchpadView()) },
         .init(id: "voice", title: "Voice Note", symbol: "mic",
