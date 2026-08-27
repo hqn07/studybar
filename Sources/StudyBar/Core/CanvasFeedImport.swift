@@ -232,7 +232,11 @@ enum CanvasFeedImport {
     @MainActor @discardableResult
     static func createCourseAndAssign(tag: String, state: AppState) -> UUID {
         let hex = Palette.swatches[state.data.courses.count % Palette.swatches.count]
-        let c = Course(name: tag, code: tag, colorHex: hex)
+        // Use the tag as the course code only when it looks like one (e.g. MAP2302) —
+        // a long descriptive tag ("First Year Engineering Advising 2025") is a name, not
+        // a code, so leave the code empty rather than stuffing the name into it.
+        let looksLikeCode = tag.count <= 10 && !tag.contains(" ") && tag.contains(where: \.isNumber)
+        let c = Course(name: tag, code: looksLikeCode ? tag : "", colorHex: hex)
         state.data.courses.append(c)
         assign(tag: tag, to: c.id, state: state)
         return c.id
