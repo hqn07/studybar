@@ -67,7 +67,6 @@ struct NotesView: View {
                     }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
-            Button { screenshotNote(split: split) } label: { Image(systemName: "camera.viewfinder") }.help("Screenshot to note")
             Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil") }
                 .keyboardShortcut("n", modifiers: .command).help("New note")
         }
@@ -161,22 +160,6 @@ struct NotesView: View {
         if split { selection = n.id; newDraft = nil } else { editing = n }
     }
 
-    private func screenshotNote(split: Bool) {
-        // Append first so the note survives if the popover dismisses during capture.
-        let note = Note(title: "Screenshot \(Date().dayMonth)")
-        let id = note.id
-        state.data.notes.append(note)
-        ScreenshotService.captureInteractive { name in
-            guard let i = state.data.notes.firstIndex(where: { $0.id == id }) else { return }
-            if let name {
-                state.data.notes[i].imagePath = name
-                if split { selection = id; newDraft = nil }
-                else { editing = state.data.notes[i] }
-            } else {
-                state.data.notes.remove(at: i)     // cancelled → discard
-            }
-        }
-    }
 }
 
 /// Loads a screenshot attachment by filename.
@@ -443,8 +426,15 @@ struct NoteEditor: View {
                     .help("Text color").onHover { setHint("Text color", $0) }
                 sep
                 fmtBtn("function", "Insert equation") { showEquation = true }
-                fmtBtn("tablecells", "Insert table") { editor.insertTable() }
+                Menu {
+                    Button { editor.insertTable() } label: { Label("Insert table", systemImage: "tablecells.badge.ellipsis") }
+                    Button { editor.addTableRow() } label: { Label("Add row", systemImage: "plus.rectangle") }
+                    Button { editor.addTableColumn() } label: { Label("Add column", systemImage: "plus.rectangle.portrait") }
+                } label: { Image(systemName: "tablecells").frame(width: 18) }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .onHover { setHint("Table — insert, add row/column (or Tab in a cell to add a row)", $0) }
                 fmtBtn("photo", "Insert image") { editor.insertImage() }
+                fmtBtn("camera.viewfinder", "Screenshot into note") { captureScreenshot() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
@@ -726,6 +716,16 @@ struct NoteEditor: View {
         }
     }
     private var sep: some View { Divider().frame(height: 14) }
+
+    /// Capture a region with macOS's picker and drop it inline. (Or just drag a screenshot
+    /// straight into the note — the editor accepts image drops.)
+    private func captureScreenshot() {
+        ScreenshotService.captureInteractive { name in
+            guard let name, let img = screenshotImage(name) else { return }
+            editor.insertImage(img)
+            scheduleAutosave()
+        }
+    }
 
     private func define() {
         let term = editor.wordToDefine

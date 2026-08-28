@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import SwiftMath
+import UniformTypeIdentifiers
 
 // MARK: - RTFD (de)serialization helpers
 
@@ -432,23 +433,26 @@ final class RichTextController: ObservableObject {
 
     // MARK: Table
 
-    /// Insert a simple editable table (real NSTextTable — round-trips through RTFD).
+    /// One table cell (a paragraph styled to a `NSTextTableBlock`).
+    private func tableCell(_ table: NSTextTable, row: Int, col: Int, text: String, bold: Bool) -> NSAttributedString {
+        let block = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1, startingColumn: col, columnSpan: 1)
+        block.setBorderColor(.separatorColor)
+        block.setWidth(1, type: .absoluteValueType, for: .border)
+        block.setWidth(5, type: .absoluteValueType, for: .padding)
+        let ps = NSMutableParagraphStyle(); ps.textBlocks = [block]
+        let font = bold ? NSFontManager.shared.convert(Self.baseFont, toHaveTrait: .boldFontMask) : Self.baseFont
+        return NSAttributedString(string: text + "\n", attributes: [.font: font, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor])
+    }
+
+    /// Insert a simple editable table (real NSTextTable — round-trips through RTFD). Grow
+    /// it later with Tab (adds a row from the last cell) or the table menu's Add row/column.
     func insertTable(rows: Int = 3, cols: Int = 2) {
         guard let tv = textView, let ts = tv.textStorage else { return }
-        let table = NSTextTable()
-        table.numberOfColumns = cols
-        table.collapsesBorders = true
+        let table = NSTextTable(); table.numberOfColumns = cols; table.collapsesBorders = true
         let out = NSMutableAttributedString()
         for r in 0..<rows {
             for c in 0..<cols {
-                let block = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
-                block.setBorderColor(.separatorColor)
-                block.setWidth(1, type: .absoluteValueType, for: .border)
-                block.setWidth(5, type: .absoluteValueType, for: .padding)
-                let ps = NSMutableParagraphStyle(); ps.textBlocks = [block]
-                let font = r == 0 ? NSFontManager.shared.convert(Self.baseFont, toHaveTrait: .boldFontMask) : Self.baseFont
-                out.append(NSAttributedString(string: (r == 0 ? "Column \(c + 1)" : " ") + "\n",
-                    attributes: [.font: font, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor]))
+                out.append(tableCell(table, row: r, col: c, text: r == 0 ? "Column \(c + 1)" : " ", bold: r == 0))
             }
         }
         out.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont, .paragraphStyle: Self.bodyParagraph]))
@@ -460,6 +464,73 @@ final class RichTextController: ObservableObject {
         }
     }
 
+    /// The table + block under the caret, or nil.
+    func tableInfo(at loc: Int) -> (table: NSTextTable, block: NSTextTableBlock)? {
+        guard let ts = textView?.textStorage, loc < ts.length,
+              let ps = ts.attribute(.paragraphStyle, at: loc, effectiveRange: nil) as? NSParagraphStyle,
+              let b = ps.textBlocks.compactMap({ $0 as? NSTextTableBlock }).first else { return nil }
+        return (b.table, b)
+    }
+    /// Every cell of `table` in document order (range includes the cell's trailing newline).
+    private func tableCells(_ table: NSTextTable) -> [(range: NSRange, block: NSTextTableBlock)] {
+        guard let ts = textView?.textStorage else { return [] }
+        var cells: [(NSRange, NSTextTableBlock)] = []
+        (ts.string as NSString).enumerateSubstrings(in: NSRange(location: 0, length: ts.length), options: .byParagraphs) { _, _, encl, _ in
+            guard encl.location < ts.length,
+                  let ps = ts.attribute(.paragraphStyle, at: encl.location, effectiveRange: nil) as? NSParagraphStyle,
+                  let b = ps.textBlocks.compactMap({ $0 as? NSTextTableBlock }).first, b.table === table else { return }
+            cells.append((encl, b))
+        }
+        return cells
+    }
+
+    /// Append a row to the table under the caret and move into its first cell.
+    func addTableRow() {
+        guard let tv = textView, let ts = tv.textStorage, let (table, _) = tableInfo(at: tv.selectedRange().location) else { return }
+        let cells = tableCells(table)
+        guard let last = cells.last else { return }
+        let newRow = (cells.map { $0.block.startingRow }.max() ?? 0) + 1
+        let at = last.range.location + last.range.length
+        let block = NSMutableAttributedString()
+        for c in 0..<table.numberOfColumns { block.append(tableCell(table, row: newRow, col: c, text: " ", bold: false)) }
+        if tv.shouldChangeText(in: NSRange(location: at, length: 0), replacementString: nil) {
+            ts.insert(block, at: at); tv.didChangeText(); snapshot = tv.attributedString()
+            tv.setSelectedRange(NSRange(location: at, length: 0))
+        }
+    }
+
+    /// Add a column to the table under the caret.
+    func addTableColumn() {
+        guard let tv = textView, let ts = tv.textStorage, let (table, _) = tableInfo(at: tv.selectedRange().location) else { return }
+        let newCol = table.numberOfColumns
+        table.numberOfColumns = newCol + 1
+        // One new cell per row, appended after each row's last cell (insert back-to-front).
+        let byRow = Dictionary(grouping: tableCells(table), by: { $0.block.startingRow })
+        let inserts = byRow.compactMap { row, cs -> (Int, Int)? in
+            guard let lastInRow = cs.max(by: { $0.block.startingColumn < $1.block.startingColumn }) else { return nil }
+            return (lastInRow.range.location + lastInRow.range.length, row)
+        }.sorted { $0.0 > $1.0 }
+        ts.beginEditing()
+        for (at, row) in inserts { ts.insert(tableCell(table, row: row, col: newCol, text: " ", bold: false), at: at) }
+        ts.endEditing()
+        tv.didChangeText(); snapshot = tv.attributedString()
+    }
+
+    /// Tab inside a table: jump to the next cell (selecting it), or add a row from the last
+    /// cell. Returns false when the caret isn't in a table.
+    func tableTab() -> Bool {
+        guard let tv = textView, let (table, _) = tableInfo(at: tv.selectedRange().location) else { return false }
+        let cells = tableCells(table)
+        let caret = tv.selectedRange().location
+        guard let idx = cells.firstIndex(where: { NSLocationInRange(caret, $0.range) || caret == $0.range.location }) else { return false }
+        if idx + 1 < cells.count {
+            let next = cells[idx + 1].range
+            tv.setSelectedRange(NSRange(location: next.location, length: max(0, next.length - 1)))
+            tv.scrollRangeToVisible(next)
+        } else { addTableRow() }
+        return true
+    }
+
     // MARK: Images
 
     func insertImage() {
@@ -468,21 +539,26 @@ final class RichTextController: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.prompt = "Insert"
-        guard panel.runModal() == .OK, let url = panel.url,
-              let image = NSImage(contentsOf: url), let tv = textView else { return }
-        // Scale to fit the popover width.
-        let maxW: CGFloat = 260
+        guard panel.runModal() == .OK, let url = panel.url, let image = NSImage(contentsOf: url) else { return }
+        insertImage(image)
+    }
+
+    /// Insert an image object inline (used by the panel, the screenshot button and
+    /// drag-and-drop — including a screenshot dragged in from macOS).
+    func insertImage(_ image: NSImage) {
+        guard let tv = textView else { return }
+        let maxW: CGFloat = 460
         let size = image.size
         let scale = size.width > maxW ? maxW / size.width : 1
-        let att = NSTextAttachment()
-        att.image = image
+        let att = NSTextAttachment(); att.image = image
         att.bounds = CGRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
         let attr = NSMutableAttributedString(attachment: att)
-        attr.append(NSAttributedString(string: "\n"))
+        attr.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont, .paragraphStyle: Self.bodyParagraph]))
         let range = tv.selectedRange()
         if tv.shouldChangeText(in: range, replacementString: nil) {
             tv.textStorage?.replaceCharacters(in: range, with: attr)
             tv.didChangeText()
+            snapshot = tv.attributedString()
         }
     }
 
@@ -598,6 +674,7 @@ struct RichTextEditor: NSViewRepresentable {
                                .paragraphStyle: RichTextController.bodyParagraph]
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
+        tv.registerForDraggedTypes([.fileURL, .png, .tiff] + NSImage.imageTypes.map { NSPasteboard.PasteboardType($0) })
         controller.textView = tv
         controller.snapshot = installed
         if focusOnAppear {
@@ -814,8 +891,37 @@ final class FoldingTextView: NSTextView {
 
     override func insertTab(_ sender: Any?) {
         if ghost != nil { acceptGhost(); return }        // Tab accepts an autocomplete suggestion
+        if mathController?.tableTab() == true { return } // in a table: next cell / add a row
         if adjustListIndent(by: 1) { return }
         super.insertTab(sender)
+    }
+
+    // MARK: - Drag & drop an image (e.g. a macOS screenshot dragged into the note)
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        // Place the caret where it was dropped, then insert.
+        let pt = convert(sender.draggingLocation, from: nil)
+        let idx = characterIndexForInsertion(at: pt)
+        if let img = NSImage(pasteboard: pb) {
+            setSelectedRange(NSRange(location: idx, length: 0))
+            mathController?.insertImage(img); return true
+        }
+        if let urls = pb.readObjects(forClasses: [NSURL.self],
+                                     options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]) as? [URL],
+           let url = urls.first, let img = NSImage(contentsOf: url) {
+            setSelectedRange(NSRange(location: idx, length: 0))
+            mathController?.insertImage(img); return true
+        }
+        return super.performDragOperation(sender)
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pb = sender.draggingPasteboard
+        if pb.canReadObject(forClasses: [NSImage.self], options: nil)
+            || pb.canReadObject(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]) {
+            return .copy
+        }
+        return super.draggingEntered(sender)
     }
     override func insertBacktab(_ sender: Any?) { if adjustListIndent(by: -1) { return }; super.insertBacktab(sender) }
     override func insertNewline(_ sender: Any?) {
