@@ -232,6 +232,7 @@ struct NoteEditor: View {
     @State private var liveText = ""
     @State private var liveTask: Task<Void, Never>?
     @State private var toolHint: String?
+    @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
     /// Embedded in the window's master-detail split (no back-nav; selection drives it).
     var embedded = false
@@ -268,15 +269,18 @@ struct NoteEditor: View {
             }
             if !showPreview {
                 formatBar
-                if let toolHint {
+                if toolHint != nil || autocompleteOn {
                     HStack(spacing: 4) {
-                        Image(systemName: "hand.point.up.left").font(.system(size: 9))
-                        Text(toolHint)
+                        if let toolHint {
+                            Image(systemName: "hand.point.up.left").font(.system(size: 9))
+                            Text(toolHint)
+                        }
+                        Spacer(minLength: 8)
+                        if autocompleteOn { autocompleteStatus }
                     }
                     .font(.caption2).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.bottom, 4)
-                    .transition(.opacity)
                 }
                 if let colorMode { Divider(); swatchPanel(colorMode) }
                 Divider()
@@ -597,6 +601,29 @@ struct NoteEditor: View {
     /// hover over any tool names it in a strip just under the toolbar instead.
     private func setHint(_ text: String, _ hovering: Bool) {
         if hovering { toolHint = text } else if toolHint == text { toolHint = nil }
+    }
+
+    /// Live status for the (easy-to-miss, background) Ollama autocomplete, so the user can
+    /// see it's on, working, ready, or why it isn't — instead of a silent no-op.
+    @ViewBuilder private var autocompleteStatus: some View {
+        if AIConfig.mode != .ollama {
+            Label("Autocomplete needs the Ollama engine", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).lineLimit(1)
+        } else {
+            switch editor.ghostPhase {
+            case .idle:
+                Label("Autocomplete on", systemImage: "wand.and.stars").foregroundStyle(.secondary)
+            case .thinking:
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 10, height: 10)
+                    Text("Thinking…")
+                }.foregroundStyle(.secondary)
+            case .ready:
+                Label("Tab ⇥ to accept", systemImage: "sparkles").foregroundStyle(.tint).fontWeight(.medium)
+            case .error(let msg):
+                Label(msg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).lineLimit(1)
+            }
+        }
     }
     private var sep: some View { Divider().frame(height: 14) }
 

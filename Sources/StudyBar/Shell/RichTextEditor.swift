@@ -44,6 +44,10 @@ final class RichTextController: ObservableObject {
     /// Called when a `[[link]]` is clicked (title passed up so the view can navigate).
     var onOpenLink: (String) -> Void = { _ in }
 
+    // MARK: Autocomplete status (drives the visible indicator; see NoteAutocomplete)
+    enum GhostPhase: Equatable { case idle, thinking, ready, error(String) }
+    @Published var ghostPhase: GhostPhase = .idle
+
     static let baseFont = NSFont.systemFont(ofSize: 13)
 
     /// Undo/redo the text view's own edits (typing + formatting). Backs the
@@ -671,11 +675,13 @@ final class FoldingTextView: NSTextView {
     private var ghostTask: Task<Void, Never>?
     private lazy var ghostLabel: NSTextField = {
         let l = NSTextField(labelWithString: "")
-        l.textColor = .tertiaryLabelColor
+        l.textColor = .secondaryLabelColor       // faint but actually visible (tertiary was too pale)
         l.isBezeled = false; l.drawsBackground = false; l.isEditable = false; l.isSelectable = false
         l.lineBreakMode = .byTruncatingTail; l.isHidden = true
         return l
     }()
+
+    private func setPhase(_ p: RichTextController.GhostPhase) { mathController?.ghostPhase = p }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         clearGhost()
@@ -687,7 +693,10 @@ final class FoldingTextView: NSTextView {
     /// delegate's selection-change hook. Safe during typing: the selection change fires
     /// inside `super.insertText` *before* `scheduleGhost`, so the fresh task survives.
     func dismissGhost() { if ghost != nil { clearGhost() } }
-    private func clearGhost() { ghostTask?.cancel(); ghost = nil; ghostLabel.isHidden = true }
+    private func clearGhost() {
+        ghostTask?.cancel(); ghost = nil; ghostLabel.isHidden = true
+        if case .error = mathController?.ghostPhase { } else { setPhase(.idle) }
+    }
 
     /// After a keystroke pause, ask Ollama for a continuation and show it — but only at
     /// the end of a line (never mid-word), with a collapsed caret that hasn't moved.
@@ -699,17 +708,20 @@ final class FoldingTextView: NSTextView {
         let ns = string as NSString
         let atEnd = sel.location >= ns.length
             || ns.substring(with: NSRange(location: sel.location, length: 1)) == "\n"
-        guard atEnd else { return }
+        guard atEnd else { setPhase(.idle); return }
         let prefix = ns.substring(to: min(sel.location, ns.length))
         let anchor = sel.location
         ghostTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 550_000_000)
             guard let self, !Task.isCancelled else { return }
-            let suggestion = await NoteAutocomplete.suggest(prefix: prefix)
-            guard !Task.isCancelled,
-                  self.selectedRange() == NSRange(location: anchor, length: 0),
-                  let s = suggestion, !s.isEmpty else { return }
-            self.showGhost(s, at: anchor)
+            self.setPhase(.thinking)
+            let outcome = await NoteAutocomplete.suggest(prefix: prefix)
+            guard !Task.isCancelled, self.selectedRange() == NSRange(location: anchor, length: 0) else { return }
+            switch outcome {
+            case .suggestion(let s): self.showGhost(s, at: anchor); self.setPhase(.ready)
+            case .none:              self.setPhase(.idle)
+            case .unavailable(let m): self.setPhase(.error(m))
+            }
         }
     }
 
@@ -719,9 +731,9 @@ final class FoldingTextView: NSTextView {
         ghostLabel.stringValue = text
         ghostLabel.font = font ?? RichTextController.baseFont
         ghostLabel.sizeToFit()
-        let maxW = max(0, bounds.width - caret.maxX - 8)
+        let maxW = max(40, bounds.width - caret.maxX - 8)
         ghostLabel.frame = NSRect(x: caret.maxX + 1, y: caret.minY,
-                                  width: min(ghostLabel.frame.width, maxW), height: caret.height)
+                                  width: min(ghostLabel.frame.width, maxW), height: max(caret.height, 16))
         if ghostLabel.superview == nil { addSubview(ghostLabel) }
         ghostLabel.isHidden = false
     }
@@ -738,11 +750,30 @@ final class FoldingTextView: NSTextView {
         }
     }
 
-    /// Caret rectangle in this view's coordinates (for placing the ghost label).
+    /// Caret rectangle in this view's coordinates (for placing the ghost label). Falls back
+    /// to the layout manager when `firstRect` returns nothing (common at the very end of
+    /// the text), so the ghost still positions.
     private func caretRect(at loc: Int) -> NSRect? {
         let screen = firstRect(forCharacterRange: NSRange(location: loc, length: 0), actualRange: nil)
-        guard let win = window, screen.height > 0 else { return nil }
-        return convert(win.convertFromScreen(screen), from: nil)
+        if screen.height > 0, let win = window {
+            return convert(win.convertFromScreen(screen), from: nil)
+        }
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        lm.ensureLayout(for: tc)
+        let o = textContainerOrigin
+        var r: NSRect
+        if loc > 0, loc <= (string as NSString).length {
+            let g = lm.glyphIndex(for: NSPoint(x: 0, y: 0), in: tc)  // touch layout
+            _ = g
+            let prev = lm.glyphIndexForCharacter(at: loc - 1)
+            r = lm.boundingRect(forGlyphRange: NSRange(location: prev, length: 1), in: tc)
+            r.origin.x = r.maxX
+        } else {
+            r = NSRect(x: 0, y: 0, width: 0, height: RichTextController.baseFont.pointSize + 4)
+        }
+        r.origin.x += o.x; r.origin.y += o.y
+        r.size.height = max(r.height, 16)
+        return r
     }
 
     private func toggle(_ fold: FoldAttachment, at charIndex: Int) {

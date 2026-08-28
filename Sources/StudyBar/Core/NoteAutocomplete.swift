@@ -9,6 +9,14 @@ import Foundation
 /// It completes the student's *own* phrasing a few words at a time (predictive text) —
 /// it never writes an answer, staying on the organize-not-homework side of the line.
 enum NoteAutocomplete {
+    /// What a suggestion attempt produced — so the editor can show real status instead
+    /// of failing silently (the old `String?` hid "Ollama is down" as "no suggestion").
+    enum Outcome: Equatable {
+        case suggestion(String)   // show it as ghost text
+        case none                 // ran fine, nothing worth suggesting
+        case unavailable(String)  // couldn't reach / run the model — human-readable reason
+    }
+
     /// On only when the user turned it on AND a local (Ollama) engine is selected.
     @MainActor static var enabled: Bool {
         UserDefaults.standard.bool(forKey: "notesAutocomplete") && AIConfig.mode == .ollama
@@ -22,16 +30,16 @@ enum NoteAutocomplete {
     an empty string.
     """
 
-    /// A short continuation for `prefix`, or nil (server down, disabled, empty, or the
-    /// task was cancelled). Never throws to the caller — a failed guess is a silent no-op.
-    @MainActor static func suggest(prefix: String) async -> String? {
-        guard enabled else { return nil }
+    /// A short continuation for `prefix` — or a reason it couldn't produce one, so the
+    /// editor can surface "Ollama not reachable" instead of a silent no-op.
+    @MainActor static func suggest(prefix: String) async -> Outcome {
+        guard enabled else { return .unavailable("Autocomplete needs the Ollama engine") }
         let trimmed = String(prefix.suffix(600))   // enough recent context; keeps it fast
-        guard trimmed.trimmingCharacters(in: .whitespacesAndNewlines).count >= 6 else { return nil }
+        guard trimmed.trimmingCharacters(in: .whitespacesAndNewlines).count >= 6 else { return .none }
 
         let base = AIConfig.ollamaHost.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         let ollamaModel = AIConfig.ollamaModel
-        guard let url = URL(string: "\(base)/api/generate") else { return nil }
+        guard let url = URL(string: "\(base)/api/generate") else { return .unavailable("Bad Ollama server URL") }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -44,15 +52,24 @@ enum NoteAutocomplete {
             // Short, low-temperature, single-line — a suggestion, not an essay.
             "options": ["temperature": 0.2, "num_predict": 24, "stop": ["\n"]],
         ]
-        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return .none }
         req.httpBody = payload
 
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = obj["response"] as? String else { return nil }
-        if Task.isCancelled { return nil }
-        return clean(raw, prefix: trimmed)
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await URLSession.shared.data(for: req) }
+        catch {
+            if Task.isCancelled { return .none }
+            return .unavailable("Ollama not reachable — is it running?")
+        }
+        if Task.isCancelled { return .none }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            if code == 404 { return .unavailable("Model “\(ollamaModel)” not pulled") }
+            return .unavailable("Ollama error \(code)")
+        }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["response"] as? String else { return .none }
+        return clean(raw, prefix: trimmed).map { .suggestion($0) } ?? .none
     }
 
     /// Trim the model's reply and drop degenerate guesses (empty, or echoing the prefix).
