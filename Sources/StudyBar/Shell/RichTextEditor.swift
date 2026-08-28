@@ -516,6 +516,66 @@ final class RichTextController: ObservableObject {
         tv.didChangeText(); snapshot = tv.attributedString()
     }
 
+    // MARK: Table editing (right-click menu)
+
+    enum TableOp { case insertRowAbove, insertRowBelow, insertColLeft, insertColRight, deleteRow, deleteColumn, deleteTable }
+
+    /// Rebuild the table under `loc` after inserting/deleting a row or column. Rebuilding
+    /// from the extracted grid keeps every cell's row/column index correct (NSTextTable
+    /// bookkeeping is unforgiving otherwise).
+    func tableMutate(_ op: TableOp, at loc: Int) {
+        guard let tv = textView, let ts = tv.textStorage, let (table, block) = tableInfo(at: loc) else { return }
+        let cells = tableCells(table)
+        guard let first = cells.first, let last = cells.last else { return }
+        let tableRange = NSRange(location: first.range.location, length: (last.range.location + last.range.length) - first.range.location)
+
+        // Extract the grid: grid[row][col] = the cell's inner content (no trailing newline).
+        let rowsCount = (cells.map { $0.block.startingRow }.max() ?? 0) + 1
+        let colsCount = table.numberOfColumns
+        var grid: [[NSAttributedString]] = Array(repeating: Array(repeating: NSAttributedString(), count: colsCount), count: rowsCount)
+        for cell in cells {
+            var inner = ts.attributedSubstring(from: cell.range)
+            if inner.string.hasSuffix("\n") { inner = inner.attributedSubstring(from: NSRange(location: 0, length: inner.length - 1)) }
+            let r = cell.block.startingRow, c = cell.block.startingColumn
+            if r < rowsCount, c < colsCount { grid[r][c] = inner }
+        }
+        let r = block.startingRow, c = block.startingColumn
+        let empty = NSAttributedString(string: " ", attributes: [.font: Self.baseFont, .foregroundColor: NSColor.labelColor])
+
+        switch op {
+        case .insertRowAbove: grid.insert(Array(repeating: empty, count: colsCount), at: r)
+        case .insertRowBelow: grid.insert(Array(repeating: empty, count: colsCount), at: r + 1)
+        case .insertColLeft:  for i in grid.indices { grid[i].insert(empty, at: c) }
+        case .insertColRight: for i in grid.indices { grid[i].insert(empty, at: c + 1) }
+        case .deleteRow:      if grid.count > 1 { grid.remove(at: r) }
+        case .deleteColumn:   if colsCount > 1 { for i in grid.indices { grid[i].remove(at: c) } }
+        case .deleteTable:    grid = []
+        }
+
+        // Rebuild.
+        let out = NSMutableAttributedString()
+        if grid.isEmpty {
+            out.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont, .paragraphStyle: Self.bodyParagraph]))
+        } else {
+            let newTable = NSTextTable(); newTable.numberOfColumns = grid[0].count; newTable.collapsesBorders = true
+            for (ri, row) in grid.enumerated() {
+                for (ci, inner) in row.enumerated() {
+                    let b = NSTextTableBlock(table: newTable, startingRow: ri, rowSpan: 1, startingColumn: ci, columnSpan: 1)
+                    b.setBorderColor(.separatorColor); b.setWidth(1, type: .absoluteValueType, for: .border); b.setWidth(5, type: .absoluteValueType, for: .padding)
+                    let ps = NSMutableParagraphStyle(); ps.textBlocks = [b]
+                    let cell = NSMutableAttributedString(attributedString: inner.length > 0 ? inner : empty)
+                    cell.addAttribute(.paragraphStyle, value: ps, range: NSRange(location: 0, length: cell.length))
+                    cell.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: ps, .font: Self.baseFont]))
+                    out.append(cell)
+                }
+            }
+        }
+        if tv.shouldChangeText(in: tableRange, replacementString: nil) {
+            ts.replaceCharacters(in: tableRange, with: out)
+            tv.didChangeText(); snapshot = tv.attributedString()
+        }
+    }
+
     /// Tab inside a table: jump to the next cell (selecting it), or add a row from the last
     /// cell. Returns false when the caret isn't in a table.
     func tableTab() -> Bool {
@@ -915,6 +975,14 @@ final class FoldingTextView: NSTextView {
         }
         return super.performDragOperation(sender)
     }
+    /// Paste an image from the clipboard (e.g. ⌘⇧⌃4 screenshot) inline.
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        let hasText = pb.canReadObject(forClasses: [NSAttributedString.self, NSString.self], options: nil)
+        if !hasText, let img = NSImage(pasteboard: pb) { mathController?.insertImage(img); return }
+        super.paste(sender)
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let pb = sender.draggingPasteboard
         if pb.canReadObject(forClasses: [NSImage.self], options: nil)
@@ -923,6 +991,42 @@ final class FoldingTextView: NSTextView {
         }
         return super.draggingEntered(sender)
     }
+
+    // MARK: - Table right-click menu (Word/Excel-style)
+
+    private var tableActionLocation = 0
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        let pt = convert(event.locationInWindow, from: nil)
+        let idx = characterIndexForInsertion(at: pt)
+        if let ts = textStorage, idx < ts.length, mathController?.tableInfo(at: idx) != nil {
+            tableActionLocation = idx
+            let sub = NSMenu()
+            func add(_ title: String, _ sel: Selector) { let it = NSMenuItem(title: title, action: sel, keyEquivalent: ""); it.target = self; sub.addItem(it) }
+            add("Insert Row Above", #selector(tblRowAbove))
+            add("Insert Row Below", #selector(tblRowBelow))
+            sub.addItem(.separator())
+            add("Insert Column Left", #selector(tblColLeft))
+            add("Insert Column Right", #selector(tblColRight))
+            sub.addItem(.separator())
+            add("Delete Row", #selector(tblDelRow))
+            add("Delete Column", #selector(tblDelCol))
+            add("Delete Table", #selector(tblDelTable))
+            let item = NSMenuItem(title: "Table", action: nil, keyEquivalent: "")
+            item.submenu = sub
+            menu.insertItem(item, at: 0)
+            menu.insertItem(.separator(), at: 1)
+        }
+        return menu
+    }
+    @objc private func tblRowAbove() { mathController?.tableMutate(.insertRowAbove, at: tableActionLocation) }
+    @objc private func tblRowBelow() { mathController?.tableMutate(.insertRowBelow, at: tableActionLocation) }
+    @objc private func tblColLeft()  { mathController?.tableMutate(.insertColLeft, at: tableActionLocation) }
+    @objc private func tblColRight() { mathController?.tableMutate(.insertColRight, at: tableActionLocation) }
+    @objc private func tblDelRow()   { mathController?.tableMutate(.deleteRow, at: tableActionLocation) }
+    @objc private func tblDelCol()   { mathController?.tableMutate(.deleteColumn, at: tableActionLocation) }
+    @objc private func tblDelTable() { mathController?.tableMutate(.deleteTable, at: tableActionLocation) }
     override func insertBacktab(_ sender: Any?) { if adjustListIndent(by: -1) { return }; super.insertBacktab(sender) }
     override func insertNewline(_ sender: Any?) {
         // A line that's just --- / *** / ___ becomes a divider.

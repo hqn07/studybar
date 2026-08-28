@@ -426,15 +426,8 @@ struct NoteEditor: View {
                     .help("Text color").onHover { setHint("Text color", $0) }
                 sep
                 fmtBtn("function", "Insert equation") { showEquation = true }
-                Menu {
-                    Button { editor.insertTable() } label: { Label("Insert table", systemImage: "tablecells.badge.ellipsis") }
-                    Button { editor.addTableRow() } label: { Label("Add row", systemImage: "plus.rectangle") }
-                    Button { editor.addTableColumn() } label: { Label("Add column", systemImage: "plus.rectangle.portrait") }
-                } label: { Image(systemName: "tablecells").frame(width: 18) }
-                    .menuStyle(.borderlessButton).fixedSize()
-                    .onHover { setHint("Table — insert, add row/column (or Tab in a cell to add a row)", $0) }
-                fmtBtn("photo", "Insert image") { editor.insertImage() }
-                fmtBtn("camera.viewfinder", "Screenshot into note") { captureScreenshot() }
+                fmtBtn("tablecells", "Insert table — right-click it to add/remove rows & columns, or Tab to add a row") { editor.insertTable() }
+                fmtBtn("photo", "Insert image — or drag / paste a screenshot straight in") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
@@ -716,16 +709,6 @@ struct NoteEditor: View {
         }
     }
     private var sep: some View { Divider().frame(height: 14) }
-
-    /// Capture a region with macOS's picker and drop it inline. (Or just drag a screenshot
-    /// straight into the note — the editor accepts image drops.)
-    private func captureScreenshot() {
-        ScreenshotService.captureInteractive { name in
-            guard let name, let img = screenshotImage(name) else { return }
-            editor.insertImage(img)
-            scheduleAutosave()
-        }
-    }
 
     private func define() {
         let term = editor.wordToDefine
