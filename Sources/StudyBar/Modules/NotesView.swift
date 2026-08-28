@@ -246,6 +246,7 @@ struct NoteEditor: View {
     @State private var toolHint: String?
     @State private var liveWords = 0
     @State private var showEquation = false
+    @State private var focusMode = false
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
@@ -287,7 +288,7 @@ struct NoteEditor: View {
                     .background(.background.secondary)
                 Divider()
             }
-            if !showPreview {
+            if !showPreview && !focusMode {
                 formatBar
                 if toolHint != nil || autocompleteOn {
                     HStack(spacing: 4) {
@@ -307,10 +308,10 @@ struct NoteEditor: View {
             }
             if let defineResult { defineCard(defineResult) }
             editorOrPreview
-            if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
-            else if !backlinks.isEmpty { Divider(); backlinksBar }
-            Divider()
-            footer
+            if editor.slashQuery != nil { Divider(); slashBar }
+            else if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
+            else if !backlinks.isEmpty && !focusMode { Divider(); backlinksBar }
+            if !focusMode { Divider(); footer }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
@@ -397,6 +398,10 @@ struct NoteEditor: View {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
             .onHover { setHint(draft.pinned ? "Unpin note" : "Pin note", $0) }
+            Button { withAnimation(.easeInOut(duration: 0.2)) { focusMode.toggle() } } label: {
+                Image(systemName: focusMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            }.buttonStyle(.borderless).foregroundStyle(focusMode ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .onHover { setHint(focusMode ? "Exit focus mode" : "Focus mode — hide the chrome", $0) }
         }.padding(12)
     }
 
@@ -566,6 +571,38 @@ struct NoteEditor: View {
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
         }.padding(10)
+    }
+
+    // MARK: Slash commands — "/" inserts a block
+
+    private var slashCommands: [(name: String, icon: String, run: () -> Void)] {
+        [("Heading 1", "textformat.size.larger", { editor.setHeading(.h1) }),
+         ("Heading 2", "textformat.size", { editor.setHeading(.h2) }),
+         ("Heading 3", "textformat.size.smaller", { editor.setHeading(.h3) }),
+         ("Bullet list", "list.bullet", { editor.toggleBullet() }),
+         ("Numbered list", "list.number", { editor.toggleNumbered() }),
+         ("Checklist", "checklist", { editor.toggleChecklist() }),
+         ("Quote", "text.quote", { editor.toggleQuote() }),
+         ("Code block", "chevron.left.forwardslash.chevron.right", { editor.toggleCodeBlock() }),
+         ("Divider", "minus", { editor.insertDivider() }),
+         ("Table", "tablecells", { editor.insertTable() }),
+         ("Equation", "function", { showEquation = true }),
+         ("Image", "photo", { editor.insertImage() })]
+    }
+    private var slashBar: some View {
+        let q = (editor.slashQuery ?? "").lowercased()
+        let matches = slashCommands.filter { q.isEmpty || $0.name.lowercased().contains(q) }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s) {
+                Image(systemName: "slash.circle").font(.caption2).foregroundStyle(.secondary)
+                if matches.isEmpty { Text("No block matches").font(.caption2).foregroundStyle(.secondary) }
+                ForEach(matches.indices, id: \.self) { i in
+                    Button { editor.removeSlash(); matches[i].run() } label: {
+                        Label(matches[i].name, systemImage: matches[i].icon).font(.caption2.weight(.medium))
+                    }.buttonStyle(.borderless)
+                }
+            }.padding(.horizontal, 12).padding(.vertical, 6)
+        }.background(.background.secondary)
     }
 
     // MARK: Wikilinks — autocomplete strip + backlinks

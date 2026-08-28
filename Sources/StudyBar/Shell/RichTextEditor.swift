@@ -44,6 +44,39 @@ final class RichTextController: ObservableObject {
     /// Called when a `[[link]]` is clicked (title passed up so the view can navigate).
     var onOpenLink: (String) -> Void = { _ in }
 
+    // MARK: Slash commands — `/` opens a block-insert menu
+    @Published var slashQuery: String?
+    private var slashReplaceRange: NSRange?
+
+    /// Refresh `slashQuery` from the token under the caret: the text after a `/` that
+    /// starts a word (line start or after whitespace), else nil.
+    func detectSlashContext() {
+        guard let tv = textView, tv.selectedRange().length == 0 else { slashQuery = nil; return }
+        let ns = tv.string as NSString
+        let caret = min(tv.selectedRange().location, ns.length)
+        var start = caret
+        while start > 0 {
+            let ch = ns.substring(with: NSRange(location: start - 1, length: 1))
+            if ch == " " || ch == "\n" || ch == "\t" { break }
+            start -= 1
+        }
+        guard start < caret else { slashQuery = nil; return }
+        let token = ns.substring(with: NSRange(location: start, length: caret - start))
+        guard token.hasPrefix("/") else { slashQuery = nil; return }
+        slashReplaceRange = NSRange(location: start, length: caret - start)
+        slashQuery = String(token.dropFirst())
+    }
+    /// Delete the `/query` so a picked command applies to a clean line.
+    func removeSlash() {
+        guard let tv = textView, let r = slashReplaceRange else { slashQuery = nil; return }
+        if tv.shouldChangeText(in: r, replacementString: "") {
+            tv.textStorage?.replaceCharacters(in: r, with: "")
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: r.location, length: 0))
+        }
+        slashQuery = nil; slashReplaceRange = nil
+    }
+
     // MARK: Autocomplete status (drives the visible indicator; see NoteAutocomplete)
     enum GhostPhase: Equatable { case idle, thinking, ready, error(String) }
     @Published var ghostPhase: GhostPhase = .idle
@@ -582,12 +615,14 @@ struct RichTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             if let tv = notification.object as? NSTextView { controller.snapshot = tv.attributedString() }
             controller.detectLinkContext()
+            controller.detectSlashContext()
             controller.onEdit()
         }
 
         /// When the caret leaves a math expression it was editing, re-render it in place.
         func textViewDidChangeSelection(_ notification: Notification) {
             controller.detectLinkContext()
+            controller.detectSlashContext()
             (notification.object as? FoldingTextView)?.dismissGhost()
             guard controller.mathEditing, let tv = notification.object as? NSTextView,
                   let ts = tv.textStorage else { return }
