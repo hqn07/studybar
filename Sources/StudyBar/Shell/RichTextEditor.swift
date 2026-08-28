@@ -455,6 +455,29 @@ final class RichTextController: ObservableObject {
 
     // MARK: Helpers
 
+    // MARK: Outline
+
+    /// Heading lines in the note (title + character location), for the outline jump-list.
+    func headings() -> [(title: String, location: Int)] {
+        guard let ts = textView?.textStorage else { return [] }
+        let ns = ts.string as NSString
+        var out: [(String, Int)] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byParagraphs) { _, r, _, _ in
+            guard r.length > 0, r.location < ts.length,
+                  let f = ts.attribute(.font, at: r.location, effectiveRange: nil) as? NSFont,
+                  f.pointSize >= NotesTypography.size + 2 else { return }
+            let title = ns.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty { out.append((title, r.location)) }
+        }
+        return out
+    }
+    func scrollTo(_ location: Int) {
+        guard let tv = textView else { return }
+        let r = NSRange(location: min(location, (tv.string as NSString).length), length: 0)
+        tv.setSelectedRange(r); tv.scrollRangeToVisible(r); tv.window?.makeFirstResponder(tv)
+    }
+    func printNote() { if let tv = textView { NSPrintOperation(view: tv).run() } }
+
     /// The range of the paragraph(s) intersecting the selection.
     private func paragraphRange() -> NSRange {
         guard let tv = textView else { return NSRange(location: 0, length: 0) }

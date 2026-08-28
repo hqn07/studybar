@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum NoteSort: String, CaseIterable, Identifiable {
     case updated = "Last edited", created = "Date created", title = "Title"
@@ -372,6 +373,13 @@ struct NoteEditor: View {
                     .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
             }
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
+            Menu {
+                let hs = editor.headings()
+                if hs.isEmpty { Text("No headings yet") }
+                else { ForEach(hs.indices, id: \.self) { i in Button(hs[i].title) { editor.scrollTo(hs[i].location) } } }
+            } label: { Image(systemName: "list.bullet.rectangle") }
+                .menuStyle(.borderlessButton).fixedSize().foregroundStyle(.secondary)
+                .onHover { setHint("Outline — jump to a heading", $0) }
             Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
                 Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
             }
@@ -546,6 +554,14 @@ struct NoteEditor: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 .disabled(!AIConfig.isReady)
                 .help(AIConfig.isReady ? "Organize with the assistant" : "Enable the assistant in Settings ▸ Intelligence")
+                Menu {
+                    Button { duplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+                    Button { editor.printNote() } label: { Label("Print…", systemImage: "printer") }
+                    Divider()
+                    Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
+                    Button { exportNote(markdown: false) } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
+                } label: { Image(systemName: "square.and.arrow.up") }
+                .menuStyle(.borderlessButton).fixedSize()
                 Button("Delete", role: .destructive) { delete() }
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
@@ -735,5 +751,44 @@ struct NoteEditor: View {
         saveTask?.cancel()
         state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == draft.id } }
         embedded ? onClose() : dismiss()
+    }
+
+    // MARK: Duplicate / export / print
+
+    private func duplicate() {
+        persist()
+        var copy = draft
+        copy.id = UUID()
+        copy.title = (draft.title.isEmpty ? "Untitled" : draft.title) + " copy"
+        copy.createdAt = .now; copy.updatedAt = .now
+        state.data.notes.append(copy)
+        onNavigate(copy.id)
+    }
+
+    private func exportNote(markdown: Bool) {
+        persist()
+        let panel = NSSavePanel()
+        let name = draft.title.isEmpty ? "Note" : draft.title
+        panel.nameFieldStringValue = name + (markdown ? ".md" : ".rtf")
+        panel.allowedContentTypes = markdown ? [.plainText] : [.rtf]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if markdown {
+            try? markdownExport(draft.body).data(using: .utf8)?.write(to: url)
+        } else {
+            let attr = editor.attributedString.expandingMath().expandingFolds()
+            let data = try? attr.data(from: NSRange(location: 0, length: attr.length),
+                                      documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+            try? data?.write(to: url)
+        }
+    }
+
+    /// Turn the editor's plaintext mirror into portable Markdown (its list markers → md).
+    private func markdownExport(_ body: String) -> String {
+        var s = body
+        s = s.replacingOccurrences(of: #"(?m)^• "#, with: "- ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^☐ "#, with: "- [ ] ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"(?m)^☑ "#, with: "- [x] ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"─{3,}"#, with: "---", options: .regularExpression)
+        return s
     }
 }
