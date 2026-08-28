@@ -66,7 +66,7 @@ extension Note {
         s = s.replacingOccurrences(of: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#, with: "", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\[\[([^\]]+)\]\]"#, with: "$1", options: .regularExpression)   // wikilinks
         s = s.replacingOccurrences(of: #"\$\$?([^$]+?)\$\$?"#, with: "$1", options: .regularExpression)  // math → source
-        s = s.replacingOccurrences(of: "──────────", with: "")                                          // dividers
+        s = s.replacingOccurrences(of: #"─{3,}"#, with: "", options: .regularExpression)                 // dividers
         s = s.replacingOccurrences(of: #"(?m)^\s*[☐☑]\s*"#, with: "○ ", options: .regularExpression)    // checkboxes
         s = s.replacingOccurrences(of: #"(?m)^\s*\d+\.\s+"#, with: "", options: .regularExpression)      // numbered
         return s.trimmingCharacters(in: .whitespacesAndNewlines)

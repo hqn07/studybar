@@ -275,7 +275,7 @@ final class RichTextController: ObservableObject {
         guard let tv = textView, let ts = tv.textStorage else { return }
         let loc = tv.selectedRange().location
         let atLineStart = loc == 0 || (ts.string as NSString).substring(with: NSRange(location: loc - 1, length: 1)) == "\n"
-        let rule = NSMutableAttributedString(string: (atLineStart ? "" : "\n") + "──────────\n",
+        let rule = NSMutableAttributedString(string: (atLineStart ? "" : "\n") + "──────────────────────────────\n",
             attributes: [.font: Self.baseFont, .foregroundColor: NSColor.tertiaryLabelColor])
         if tv.shouldChangeText(in: NSRange(location: loc, length: 0), replacementString: rule.string) {
             ts.insert(rule, at: loc)
@@ -683,7 +683,155 @@ final class FoldingTextView: NSTextView {
         super.insertTab(sender)
     }
     override func insertBacktab(_ sender: Any?) { if adjustListIndent(by: -1) { return }; super.insertBacktab(sender) }
-    override func insertNewline(_ sender: Any?) { if continueList() { return }; super.insertNewline(sender) }
+    override func insertNewline(_ sender: Any?) {
+        // A line that's just --- / *** / ___ becomes a divider.
+        if let ts = textStorage {
+            let ns = ts.string as NSString
+            let para = ns.paragraphRange(for: selectedRange())
+            let t = ns.substring(with: para).trimmingCharacters(in: .whitespacesAndNewlines)
+            if t == "---" || t == "***" || t == "___" {
+                let r = NSRange(location: para.location, length: (ns.substring(with: para).hasSuffix("\n") ? para.length - 1 : para.length))
+                if shouldChangeText(in: r, replacementString: dividerText) {
+                    ts.replaceCharacters(in: r, with: NSAttributedString(string: dividerText, attributes: [.font: RichTextController.baseFont, .foregroundColor: NSColor.tertiaryLabelColor]))
+                    didChangeText()
+                }
+                return
+            }
+        }
+        if continueList() { return }
+        super.insertNewline(sender)
+        resetBlockTypingAttributes()   // heading/quote ends at the new line
+    }
+
+    // MARK: - Markdown input rules (type markdown → format in place)
+
+    private static let mdBold   = try! NSRegularExpression(pattern: #"\*\*([^*\n]+)\*\*$"#)
+    private static let mdItalic = try! NSRegularExpression(pattern: #"(?<![*\w])\*([^*\n]+)\*$"#)
+    private static let mdCode   = try! NSRegularExpression(pattern: "`([^`\\n]+)`$")
+    private static let mdStrike = try! NSRegularExpression(pattern: #"~~([^~\n]+)~~$"#)
+    private let dividerText = "──────────────────────────────"
+
+    /// Called from `insertText` after the character lands. Turns markdown the user typed
+    /// into real formatting. Returns true if it transformed something.
+    private func applyMarkdownRules(_ typed: String) -> Bool {
+        guard let ts = textStorage else { return false }
+        let ns = ts.string as NSString
+        let caret = selectedRange().location
+        guard caret <= ns.length, caret > 0 else { return false }
+        let para = ns.paragraphRange(for: NSRange(location: caret - 1, length: 0))
+        let line = ns.substring(with: NSRange(location: para.location, length: caret - para.location))
+
+        if typed == " " { return blockRule(line: line, paraStart: para.location, caret: caret) }
+        if typed == "*" || typed == "`" || typed == "~" {
+            if MathSupport.caretInsideMath(ns as String, caret) { return false }
+            return inlineRule(typed, line: line, paraStart: para.location)
+        }
+        return false
+    }
+
+    /// Line-start rules fired by a space: headings, bullet, checkbox, quote.
+    private func blockRule(line: String, paraStart: Int, caret: Int) -> Bool {
+        guard let ts = textStorage else { return false }
+        func replacePrefix(_ len: Int, with s: String, then: () -> Void = {}) {
+            let r = NSRange(location: paraStart, length: len)
+            guard shouldChangeText(in: r, replacementString: s) else { return }
+            ts.replaceCharacters(in: r, with: NSAttributedString(string: s, attributes: typingAttributes))
+            then(); didChangeText()
+        }
+        // "# " / "## " / "### " → heading
+        if line.hasSuffix(" ") {
+            let hashes = line.prefix { $0 == "#" }.count
+            if hashes >= 1 && hashes <= 3 && line.count == hashes + 1 {
+                replacePrefix(hashes + 1, with: "") {
+                    var ta = self.typingAttributes; ta[.font] = self.headingFont(hashes); self.typingAttributes = ta
+                }
+                return true
+            }
+        }
+        if line == "- " || line == "* " { replacePrefix(2, with: "• "); return true }
+        if line == "[] " || line == "[ ] " { replacePrefix(line.count, with: "☐ "); return true }
+        if line == "> " {
+            replacePrefix(2, with: "") {
+                let ps = NSMutableParagraphStyle(); ps.headIndent = 18; ps.firstLineHeadIndent = 18
+                let pr = (self.string as NSString).paragraphRange(for: NSRange(location: paraStart, length: 0))
+                self.textStorage?.addAttribute(.paragraphStyle, value: ps, range: pr)
+                var ta = self.typingAttributes; ta[.paragraphStyle] = ps; self.typingAttributes = ta
+            }
+            return true
+        }
+        return false
+    }
+
+    private func headingFont(_ level: Int) -> NSFont {
+        switch level { case 1: return .systemFont(ofSize: 25, weight: .bold)
+                       case 2: return .systemFont(ofSize: 20, weight: .bold)
+                       default: return .systemFont(ofSize: 17, weight: .semibold) }
+    }
+
+    /// Inline rules fired by a closing delimiter: **bold**, *italic*, `code`, ~~strike~~.
+    private func inlineRule(_ typed: String, line: String, paraStart: Int) -> Bool {
+        func lastMatch(_ re: NSRegularExpression) -> NSTextCheckingResult? {
+            re.matches(in: line, range: NSRange(location: 0, length: (line as NSString).length)).last
+        }
+        if typed == "*", let m = lastMatch(Self.mdBold) { return wrapInline(m, line: line, paraStart: paraStart) { self.boldItalic($0, trait: .boldFontMask) } }
+        if typed == "*", let m = lastMatch(Self.mdItalic) { return wrapInline(m, line: line, paraStart: paraStart) { self.boldItalic($0, trait: .italicFontMask) } }
+        if typed == "`", let m = lastMatch(Self.mdCode) { return wrapInline(m, line: line, paraStart: paraStart) { self.codeAttrs($0) } }
+        if typed == "~", let m = lastMatch(Self.mdStrike) { return wrapInline(m, line: line, paraStart: paraStart) { self.strikeAttrs($0) } }
+        return false
+    }
+
+    /// Replace a matched `…marker text marker…` with the inner text carrying `styled`
+    /// attributes, then reset typing attributes so following text is plain.
+    private func wrapInline(_ m: NSTextCheckingResult, line: String, paraStart: Int,
+                            styled: ([NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]) -> Bool {
+        guard let ts = textStorage else { return false }
+        let full = NSRange(location: paraStart + m.range.location, length: m.range.length)
+        let inner = (line as NSString).substring(with: m.range(at: 1))
+        guard shouldChangeText(in: full, replacementString: inner) else { return false }
+        ts.replaceCharacters(in: full, with: NSAttributedString(string: inner, attributes: styled(typingAttributes)))
+        setSelectedRange(NSRange(location: full.location + (inner as NSString).length, length: 0))
+        typingAttributes = plainTypingAttributes()
+        didChangeText()
+        return true
+    }
+    private func boldItalic(_ a: [NSAttributedString.Key: Any], trait: NSFontTraitMask) -> [NSAttributedString.Key: Any] {
+        var out = a
+        let base = (a[.font] as? NSFont) ?? RichTextController.baseFont
+        out[.font] = NSFontManager.shared.convert(base, toHaveTrait: trait)
+        return out
+    }
+    private func codeAttrs(_ a: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var out = a
+        out[.font] = NSFont.monospacedSystemFont(ofSize: RichTextController.baseFont.pointSize, weight: .regular)
+        out[.backgroundColor] = NSColor.quaternaryLabelColor.withAlphaComponent(0.4)
+        return out
+    }
+    private func strikeAttrs(_ a: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var out = a; out[.strikethroughStyle] = NSUnderlineStyle.single.rawValue; return out
+    }
+    /// Typing attributes with inline styling cleared (so text after a wrap is plain).
+    private func plainTypingAttributes() -> [NSAttributedString.Key: Any] {
+        var ta = typingAttributes
+        let base = (ta[.font] as? NSFont) ?? RichTextController.baseFont
+        ta[.font] = NSFontManager.shared.convert(base, toNotHaveTrait: .boldFontMask)
+        if let f2 = ta[.font] as? NSFont { ta[.font] = NSFontManager.shared.convert(f2, toNotHaveTrait: .italicFontMask) }
+        ta[.font] = RichTextController.baseFont
+        ta.removeValue(forKey: .backgroundColor)
+        ta.removeValue(forKey: .strikethroughStyle)
+        return ta
+    }
+
+    /// After Enter, drop out of a heading/quote so the new line is plain body.
+    private func resetBlockTypingAttributes() {
+        var ta = typingAttributes; var changed = false
+        if let f = ta[.font] as? NSFont, f.pointSize > RichTextController.baseFont.pointSize + 0.5 {
+            ta[.font] = RichTextController.baseFont; changed = true
+        }
+        if let ps = ta[.paragraphStyle] as? NSParagraphStyle, ps.headIndent > 0 {
+            ta[.paragraphStyle] = RichTextController.bodyParagraph; changed = true
+        }
+        if changed { typingAttributes = ta }
+    }
 
     // MARK: - Ghost-text autocomplete (Ollama, opt-in)
     //
@@ -717,6 +865,7 @@ final class FoldingTextView: NSTextView {
         }
         clearGhost()
         super.insertText(string, replacementRange: replacementRange)
+        if applyMarkdownRules(typed) { return }   // typed markdown → formatted in place
         scheduleGhost()
     }
 
