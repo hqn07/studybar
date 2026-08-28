@@ -16,6 +16,9 @@ struct SettingsView: View {
     @AppStorage("focusEndShortcut") private var focusEndShortcut = ""
     @AppStorage("spotlightIndex") private var spotlightIndex = true
     @AppStorage("notesAutocomplete") private var notesAutocomplete = false
+    @AppStorage("notesFont") private var notesFont = "system"
+    @AppStorage("notesFontSize") private var notesFontSize = 15.0
+    @AppStorage("notesLineSpacing") private var notesLineSpacing = 3.5
     @AppStorage("showDock") private var showDock = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var iCloud = false
@@ -223,6 +226,32 @@ struct SettingsView: View {
             Text("Status colors — due, overdue, done — keep their fixed red / amber / teal on every theme.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        Section("Notes") {
+            Picker("Font", selection: $notesFont) {
+                Text("System").tag("system"); Text("Serif").tag("serif"); Text("Mono").tag("mono")
+            }.pickerStyle(.segmented)
+            Picker("Text size", selection: $notesFontSize) {
+                Text("Small").tag(13.0); Text("Medium").tag(15.0); Text("Large").tag(17.0)
+            }.pickerStyle(.segmented)
+            Picker("Line spacing", selection: $notesLineSpacing) {
+                Text("Tight").tag(2.0); Text("Normal").tag(3.5); Text("Relaxed").tag(6.0)
+            }.pickerStyle(.segmented)
+            notesTypePreview
+            Text("Applies to the Notes editor. Reopen a note to see the change.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var notesTypePreview: some View {
+        let family: Font.Design = notesFont == "serif" ? .serif : (notesFont == "mono" ? .monospaced : .default)
+        return VStack(alignment: .leading, spacing: CGFloat(notesLineSpacing)) {
+            Text("Photosynthesis").font(.system(size: CGFloat(notesFontSize) + 5, weight: .bold, design: family))
+            Text("Plants convert light into chemical energy — the body wants room to breathe.")
+                .font(.system(size: CGFloat(notesFontSize), design: family))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func accentSwatch(_ hex: String) -> some View {

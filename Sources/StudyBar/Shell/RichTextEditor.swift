@@ -48,12 +48,10 @@ final class RichTextController: ObservableObject {
     enum GhostPhase: Equatable { case idle, thinking, ready, error(String) }
     @Published var ghostPhase: GhostPhase = .idle
 
-    static let baseFont = NSFont.systemFont(ofSize: 15)   // long-form reading size (was 13)
-    /// Default paragraph style — gives body text room to breathe (was AppKit's tight default).
-    static let bodyParagraph: NSParagraphStyle = {
-        let p = NSMutableParagraphStyle(); p.lineSpacing = 3.5; p.paragraphSpacing = 4
-        return p
-    }()
+    // Driven by NotesTypography (Settings ▸ Appearance ▸ Notes) so the whole editor
+    // follows the reader's size / face / density.
+    static var baseFont: NSFont { NotesTypography.font(.body) }
+    static var bodyParagraph: NSParagraphStyle { NotesTypography.paragraph }
 
     /// Undo/redo the text view's own edits (typing + formatting). Backs the
     /// toolbar buttons and the ⌘Z / ⌘⇧Z shortcuts.
@@ -165,10 +163,10 @@ final class RichTextController: ObservableObject {
     enum Heading { case body, h1, h2, h3
         var font: NSFont {
             switch self {
-            case .body: return .systemFont(ofSize: 15)
-            case .h1:   return .systemFont(ofSize: 25, weight: .bold)
-            case .h2:   return .systemFont(ofSize: 20, weight: .bold)
-            case .h3:   return .systemFont(ofSize: 17, weight: .semibold)
+            case .body: return NotesTypography.font(.body)
+            case .h1:   return NotesTypography.font(.h1)
+            case .h2:   return NotesTypography.font(.h2)
+            case .h3:   return NotesTypography.font(.h3)
             }
         }
     }
@@ -507,7 +505,7 @@ struct RichTextEditor: NSViewRepresentable {
         tv.drawsBackground = false
         tv.delegate = context.coordinator
         tv.mathController = controller
-        let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv)).installingWikilinks()
+        let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv)).installingWikilinks().applyingNotesTypography()
         if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor,
@@ -812,9 +810,7 @@ final class FoldingTextView: NSTextView {
     }
 
     private func headingFont(_ level: Int) -> NSFont {
-        switch level { case 1: return .systemFont(ofSize: 25, weight: .bold)
-                       case 2: return .systemFont(ofSize: 20, weight: .bold)
-                       default: return .systemFont(ofSize: 17, weight: .semibold) }
+        NotesTypography.font(level == 1 ? .h1 : level == 2 ? .h2 : .h3)
     }
 
     /// Inline rules fired by a closing delimiter: **bold**, *italic*, `code`, ~~strike~~.
@@ -1057,6 +1053,31 @@ extension NSAttributedString.Key {
 
 extension NSAttributedString {
     static let wikilinkRegex = try! NSRegularExpression(pattern: #"\[\[([^\]\n]+?)\]\]"#)
+
+    /// Bring a loaded note onto the reader's current typography: re-font plain *body* runs
+    /// (leaving headings, bold, mono/code and colors alone) and give every ordinary
+    /// paragraph the chosen line spacing. So changing the setting reflows old notes too,
+    /// without disturbing their structure.
+    func applyingNotesTypography() -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: self)
+        let base = NotesTypography.font(.body)
+        let full = NSRange(location: 0, length: m.length)
+        let fm = NSFontManager.shared
+        m.enumerateAttribute(.font, in: full) { val, r, _ in
+            guard let f = val as? NSFont else { return }
+            let traits = fm.traits(of: f)
+            // Body-ish = not bold, not fixed-pitch (code), not heading-sized.
+            guard !traits.contains(.boldFontMask), !f.isFixedPitch, f.pointSize <= 16 else { return }
+            let target = traits.contains(.italicFontMask) ? fm.convert(base, toHaveTrait: .italicFontMask) : base
+            m.addAttribute(.font, value: target, range: r)
+        }
+        let ps = NotesTypography.paragraph
+        (m.string as NSString).enumerateSubstrings(in: full, options: .byParagraphs) { _, r, _, _ in
+            let existing = r.location < m.length ? m.attribute(.paragraphStyle, at: r.location, effectiveRange: nil) as? NSParagraphStyle : nil
+            if (existing?.headIndent ?? 0) == 0 { m.addAttribute(.paragraphStyle, value: ps, range: r) }   // skip quotes/indents
+        }
+        return m
+    }
 
     /// Tint + underline every `[[…]]` span so links read as links. The text stays literal
     /// `[[Title]]` (so it round-trips through RTFD/search untouched); clicks are resolved
