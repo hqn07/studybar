@@ -1153,12 +1153,15 @@ final class FoldingTextView: NSTextView {
         var out = a; out[.strikethroughStyle] = NSUnderlineStyle.single.rawValue; return out
     }
     /// Typing attributes with inline styling cleared (so text after a wrap is plain).
+    /// Typing attributes after an inline wrap: strip the inline styling but KEEP the line's
+    /// own font (so `**bold**` inside a heading doesn't drop the rest to body).
     private func plainTypingAttributes() -> [NSAttributedString.Key: Any] {
         var ta = typingAttributes
-        let base = (ta[.font] as? NSFont) ?? RichTextController.baseFont
-        ta[.font] = NSFontManager.shared.convert(base, toNotHaveTrait: .boldFontMask)
-        if let f2 = ta[.font] as? NSFont { ta[.font] = NSFontManager.shared.convert(f2, toNotHaveTrait: .italicFontMask) }
-        ta[.font] = RichTextController.baseFont
+        let fm = NSFontManager.shared
+        let cur = (ta[.font] as? NSFont) ?? RichTextController.baseFont
+        var f = fm.convert(cur, toNotHaveTrait: .boldFontMask)
+        f = fm.convert(f, toNotHaveTrait: .italicFontMask)
+        ta[.font] = f.isFixedPitch ? RichTextController.baseFont : f   // after `code`, back to body
         ta.removeValue(forKey: .backgroundColor)
         ta.removeValue(forKey: .strikethroughStyle)
         return ta
@@ -1361,18 +1364,26 @@ extension NSAttributedString {
         let base = NotesTypography.font(.body)
         let full = NSRange(location: 0, length: m.length)
         let fm = NSFontManager.shared
+        // Re-font only plain *body* runs: regular weight (not bold/semibold headings), not
+        // fixed-pitch (code), body-sized. Collect first, then apply — never mutate during
+        // enumeration.
+        var refont: [(NSRange, NSFont)] = []
         m.enumerateAttribute(.font, in: full) { val, r, _ in
             guard let f = val as? NSFont else { return }
             let traits = fm.traits(of: f)
-            // Body-ish = not bold, not fixed-pitch (code), not heading-sized.
-            guard !traits.contains(.boldFontMask), !f.isFixedPitch, f.pointSize <= 16 else { return }
-            let target = traits.contains(.italicFontMask) ? fm.convert(base, toHaveTrait: .italicFontMask) : base
-            m.addAttribute(.font, value: target, range: r)
+            guard !traits.contains(.boldFontMask), fm.weight(of: f) <= 5, !f.isFixedPitch, f.pointSize <= 16 else { return }
+            refont.append((r, traits.contains(.italicFontMask) ? fm.convert(base, toHaveTrait: .italicFontMask) : base))
         }
+        for (r, font) in refont { m.addAttribute(.font, value: font, range: r) }
+        // Line spacing on ordinary paragraphs only — NEVER touch quotes (indent) or table
+        // cells (textBlocks), or their structure is destroyed.
         let ps = NotesTypography.paragraph
         (m.string as NSString).enumerateSubstrings(in: full, options: .byParagraphs) { _, r, _, _ in
-            let existing = r.location < m.length ? m.attribute(.paragraphStyle, at: r.location, effectiveRange: nil) as? NSParagraphStyle : nil
-            if (existing?.headIndent ?? 0) == 0 { m.addAttribute(.paragraphStyle, value: ps, range: r) }   // skip quotes/indents
+            guard r.location < m.length else { return }
+            let existing = m.attribute(.paragraphStyle, at: r.location, effectiveRange: nil) as? NSParagraphStyle
+            if (existing?.headIndent ?? 0) == 0 && (existing?.textBlocks.isEmpty ?? true) {
+                m.addAttribute(.paragraphStyle, value: ps, range: r)
+            }
         }
         return m
     }

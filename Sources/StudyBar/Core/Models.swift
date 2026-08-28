@@ -63,14 +63,20 @@ extension Note {
     /// divider markers removed, `[[link]]`→link, `$math$`→its source, list markers tidied.
     var previewText: String {
         var s = body
-        s = s.replacingOccurrences(of: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#, with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"\[\[([^\]]+)\]\]"#, with: "$1", options: .regularExpression)   // wikilinks
-        s = s.replacingOccurrences(of: #"\$\$?([^$]+?)\$\$?"#, with: "$1", options: .regularExpression)  // math → source
-        s = s.replacingOccurrences(of: #"─{3,}"#, with: "", options: .regularExpression)                 // dividers
-        s = s.replacingOccurrences(of: #"(?m)^\s*[☐☑]\s*"#, with: "○ ", options: .regularExpression)    // checkboxes
-        s = s.replacingOccurrences(of: #"(?m)^\s*\d+\.\s+"#, with: "", options: .regularExpression)      // numbered
+        for (re, tmpl) in Note.previewSubstitutions {
+            s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: tmpl)
+        }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+    /// Precompiled once (was 6 regex compiles per call, per visible list row, per render).
+    private static let previewSubstitutions: [(NSRegularExpression, String)] = [
+        (try! NSRegularExpression(pattern: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#), ""),
+        (try! NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#), "$1"),        // wikilinks
+        (try! NSRegularExpression(pattern: #"\$\$?([^$]+?)\$\$?"#), "$1"),      // math → source
+        (try! NSRegularExpression(pattern: #"─{3,}"#), ""),                    // dividers
+        (try! NSRegularExpression(pattern: #"(?m)^\s*[☐☑]\s*"#), "○ "),        // checkboxes
+        (try! NSRegularExpression(pattern: #"(?m)^\s*\d+\.\s+"#), ""),          // numbered
+    ]
     /// The row title: the note's title, or its first non-empty preview line.
     var listTitle: String {
         if !title.isEmpty { return title }
