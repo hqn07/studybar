@@ -270,6 +270,34 @@ final class RichTextController: ObservableObject {
         tv.didChangeText()
     }
 
+    static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.4)
+    private static var codeFont: NSFont { .monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular) }
+
+    /// Toggle a monospaced code block over the selected paragraphs (or the current line):
+    /// fixed-pitch font + a subtle background.
+    func toggleCodeBlock() {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let para = (tv.string as NSString).paragraphRange(for: tv.selectedRange())
+        if para.length == 0 {
+            var ta = tv.typingAttributes
+            let isMono = (ta[.font] as? NSFont)?.isFixedPitch ?? false
+            ta[.font] = isMono ? Self.baseFont : Self.codeFont
+            if isMono { ta.removeValue(forKey: .backgroundColor) } else { ta[.backgroundColor] = Self.codeBackground }
+            tv.typingAttributes = ta
+            return
+        }
+        let isMono = (ts.attribute(.font, at: para.location, effectiveRange: nil) as? NSFont)?.isFixedPitch ?? false
+        ts.beginEditing()
+        ts.enumerateAttribute(.font, in: para) { val, r, _ in
+            let size = ((val as? NSFont) ?? Self.baseFont).pointSize
+            ts.addAttribute(.font, value: isMono ? Self.baseFont : NSFont.monospacedSystemFont(ofSize: size, weight: .regular), range: r)
+        }
+        if isMono { ts.removeAttribute(.backgroundColor, range: para) }
+        else { ts.addAttribute(.backgroundColor, value: Self.codeBackground, range: para) }
+        ts.endEditing()
+        tv.didChangeText()
+    }
+
     /// Insert a horizontal divider on its own line.
     func insertDivider() {
         guard let tv = textView, let ts = tv.textStorage else { return }

@@ -407,6 +407,7 @@ struct NoteEditor: View {
                 fmtBtn("list.number", "Numbered list — Tab to indent, Return to continue") { editor.toggleNumbered() }
                 fmtBtn("checklist", "Checklist — tap a box to check it off") { editor.toggleChecklist() }
                 fmtBtn("text.quote", "Block quote") { editor.toggleQuote() }
+                fmtBtn("chevron.left.forwardslash.chevron.right", "Code block") { editor.toggleCodeBlock() }
                 fmtBtn("minus", "Divider") { editor.insertDivider() }
                 fmtBtn("rectangle.compress.vertical", "Collapse selection into a section") {
                     if editor.hasSelection { foldTitle = ""; foldPrompt = true }
