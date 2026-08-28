@@ -9,9 +9,10 @@ private let weekdayLetters = ["", "S", "M", "T", "W", "T", "F", "S"]
 struct ScheduleView: View {
     @EnvironmentObject var state: AppState
     @State private var editing: ClassSession?
+    @AppStorage("useClassPeriods") private var useClassPeriods = false
 
     private let hourHeight: CGFloat = 52
-    private let gutter: CGFloat = 44
+    private var gutter: CGFloat { useClassPeriods ? 54 : 44 }
     private var pxPerMin: CGFloat { hourHeight / 60 }
 
     private var cal: Calendar { Calendar.current }
@@ -48,8 +49,19 @@ struct ScheduleView: View {
     var body: some View {
         NavigationStack {
             ModulePane(title: "Schedule") {
-                Button { addClass(day: today, at: nil) } label: { Image(systemName: "plus") }
-                    .help("Add a class")
+                HStack(spacing: 8) {
+                    Menu {
+                        Toggle("Class periods (UF)", isOn: $useClassPeriods)
+                        if mergeableCount > 0 {
+                            Divider()
+                            Button {
+                                mergeDuplicates()
+                            } label: { Label("Merge \(mergeableCount) duplicate \(mergeableCount == 1 ? "class" : "classes")", systemImage: "arrow.triangle.merge") }
+                        }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                    Button { addClass(day: today, at: nil) } label: { Image(systemName: "plus") }
+                        .help("Add a class")
+                }
             } content: {
                 if state.data.classes.isEmpty {
                     EmptyState(symbol: "calendar.badge.clock", title: "No classes yet",
@@ -119,7 +131,7 @@ struct ScheduleView: View {
 
     private func headerRow(days: [Int], dayWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: gutter)
+            Color.clear.frame(width: gutter, height: 34)
             ForEach(days, id: \.self) { wd in
                 let isToday = wd == today
                 Text(weekdayLetters[wd])
@@ -130,9 +142,11 @@ struct ScheduleView: View {
                     .frame(width: dayWidth, height: 34)
             }
         }
+        .frame(height: 34)                 // don't let the flexible spacer stretch the header
     }
 
-    private func hourLines(lo: Int, hi: Int, width: CGFloat) -> some View {
+    @ViewBuilder private func hourLines(lo: Int, hi: Int, width: CGFloat) -> some View {
+        // Hour lines + labels (the time ruler).
         ForEach(Array(stride(from: lo, through: hi, by: 60)), id: \.self) { m in
             HStack(alignment: .top, spacing: 0) {
                 Text(hourLabel(m)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -140,6 +154,16 @@ struct ScheduleView: View {
                 Rectangle().fill(.separator.opacity(0.4)).frame(height: 0.5).padding(.leading, 6)
             }
             .offset(y: y(m, lo: lo))
+        }
+        // Period numbers in the gutter (opt-in), centered on each period band.
+        if useClassPeriods {
+            ForEach(ClassPeriods.uf.filter { $0.start >= lo && $0.end <= hi }) { p in
+                Text(p.label)
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+                    .frame(width: 16, height: 14)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                    .offset(x: 2, y: y((p.start + p.end) / 2, lo: lo) - 7)
+            }
         }
     }
 
@@ -172,7 +196,7 @@ struct ScheduleView: View {
                     Text(state.course(c.courseID)?.code.nonEmpty ?? (c.title.isEmpty ? "Class" : c.title))
                         .font(.caption.weight(.bold)).lineLimit(1)
                     if h > 30 {
-                        Text("\(c.startString.dropAMPM)-\(c.endString.dropAMPM)")
+                        Text(blockTimeLabel(c))
                             .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     if h > 46, !c.room.isEmpty {
@@ -210,6 +234,11 @@ struct ScheduleView: View {
 
     // MARK: Layout helpers
 
+    private func blockTimeLabel(_ c: ClassSession) -> String {
+        let time = "\(c.startString.dropAMPM)-\(c.endString.dropAMPM)"
+        if useClassPeriods, let p = ClassPeriods.spanLabel(start: c.startMinutes, end: c.endMinutes) { return "\(p) · \(time)" }
+        return time
+    }
     private func y(_ minutes: Int, lo: Int) -> CGFloat { CGFloat(minutes - lo) * pxPerMin }
     private func snap(_ m: Int) -> Int { max(0, min(24 * 60, Int((Double(m) / 30).rounded()) * 30)) }
     private func hourLabel(_ m: Int) -> String {
@@ -238,6 +267,33 @@ struct ScheduleView: View {
     }
 
     // MARK: Actions
+
+    // MARK: Merge duplicate classes (same course/time/room on different days → one class)
+
+    /// Group key for "the same class, different day".
+    private func mergeKey(_ c: ClassSession) -> String {
+        "\(c.courseID?.uuidString ?? "-")|\(c.title)|\(c.startMinutes)|\(c.endMinutes)|\(c.room)|\(c.link)"
+    }
+    /// How many class records would disappear if duplicates were merged.
+    private var mergeableCount: Int {
+        let groups = Dictionary(grouping: state.data.classes, by: mergeKey)
+        return groups.values.reduce(0) { $0 + max(0, $1.count - 1) }
+    }
+    private func mergeDuplicates() {
+        state.withUndo("Merge classes") {
+            let groups = Dictionary(grouping: state.data.classes, by: mergeKey)
+            var result: [ClassSession] = []
+            for g in groups.values {
+                if g.count == 1 { result.append(g[0]); continue }
+                var merged = g[0]
+                let allDays = Set(g.flatMap { $0.weekdays }).sorted()
+                merged.days = allDays
+                merged.weekday = allDays.first ?? merged.weekday
+                result.append(merged)
+            }
+            state.data.classes = result.sorted { ($0.weekdays.first ?? 0, $0.startMinutes) < ($1.weekdays.first ?? 0, $1.startMinutes) }
+        }
+    }
 
     private func addClass(day wd: Int, at start: Int?) {
         let s = start ?? 9 * 60
@@ -270,6 +326,7 @@ struct ClassEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: ClassSession
     @State private var selectedDays: Set<Int>
+    @AppStorage("useClassPeriods") private var useClassPeriods = false
     private let isNew: Bool
 
     /// Weekday order for the day picker: Mon…Fri, then Sat, Sun.
@@ -320,6 +377,7 @@ struct ClassEditor: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
 
+                    if useClassPeriods { periodPicker }
                     HStack(spacing: 16) {
                         timePicker("Start", $draft.startMinutes)
                         timePicker("End", $draft.endMinutes)
@@ -338,6 +396,29 @@ struct ClassEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+    }
+
+    private var periodPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Period").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Menu(ClassPeriods.period(start: draft.startMinutes).map { "Period \($0.label)" } ?? "Start…") {
+                    ForEach(ClassPeriods.uf) { p in
+                        Button("Period \(p.label) · \(ClassSession.hm(p.start))") {
+                            draft.startMinutes = p.start
+                            if draft.endMinutes <= p.start { draft.endMinutes = p.end }
+                        }
+                    }
+                }.fixedSize()
+                Text("to").font(.caption).foregroundStyle(.secondary)
+                Menu(ClassPeriods.periodEnding(draft.endMinutes).map { "Period \($0.label)" } ?? "End…") {
+                    ForEach(ClassPeriods.uf) { p in
+                        Button("Period \(p.label) · \(ClassSession.hm(p.end))") { draft.endMinutes = p.end }
+                    }
+                }.fixedSize()
+            }
+            Text("Pick the period(s) — this fills the times below.").font(.caption2).foregroundStyle(.secondary)
+        }
     }
 
     private func timePicker(_ label: String, _ binding: Binding<Int>) -> some View {
