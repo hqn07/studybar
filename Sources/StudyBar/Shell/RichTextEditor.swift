@@ -350,6 +350,27 @@ final class RichTextController: ObservableObject {
         }
     }
 
+    // MARK: Equation (from the composer / equation button)
+
+    /// Insert a rendered equation at the caret (an image, immediately — no need to type
+    /// `$…$`). Display math sits on its own line; inline flows with the text.
+    func insertMath(_ latex: String, display: Bool) {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let l = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !l.isEmpty else { return }
+        let att = MathAttachment(latex: l, display: display, color: Self.resolvedLabel(tv), userColored: false)
+        let s = NSMutableAttributedString(attachment: att)
+        if display { s.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont, .paragraphStyle: Self.bodyParagraph])) }
+        let r = tv.selectedRange()
+        if tv.shouldChangeText(in: r, replacementString: nil) {
+            ts.replaceCharacters(in: r, with: s)
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: r.location + s.length, length: 0))
+            snapshot = tv.attributedString()
+        }
+        tv.window?.makeFirstResponder(tv)
+    }
+
     // MARK: Images
 
     func insertImage() {

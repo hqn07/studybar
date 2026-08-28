@@ -229,6 +229,7 @@ struct NoteEditor: View {
     @State private var liveTask: Task<Void, Never>?
     @State private var toolHint: String?
     @State private var liveWords = 0
+    @State private var showEquation = false
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
@@ -310,6 +311,16 @@ struct NoteEditor: View {
         .onChange(of: draft.assignmentID)  { _, _ in scheduleAutosave() }
         .onDisappear { saveTask?.cancel(); persist() }
         .overlay { if foldPrompt { foldPromptCard } }
+        .overlay {
+            if showEquation {
+                NoteEquationComposer(
+                    onInsert: { latex, display in
+                        editor.insertMath(latex, display: display)
+                        showEquation = false; scheduleAutosave()
+                    },
+                    onCancel: { showEquation = false })
+            }
+        }
     }
 
     private var foldPromptCard: some View {
@@ -401,6 +412,7 @@ struct NoteEditor: View {
                     .buttonStyle(.borderless).foregroundStyle(colorMode == .foreground ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     .help("Text color").onHover { setHint("Text color", $0) }
                 sep
+                fmtBtn("function", "Insert equation") { showEquation = true }
                 fmtBtn("photo", "Insert image") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)
