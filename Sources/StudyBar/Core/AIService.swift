@@ -816,9 +816,9 @@ enum AIReader {
             return "CITATIONS: " + (d.references.isEmpty ? "none" : d.references.prefix(40).map { $0.title }.joined(separator: "; "))
 
         case "list_classes":
-            let cs = d.classes.sorted { ($0.weekday, $0.startMinutes) < ($1.weekday, $1.startMinutes) }
+            let cs = d.classes.sorted { ($0.weekdays.first ?? 0, $0.startMinutes) < ($1.weekdays.first ?? 0, $1.startMinutes) }
             return "CLASSES: " + (cs.isEmpty ? "none" : cs.map { c in
-                "\(weekday(c.weekday)) \(c.startString) \(state.course(c.courseID)?.code ?? (c.title.isEmpty ? "Class" : c.title))\(c.room.isEmpty ? "" : " @\(c.room)")"
+                "\(c.daysShort) \(c.startString) \(state.course(c.courseID)?.code ?? (c.title.isEmpty ? "Class" : c.title))\(c.room.isEmpty ? "" : " @\(c.room)")"
             }.joined(separator: "; "))
 
         case "list_links":

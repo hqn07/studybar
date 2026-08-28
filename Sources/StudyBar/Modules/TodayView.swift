@@ -40,7 +40,7 @@ struct TodayView: View {
     }
     private var nextClass: ClassSession? {
         state.data.classes
-            .filter { $0.weekday == todayWeekday && $0.endMinutes >= nowMinutes }
+            .filter { $0.meets(on: todayWeekday) && $0.endMinutes >= nowMinutes }
             .sorted { $0.startMinutes < $1.startMinutes }.first
     }
 

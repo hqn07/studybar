@@ -326,7 +326,7 @@ struct CalendarView: View {
             for offset in 0...rangeDays {
                 guard let day = Calendar.current.date(byAdding: .day, value: offset, to: Calendar.current.startOfDay(for: now)) else { continue }
                 let wd = Calendar.current.component(.weekday, from: day)
-                for c in state.data.classes where c.weekday == wd {
+                for c in state.data.classes where c.meets(on: wd) {
                     guard let start = Calendar.current.date(bySettingHour: c.startMinutes/60, minute: c.startMinutes%60, second: 0, of: day) else { continue }
                     if start < now.addingTimeInterval(-3600) { continue }
                     out.append(AgendaItem(

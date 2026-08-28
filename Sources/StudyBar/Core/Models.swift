@@ -354,11 +354,22 @@ struct ClassSession: Identifiable, Codable, Hashable {
     var id = UUID()
     var courseID: UUID? = nil
     var title: String = ""            // e.g. "Lecture", "Lab"
-    var weekday: Int = 2              // 1=Sun … 7=Sat (Calendar convention)
+    var weekday: Int = 2              // legacy single day / primary (1=Sun … 7=Sat)
+    var days: [Int]? = nil           // the days this class meets (MWF = one class); decode-safe
     var startMinutes: Int = 9 * 60   // minutes from midnight
     var endMinutes: Int = 10 * 60
     var room: String = ""
     var link: String = ""            // zoom/meet link for the class
+
+    /// The weekdays this class meets — the multi-day `days`, or the legacy single
+    /// `weekday` for data written before multi-day support. Always sorted.
+    var weekdays: [Int] { (days.map { $0.isEmpty ? [weekday] : $0 } ?? [weekday]).sorted() }
+    func meets(on wd: Int) -> Bool { weekdays.contains(wd) }
+    /// Compact day label, e.g. "MWF" (R = Thursday, U = Sunday).
+    var daysShort: String {
+        let letters = ["", "U", "M", "T", "W", "R", "F", "S"]
+        return weekdays.map { letters[$0] }.joined()
+    }
 
     var startString: String { Self.hm(startMinutes) }
     var endString: String { Self.hm(endMinutes) }

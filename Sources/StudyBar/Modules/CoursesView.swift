@@ -259,13 +259,15 @@ struct CourseCard: View {
         let mins = cal.component(.hour, from: .now) * 60 + cal.component(.minute, from: .now)
         let cs = state.data.classes.filter { $0.courseID == course.id }
         guard !cs.isEmpty else { return nil }
-        if let now = cs.filter({ $0.weekday == today && $0.endMinutes >= mins }).sorted(by: { $0.startMinutes < $1.startMinutes }).first {
-            let d = now.startMinutes - mins
-            return now.startMinutes <= mins ? "now" : (d < 60 ? "in \(d)m" : now.startString)
+        // Expand each class into a per-weekday occurrence (MWF → three).
+        let occ = cs.flatMap { c in c.weekdays.map { (wd: $0, c: c) } }
+        if let now = occ.filter({ $0.wd == today && $0.c.endMinutes >= mins }).sorted(by: { $0.c.startMinutes < $1.c.startMinutes }).first {
+            let d = now.c.startMinutes - mins
+            return now.c.startMinutes <= mins ? "now" : (d < 60 ? "in \(d)m" : now.c.startString)
         }
-        let up = cs.sorted { ($0.weekday, $0.startMinutes) < ($1.weekday, $1.startMinutes) }
-        if let n = up.first(where: { $0.weekday > today }) ?? up.first {
-            return "\(weekdaySymbols[n.weekday]) \(n.startString)"
+        let up = occ.sorted { ($0.wd, $0.c.startMinutes) < ($1.wd, $1.c.startMinutes) }
+        if let n = up.first(where: { $0.wd > today }) ?? up.first {
+            return "\(weekdaySymbols[n.wd]) \(n.c.startString)"
         }
         return nil
     }
@@ -327,7 +329,8 @@ struct CourseDetailView: View {
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
     private var classes: [ClassSession] {
-        state.data.classes.filter { $0.courseID == courseID }.sorted { $0.weekday < $1.weekday || ($0.weekday == $1.weekday && $0.startMinutes < $1.startMinutes) }
+        state.data.classes.filter { $0.courseID == courseID }
+            .sorted { ($0.weekdays.first ?? 0, $0.startMinutes) < ($1.weekdays.first ?? 0, $1.startMinutes) }
     }
     private var links: [QuickLink] { state.data.links.filter { $0.courseID == courseID } }
     private var notes: [Note] { state.data.notes.filter { $0.courseID == courseID } }
@@ -426,7 +429,7 @@ struct CourseDetailView: View {
     }
     private func classRow(_ cl: ClassSession) -> some View {
         HStack {
-            Text(weekdaySymbols[cl.weekday]).font(.caption.bold()).frame(width: 34, alignment: .leading)
+            Text(cl.daysShort).font(.caption.bold()).frame(width: 42, alignment: .leading)
             Text("\(cl.startString) – \(cl.endString)").font(.caption)
             if !cl.room.isEmpty { Text("· \(cl.room)").font(.caption2).foregroundStyle(.secondary) }
             Spacer()

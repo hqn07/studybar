@@ -58,7 +58,7 @@ enum ModuleRegistry {
 
         // Schedule & Calendar
         .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",
-              category: .schedule) { AnyView(ScheduleView()) },
+              category: .schedule, wide: true) { AnyView(ScheduleView()) },
         .init(id: "calendar", title: "Calendar", symbol: "calendar",
               category: .schedule, wide: true) { AnyView(CalendarView()) },
         .init(id: "timeblock", title: "Time Blocking", symbol: "calendar.day.timeline.left",

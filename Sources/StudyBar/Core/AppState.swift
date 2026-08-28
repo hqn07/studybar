@@ -398,7 +398,7 @@ final class AppState: ObservableObject {
         let c = Calendar.current.dateComponents([.hour, .minute], from: .now)
         let now = (c.hour ?? 0) * 60 + (c.minute ?? 0)
         let upcoming = data.classes
-            .filter { $0.weekday == wd && $0.endMinutes >= now }
+            .filter { $0.meets(on: wd) && $0.endMinutes >= now }
             .sorted { $0.startMinutes < $1.startMinutes }
         guard let s = upcoming.first else { return nil }
         return (s, max(0, s.startMinutes - now))

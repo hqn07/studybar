@@ -32,7 +32,7 @@ struct TimeBlockView: View {
 
     private var blocks: [TimeBlock] { state.timeBlocks(on: day) }
     private var classes: [ClassSession] {
-        state.data.classes.filter { $0.weekday == weekday }.sorted { $0.startMinutes < $1.startMinutes }
+        state.data.classes.filter { $0.meets(on: weekday) }.sorted { $0.startMinutes < $1.startMinutes }
     }
 
     /// Hour window: a comfortable 7am–10pm, widened to fit any earlier/later event.
