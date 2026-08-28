@@ -60,13 +60,8 @@ enum ScreenshotService {
         return base
     }
 
-    /// Whether StudyBar currently holds Screen Recording permission (required by
-    /// `screencapture` on modern macOS). Note: the grant is tied to the app's code
-    /// signature, so an unsigned dev build that gets replaced on each rebuild loses it.
-    static var hasScreenPermission: Bool { CGPreflightScreenCaptureAccess() }
-
+    /// Open System Settings ▸ Privacy ▸ Screen Recording (for the manual "grant" button).
     static func openScreenRecordingSettings() {
-        CGRequestScreenCaptureAccess()   // registers StudyBar in the list + prompts once
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
@@ -74,17 +69,15 @@ enum ScreenshotService {
 
     /// Interactive region capture. Hides StudyBar's windows first (so the popover
     /// isn't in the way / in the shot), runs async, restores them, then reports the
-    /// filename (in `directory`) via `completion`, or nil if cancelled / not permitted.
+    /// filename (in `directory`) via `completion`, or nil if cancelled.
+    ///
+    /// We do NOT preflight `CGPreflightScreenCaptureAccess` here: interactive `screencapture
+    /// -i` is Apple's own binary and shows its picker regardless, and preflighting an
+    /// unsigned dev build (whose signature — and therefore its TCC grant — changes on every
+    /// rebuild) just re-nags the permission prompt forever. macOS still prompts once the
+    /// first time a given build captures, which is the correct, expected behavior.
     @MainActor
     static func captureInteractive(completion: @escaping (String?) -> Void) {
-        // screencapture reads screen pixels → needs Screen Recording permission. If it's
-        // missing (or went stale after a rebuild), route the user to grant it instead of
-        // silently failing.
-        guard hasScreenPermission else {
-            openScreenRecordingSettings()
-            completion(nil)
-            return
-        }
         let windows = NSApp.windows.filter { $0.isVisible }
         windows.forEach { $0.alphaValue = 0 }
 

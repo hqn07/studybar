@@ -146,12 +146,6 @@ struct NotesView: View {
     }
 
     private func screenshotNote(split: Bool) {
-        // Needs Screen Recording permission (and it goes stale when the app is rebuilt) —
-        // route to grant it rather than creating a note that never gets an image.
-        guard ScreenshotService.hasScreenPermission else {
-            ScreenshotService.openScreenRecordingSettings()
-            return
-        }
         // Append first so the note survives if the popover dismisses during capture.
         let note = Note(title: "Screenshot \(Date().dayMonth)")
         let id = note.id
