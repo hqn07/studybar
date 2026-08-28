@@ -1545,7 +1545,10 @@ final class MathAttachment: NSTextAttachment {
 
 enum MathSupport {
     static let displayRE = try! NSRegularExpression(pattern: #"\$\$(.+?)\$\$"#, options: [.dotMatchesLineSeparators])
-    static let inlineRE  = try! NSRegularExpression(pattern: #"(?<!\\)\$([^$\n]+?)\$"#)
+    // Money-safe: opening `$` not after a digit/backslash and followed by a non-space;
+    // closing `$` not followed by a digit. So "$5 and $10" isn't read as math, but
+    // "$E=mc^2$" is.
+    static let inlineRE  = try! NSRegularExpression(pattern: #"(?<![\\\d])\$(?=\S)([^$\n]*?\S)\$(?!\d)"#)
 
     /// Is the caret strictly inside a `$…$` / `$$…$$` source span (i.e. being edited)?
     static func caretInsideMath(_ s: String, _ caret: Int) -> Bool {

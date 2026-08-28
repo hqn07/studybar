@@ -181,7 +181,7 @@ struct MathWebView: NSViewRepresentable {
 enum MathMarkdown {
     static func hasMath(_ s: String) -> Bool {
         if s.range(of: #"\$\$[\s\S]+?\$\$"#, options: .regularExpression) != nil { return true }
-        if s.range(of: #"(?<!\\)\$[^$\n]+?\$"#, options: .regularExpression) != nil { return true }
+        if s.range(of: #"(?<![\\\d])\$\S[^$\n]*?\$(?!\d)"#, options: .regularExpression) != nil { return true }   // money-safe
         return s.contains("\\(") || s.contains("\\[")
     }
 

@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 
 /// (24) Get the active tab URL + title from the frontmost supported browser via AppleScript.
 enum BrowserURL {
@@ -51,52 +50,13 @@ enum BrowserURL {
     }
 }
 
-/// (4) Interactive screen capture to a PNG in Application Support/Screenshots.
+/// (4) Screenshot storage. Images now come in via drag-and-drop / paste (see the Notes
+/// editor); this only vends the folder that older screenshot-notes still load from.
 enum ScreenshotService {
     static var directory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("StudyBar/Screenshots", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base
-    }
-
-    /// Open System Settings ▸ Privacy ▸ Screen Recording (for the manual "grant" button).
-    static func openScreenRecordingSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    /// Interactive region capture. Hides StudyBar's windows first (so the popover
-    /// isn't in the way / in the shot), runs async, restores them, then reports the
-    /// filename (in `directory`) via `completion`, or nil if cancelled.
-    ///
-    /// We do NOT preflight `CGPreflightScreenCaptureAccess` here: interactive `screencapture
-    /// -i` is Apple's own binary and shows its picker regardless, and preflighting an
-    /// unsigned dev build (whose signature — and therefore its TCC grant — changes on every
-    /// rebuild) just re-nags the permission prompt forever. macOS still prompts once the
-    /// first time a given build captures, which is the correct, expected behavior.
-    @MainActor
-    static func captureInteractive(completion: @escaping (String?) -> Void) {
-        let windows = NSApp.windows.filter { $0.isVisible }
-        windows.forEach { $0.alphaValue = 0 }
-
-        let name = "shot-\(Int(Date().timeIntervalSince1970)).png"
-        let url = directory.appendingPathComponent(name)
-
-        // Let the alpha change take effect before the capture overlay appears.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            proc.arguments = ["-i", url.path]
-            proc.terminationHandler = { _ in
-                DispatchQueue.main.async {
-                    windows.forEach { $0.alphaValue = 1 }
-                    completion(FileManager.default.fileExists(atPath: url.path) ? name : nil)
-                }
-            }
-            do { try proc.run() }
-            catch { windows.forEach { $0.alphaValue = 1 }; completion(nil) }
-        }
     }
 }

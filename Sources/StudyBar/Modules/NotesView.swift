@@ -230,6 +230,7 @@ struct NoteEditor: View {
     @State private var liveWords = 0
     @State private var showEquation = false
     @State private var focusMode = false
+    @State private var outlineHeadings: [(title: String, location: Int)] = []
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
@@ -302,6 +303,7 @@ struct NoteEditor: View {
         .onAppear {
             editor.onEdit = { scheduleAutosave(); refreshLive(); liveWords = countWords(editor.plainText) }
             editor.onOpenLink = { openLink($0) }
+            DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
         // flushes on teardown (e.g. switching modules from the sidebar).
@@ -358,12 +360,14 @@ struct NoteEditor: View {
             }
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
             Menu {
-                let hs = editor.headings()
-                if hs.isEmpty { Text("No headings yet") }
-                else { ForEach(hs.indices, id: \.self) { i in Button(hs[i].title) { editor.scrollTo(hs[i].location) } } }
+                if outlineHeadings.isEmpty { Text("No headings yet") }
+                else { ForEach(outlineHeadings.indices, id: \.self) { i in Button(outlineHeadings[i].title) { editor.scrollTo(outlineHeadings[i].location) } } }
             } label: { Image(systemName: "list.bullet.rectangle") }
                 .menuStyle(.borderlessButton).fixedSize().foregroundStyle(.secondary)
-                .onHover { setHint("Outline — jump to a heading", $0) }
+                .onHover { hovering in
+                    if hovering { outlineHeadings = editor.headings() }   // refresh as you reach for it
+                    setHint("Outline — jump to a heading", hovering)
+                }
             Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
                 Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
             }
@@ -507,7 +511,9 @@ struct NoteEditor: View {
     }
 
     private func countWords(_ s: String) -> Int {
-        s.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
+        // Drop bare markers ($ • ☐ ☑ ─ [ ]) so they aren't counted as words.
+        let cleaned = s.filter { !"$•☐☑─[]".contains($0) }
+        return cleaned.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
     }
 
     private var footer: some View {
