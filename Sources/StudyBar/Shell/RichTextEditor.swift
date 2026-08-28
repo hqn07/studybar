@@ -48,7 +48,12 @@ final class RichTextController: ObservableObject {
     enum GhostPhase: Equatable { case idle, thinking, ready, error(String) }
     @Published var ghostPhase: GhostPhase = .idle
 
-    static let baseFont = NSFont.systemFont(ofSize: 13)
+    static let baseFont = NSFont.systemFont(ofSize: 15)   // long-form reading size (was 13)
+    /// Default paragraph style — gives body text room to breathe (was AppKit's tight default).
+    static let bodyParagraph: NSParagraphStyle = {
+        let p = NSMutableParagraphStyle(); p.lineSpacing = 3.5; p.paragraphSpacing = 4
+        return p
+    }()
 
     /// Undo/redo the text view's own edits (typing + formatting). Backs the
     /// toolbar buttons and the ⌘Z / ⌘⇧Z shortcuts.
@@ -160,10 +165,10 @@ final class RichTextController: ObservableObject {
     enum Heading { case body, h1, h2, h3
         var font: NSFont {
             switch self {
-            case .body: return .systemFont(ofSize: 13)
-            case .h1:   return .systemFont(ofSize: 22, weight: .bold)
-            case .h2:   return .systemFont(ofSize: 18, weight: .bold)
-            case .h3:   return .systemFont(ofSize: 15, weight: .semibold)
+            case .body: return .systemFont(ofSize: 15)
+            case .h1:   return .systemFont(ofSize: 25, weight: .bold)
+            case .h2:   return .systemFont(ofSize: 20, weight: .bold)
+            case .h3:   return .systemFont(ofSize: 17, weight: .semibold)
             }
         }
     }
@@ -253,7 +258,14 @@ final class RichTextController: ObservableObject {
         if !quoted { ps.headIndent = 18; ps.firstLineHeadIndent = 18 }
         ts.beginEditing()
         ts.addAttribute(.paragraphStyle, value: ps, range: para)
-        ts.addAttribute(.foregroundColor, value: quoted ? NSColor.labelColor : NSColor.secondaryLabelColor, range: para)
+        if quoted {
+            // Un-quoting: only clear the grey we added — never a color the user chose.
+            ts.enumerateAttribute(.foregroundColor, in: para) { val, r, _ in
+                if (val as? NSColor) == .secondaryLabelColor { ts.addAttribute(.foregroundColor, value: NSColor.labelColor, range: r) }
+            }
+        } else {
+            ts.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: para)
+        }
         ts.endEditing()
         tv.didChangeText()
     }
@@ -408,6 +420,9 @@ final class RichTextController: ObservableObject {
 struct RichTextEditor: NSViewRepresentable {
     let initial: NSAttributedString
     let controller: RichTextController
+    /// Grab the keyboard when the editor first appears (used for a brand-new note, so you
+    /// can just start typing).
+    var focusOnAppear: Bool = false
 
     func makeCoordinator() -> Coordinator { Coordinator(controller) }
 
@@ -438,18 +453,23 @@ struct RichTextEditor: NSViewRepresentable {
         tv.allowsUndo = true
         tv.usesFontPanel = false
         tv.font = RichTextController.baseFont
-        tv.textContainerInset = NSSize(width: 4, height: 8)
+        tv.defaultParagraphStyle = RichTextController.bodyParagraph
+        tv.textContainerInset = NSSize(width: 6, height: 12)
         tv.drawsBackground = false
         tv.delegate = context.coordinator
         tv.mathController = controller
         let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv)).installingWikilinks()
         if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
         tv.typingAttributes = [.font: RichTextController.baseFont,
-                               .foregroundColor: NSColor.labelColor]
+                               .foregroundColor: NSColor.labelColor,
+                               .paragraphStyle: RichTextController.bodyParagraph]
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         controller.textView = tv
         controller.snapshot = installed
+        if focusOnAppear {
+            DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) }
+        }
         return scroll
     }
 

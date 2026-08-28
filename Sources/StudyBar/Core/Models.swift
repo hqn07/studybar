@@ -58,6 +58,28 @@ struct Note: Identifiable, Codable, Hashable {
     var updatedAt: Date = .now
 }
 
+extension Note {
+    /// The plaintext `body` cleaned of editor markup for list rows / previews: fold and
+    /// divider markers removed, `[[link]]`→link, `$math$`→its source, list markers tidied.
+    var previewText: String {
+        var s = body
+        s = s.replacingOccurrences(of: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#, with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\[\[([^\]]+)\]\]"#, with: "$1", options: .regularExpression)   // wikilinks
+        s = s.replacingOccurrences(of: #"\$\$?([^$]+?)\$\$?"#, with: "$1", options: .regularExpression)  // math → source
+        s = s.replacingOccurrences(of: "──────────", with: "")                                          // dividers
+        s = s.replacingOccurrences(of: #"(?m)^\s*[☐☑]\s*"#, with: "○ ", options: .regularExpression)    // checkboxes
+        s = s.replacingOccurrences(of: #"(?m)^\s*\d+\.\s+"#, with: "", options: .regularExpression)      // numbered
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// The row title: the note's title, or its first non-empty preview line.
+    var listTitle: String {
+        if !title.isEmpty { return title }
+        return previewText.split(separator: "\n").first.map(String.init) ?? "Untitled"
+    }
+    /// Word count of the cleaned text (for the editor's metadata line).
+    var wordCount: Int { previewText.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count }
+}
+
 // MARK: - Clipboard history (5)
 
 struct ClipItem: Identifiable, Codable, Hashable {

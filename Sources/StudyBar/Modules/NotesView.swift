@@ -188,9 +188,9 @@ struct NoteRow: View {
                         .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 5))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(note.title.isEmpty ? firstLine : note.title)
+                    Text(note.listTitle)
                         .fontWeight(.medium).lineLimit(1)
-                    Text(note.body.isEmpty ? "No content" : note.body)
+                    Text(note.previewText.isEmpty ? "No content" : note.previewText)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     HStack(spacing: DS.Space.s) {
                         CourseChip(course: state.course(note.courseID))
@@ -208,10 +208,6 @@ struct NoteRow: View {
                 }
             }
         }.buttonStyle(.plain)
-    }
-
-    private var firstLine: String {
-        note.body.split(separator: "\n").first.map(String.init) ?? "Untitled"
     }
 }
 
@@ -232,8 +228,11 @@ struct NoteEditor: View {
     @State private var liveText = ""
     @State private var liveTask: Task<Void, Never>?
     @State private var toolHint: String?
+    @State private var liveWords = 0
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
+    /// A brand-new, empty note — grab focus so the user can just start typing.
+    private let startedEmpty: Bool
     /// Embedded in the window's master-detail split (no back-nav; selection drives it).
     var embedded = false
     /// Called instead of `dismiss()` when embedded (e.g. after delete → clear selection).
@@ -249,11 +248,14 @@ struct NoteEditor: View {
         self.onNavigate = onNavigate
         _draft = State(initialValue: note)
         _tagText = State(initialValue: note.tags.joined(separator: ", "))
+        startedEmpty = note.title.isEmpty && note.body.isEmpty && note.rich == nil
+        _liveWords = State(initialValue: note.wordCount)
         if let data = note.rich, let a = NSAttributedString.fromRTFD(data) {
             initialAttributed = a
         } else {
             initialAttributed = NSAttributedString(string: note.body,
-                attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+                attributes: [.font: RichTextController.baseFont, .foregroundColor: NSColor.labelColor,
+                             .paragraphStyle: RichTextController.bodyParagraph])
         }
     }
 
@@ -296,7 +298,7 @@ struct NoteEditor: View {
         .navigationTitle("")
         .toolbar(.hidden, for: .windowToolbar)
         .onAppear {
-            editor.onEdit = { scheduleAutosave(); refreshLive() }
+            editor.onEdit = { scheduleAutosave(); refreshLive(); liveWords = countWords(editor.plainText) }
             editor.onOpenLink = { openLink($0) }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
@@ -434,8 +436,9 @@ struct NoteEditor: View {
         }
     }
 
+    // Theme-adaptive only — no raw White/Black (which vanish against the opposite theme).
+    // The "default / no highlight" reset button covers going back to the base color.
     static let palette: [(String, NSColor)] = [
-        ("White", .white), ("Black", .black),
         ("Red", .systemRed), ("Orange", .systemOrange), ("Yellow", .systemYellow),
         ("Green", .systemGreen), ("Teal", .systemTeal), ("Blue", .systemBlue),
         ("Indigo", .systemIndigo), ("Purple", .systemPurple), ("Pink", .systemPink),
@@ -468,13 +471,27 @@ struct NoteEditor: View {
                 .background(.background.secondary)
             }
         } else {
-            RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor)
+            // Cap the writing column to a readable measure and center it (only bites once
+            // the window is wider than ~720 — no effect in the popover / narrow window).
+            RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor, focusOnAppear: startedEmpty)
+                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 4).padding(.vertical, 2)
         }
     }
 
+    private func countWords(_ s: String) -> Int {
+        s.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
+    }
+
     private var footer: some View {
         VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Text("\(liveWords) word\(liveWords == 1 ? "" : "s")")
+                Text("·")
+                Text("edited \(draft.updatedAt.relativeShort)")
+                Spacer()
+            }.font(.caption2).foregroundStyle(.tertiary)
             HStack(spacing: 10) {
                 CoursePicker(courseID: $draft.courseID)
                 Divider().frame(height: 14)
