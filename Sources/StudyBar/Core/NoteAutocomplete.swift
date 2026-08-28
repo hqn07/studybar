@@ -24,10 +24,9 @@ enum NoteAutocomplete {
 
     private static let system = """
     You are an inline autocomplete inside a note-taking app. Continue the user's text \
-    naturally from exactly where it stops. Reply with ONLY the continuation — the next \
-    few words, at most one short sentence. No quotes, no preamble, no explanation, and \
-    do not repeat what the user already wrote. If nothing sensible follows, reply with \
-    an empty string.
+    naturally from exactly where it stops. Reply with ONLY the next FEW WORDS — a short \
+    phrase, never a whole sentence. No quotes, no preamble, no explanation, and do not \
+    repeat what the user already wrote. If nothing sensible follows, reply empty.
     """
 
     /// A short continuation for `prefix` — or a reason it couldn't produce one, so the
@@ -49,8 +48,8 @@ enum NoteAutocomplete {
             "system": system,
             "prompt": trimmed,
             "stream": false,
-            // Short, low-temperature, single-line — a suggestion, not an essay.
-            "options": ["temperature": 0.2, "num_predict": 24, "stop": ["\n"]],
+            // A few words, low-temperature, single-line — a hint, not an essay.
+            "options": ["temperature": 0.2, "num_predict": 12, "stop": ["\n", ". ", "! ", "? "]],
         ]
         guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return .none }
         req.httpBody = payload

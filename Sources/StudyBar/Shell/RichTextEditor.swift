@@ -684,6 +684,17 @@ final class FoldingTextView: NSTextView {
     private func setPhase(_ p: RichTextController.GhostPhase) { mathController?.ghostPhase = p }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        // Type-through: if what you just typed matches the head of the current ghost,
+        // keep the rest showing instead of clearing — so the suggestion stays live as you
+        // type along, and only re-queries when you diverge or use it up.
+        let typed = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
+        if let g = ghost, !typed.isEmpty, g.hasPrefix(typed) {
+            super.insertText(string, replacementRange: replacementRange)
+            let remainder = String(g.dropFirst(typed.count))
+            if remainder.isEmpty { clearGhost(); scheduleGhost() }
+            else { showGhost(remainder, at: selectedRange().location) }   // reposition, no network
+            return
+        }
         clearGhost()
         super.insertText(string, replacementRange: replacementRange)
         scheduleGhost()
@@ -712,7 +723,7 @@ final class FoldingTextView: NSTextView {
         let prefix = ns.substring(to: min(sel.location, ns.length))
         let anchor = sel.location
         ghostTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 550_000_000)
+            try? await Task.sleep(nanoseconds: 300_000_000)   // short, so a suggestion appears on a micro-pause
             guard let self, !Task.isCancelled else { return }
             self.setPhase(.thinking)
             let outcome = await NoteAutocomplete.suggest(prefix: prefix)
