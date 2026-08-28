@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 
 /// (24) Get the active tab URL + title from the frontmost supported browser via AppleScript.
 enum BrowserURL {
@@ -59,11 +60,31 @@ enum ScreenshotService {
         return base
     }
 
+    /// Whether StudyBar currently holds Screen Recording permission (required by
+    /// `screencapture` on modern macOS). Note: the grant is tied to the app's code
+    /// signature, so an unsigned dev build that gets replaced on each rebuild loses it.
+    static var hasScreenPermission: Bool { CGPreflightScreenCaptureAccess() }
+
+    static func openScreenRecordingSettings() {
+        CGRequestScreenCaptureAccess()   // registers StudyBar in the list + prompts once
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// Interactive region capture. Hides StudyBar's windows first (so the popover
     /// isn't in the way / in the shot), runs async, restores them, then reports the
-    /// filename (in `directory`) via `completion`, or nil if cancelled.
+    /// filename (in `directory`) via `completion`, or nil if cancelled / not permitted.
     @MainActor
     static func captureInteractive(completion: @escaping (String?) -> Void) {
+        // screencapture reads screen pixels → needs Screen Recording permission. If it's
+        // missing (or went stale after a rebuild), route the user to grant it instead of
+        // silently failing.
+        guard hasScreenPermission else {
+            openScreenRecordingSettings()
+            completion(nil)
+            return
+        }
         let windows = NSApp.windows.filter { $0.isVisible }
         windows.forEach { $0.alphaValue = 0 }
 

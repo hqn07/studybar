@@ -146,6 +146,12 @@ struct NotesView: View {
     }
 
     private func screenshotNote(split: Bool) {
+        // Needs Screen Recording permission (and it goes stale when the app is rebuilt) —
+        // route to grant it rather than creating a note that never gets an image.
+        guard ScreenshotService.hasScreenPermission else {
+            ScreenshotService.openScreenRecordingSettings()
+            return
+        }
         // Append first so the note survives if the popover dismisses during capture.
         let note = Note(title: "Screenshot \(Date().dayMonth)")
         let id = note.id
@@ -230,6 +236,7 @@ struct NoteEditor: View {
     @State private var toolHint: String?
     @State private var liveWords = 0
     @State private var showEquation = false
+    @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
@@ -690,6 +697,7 @@ struct NoteEditor: View {
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
     private func persist() {
+        if deleted { return }   // don't resurrect a note the user just deleted
         let attr = editor.attributedString.expandingMath().expandingFolds()   // math→$…$, folds→[[fold:]]
         if attr.length > 0 || !showPreview {   // capture rich content when the editor is/was live
             draft.rich = attr.rtfdData()
@@ -712,6 +720,8 @@ struct NoteEditor: View {
         AppActions.assistant(make(draft))
     }
     private func delete() {
+        deleted = true
+        saveTask?.cancel()
         state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == draft.id } }
         embedded ? onClose() : dismiss()
     }
