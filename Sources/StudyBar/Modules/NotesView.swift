@@ -55,8 +55,15 @@ struct NotesView: View {
     @ViewBuilder private func toolbar(split: Bool) -> some View {
         HStack(spacing: 8) {
             Menu {
-                ForEach(NoteSort.allCases) { s in
-                    Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
+                Section("Sort") {
+                    ForEach(NoteSort.allCases) { s in
+                        Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
+                    }
+                }
+                Section("New from template") {
+                    ForEach(NoteTemplates.all) { t in
+                        Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
+                    }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
             Button { screenshotNote(split: split) } label: { Image(systemName: "camera.viewfinder") }.help("Screenshot to note")
@@ -143,6 +150,14 @@ struct NotesView: View {
         let n = Note()
         if split { newDraft = n; selection = n.id }   // editor inserts it on first edit
         else { editing = n }                          // insert only on Save
+    }
+
+    private func newFromTemplate(_ t: NoteTemplates.Template, split: Bool) {
+        let attr = t.build()
+        var n = Note(title: t.title)
+        n.rich = attr.rtfdData(); n.body = attr.string
+        state.data.notes.append(n)                    // has content → insert now
+        if split { selection = n.id; newDraft = nil } else { editing = n }
     }
 
     private func screenshotNote(split: Bool) {
@@ -415,6 +430,7 @@ struct NoteEditor: View {
                     .help("Text color").onHover { setHint("Text color", $0) }
                 sep
                 fmtBtn("function", "Insert equation") { showEquation = true }
+                fmtBtn("tablecells", "Insert table") { editor.insertTable() }
                 fmtBtn("photo", "Insert image") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
             }.padding(.horizontal, 10).padding(.vertical, 5)

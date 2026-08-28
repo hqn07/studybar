@@ -397,6 +397,36 @@ final class RichTextController: ObservableObject {
         tv.window?.makeFirstResponder(tv)
     }
 
+    // MARK: Table
+
+    /// Insert a simple editable table (real NSTextTable — round-trips through RTFD).
+    func insertTable(rows: Int = 3, cols: Int = 2) {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let table = NSTextTable()
+        table.numberOfColumns = cols
+        table.collapsesBorders = true
+        let out = NSMutableAttributedString()
+        for r in 0..<rows {
+            for c in 0..<cols {
+                let block = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
+                block.setBorderColor(.separatorColor)
+                block.setWidth(1, type: .absoluteValueType, for: .border)
+                block.setWidth(5, type: .absoluteValueType, for: .padding)
+                let ps = NSMutableParagraphStyle(); ps.textBlocks = [block]
+                let font = r == 0 ? NSFontManager.shared.convert(Self.baseFont, toHaveTrait: .boldFontMask) : Self.baseFont
+                out.append(NSAttributedString(string: (r == 0 ? "Column \(c + 1)" : " ") + "\n",
+                    attributes: [.font: font, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor]))
+            }
+        }
+        out.append(NSAttributedString(string: "\n", attributes: [.font: Self.baseFont, .paragraphStyle: Self.bodyParagraph]))
+        let range = tv.selectedRange()
+        if tv.shouldChangeText(in: range, replacementString: nil) {
+            ts.replaceCharacters(in: range, with: out)
+            tv.didChangeText()
+            snapshot = tv.attributedString()
+        }
+    }
+
     // MARK: Images
 
     func insertImage() {
