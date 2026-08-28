@@ -7,13 +7,12 @@ import WebKit
 /// woff2 fonts) is bundled and inlined, so rendering is fully offline.
 struct RichText: View {
     let text: String
-    @Environment(\.colorScheme) private var scheme
-    @State private var height: CGFloat = 18
 
     var body: some View {
         if MathMarkdown.hasMath(text) {
-            MathWebView(html: MathMarkdown.html(text, dark: scheme == .dark), height: $height)
-                .frame(height: max(18, height))
+            // Native SwiftMath (matches the editor); SwiftMathContent falls back to the
+            // bundled KaTeX web view only for expressions SwiftMath can't parse.
+            SwiftMathContent(text: text)
         } else {
             MarkdownText(text: text)
         }
