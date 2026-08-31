@@ -3,10 +3,38 @@ import SwiftUI
 let weekdaySymbols = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 private let weekdayLetters = ["", "S", "M", "T", "W", "T", "F", "S"]
 
+/// Which face of the unified Schedule is showing: the recurring weekly class grid, or
+/// the day-by-day time-block planner. Persisted so it survives module switches.
+enum ScheduleMode: String { case week, plan }
+
+/// The unified **Schedule** module — a Week / Plan toggle over two views that used to be
+/// separate modules: the weekly class grid (`WeekGridView`) and the time-block day
+/// planner (`DayPlannerView`, formerly "Time Blocking"). Each face keeps its own polished
+/// interaction model and toolbar; this wrapper just picks which one to show.
+struct ScheduleView: View {
+    @AppStorage("scheduleMode") private var modeRaw = ScheduleMode.week.rawValue
+    var body: some View {
+        if ScheduleMode(rawValue: modeRaw) == .plan { DayPlannerView() } else { WeekGridView() }
+    }
+}
+
+/// A shared Week / Plan segmented control for either face's toolbar.
+struct ScheduleModePicker: View {
+    @AppStorage("scheduleMode") private var modeRaw = ScheduleMode.week.rawValue
+    var body: some View {
+        Picker("", selection: $modeRaw) {
+            Text("Week").tag(ScheduleMode.week.rawValue)
+            Text("Plan").tag(ScheduleMode.plan.rawValue)
+        }
+        .pickerStyle(.segmented).labelsHidden().frame(width: 128).fixedSize()
+        .help("Week grid · time-block planner")
+    }
+}
+
 /// A weekly timetable: weekday columns × a time ruler, with each class drawn as a block
 /// spanning its real duration (so a two-period lab is a tall block). A class that meets
 /// on several days (MWF) is one record shown in each of those columns.
-struct ScheduleView: View {
+struct WeekGridView: View {
     @EnvironmentObject var state: AppState
     @State private var editing: ClassSession?
     @AppStorage("useClassPeriods") private var useClassPeriods = false
@@ -50,6 +78,7 @@ struct ScheduleView: View {
         NavigationStack {
             ModulePane(title: "Schedule") {
                 HStack(spacing: 8) {
+                    ScheduleModePicker()
                     Menu {
                         Toggle("Class periods (UF)", isOn: $useClassPeriods)
                         if mergeableCount > 0 {

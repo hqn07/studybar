@@ -7,7 +7,7 @@ import SwiftUI
 /// Add a block with +, or pull an open assignment / to-do straight onto the day from
 /// the Unscheduled menu. Window-first (`wide`); stays inline (NavigationStack +
 /// pushed editor) so it never trips the popover's no-modal rule.
-struct TimeBlockView: View {
+struct DayPlannerView: View {
     @EnvironmentObject var state: AppState
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var editing: TimeBlock?
@@ -47,9 +47,12 @@ struct TimeBlockView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Time Blocking") {
-                Button { addBlock() } label: { Image(systemName: "plus") }
-                    .help("Add a block")
+            ModulePane(title: "Schedule") {
+                HStack(spacing: 8) {
+                    ScheduleModePicker()
+                    Button { addBlock() } label: { Image(systemName: "plus") }
+                        .help("Add a block")
+                }
             } content: {
                 VStack(spacing: 0) {
                     dayBar
