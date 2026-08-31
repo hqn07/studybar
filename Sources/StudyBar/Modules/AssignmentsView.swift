@@ -10,7 +10,11 @@ struct AssignmentsView: View {
     @State private var showDone = false
     @State private var editing: Assignment?
     @State private var classifying = false
+    @State private var quickAdd = ""
+    @FocusState private var quickFocused: Bool
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
+
+    private var legacyTodos: Int { state.data.todos.count }
 
     private var unsortedImports: Int { CanvasFeedImport.unclassified(state).count }
 
@@ -58,16 +62,20 @@ struct AssignmentsView: View {
                     Button { newAssignment() } label: { Image(systemName: "plus") }
                 }
             } content: {
-                if list.isEmpty {
-                    EmptyState(symbol: "checklist", title: "No assignments",
-                               subtitle: "Add homework, papers and exams with due dates.")
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: DS.Space.s) {
-                            ForEach(list) { a in
-                                AssignmentRow(assignment: a) { editing = a }
-                            }
-                        }.padding(DS.Space.m)
+                VStack(spacing: 0) {
+                    quickAddBar
+                    if legacyTodos > 0 { importBanner; Divider() }
+                    if list.isEmpty {
+                        EmptyState(symbol: "checklist", title: "No assignments",
+                                   subtitle: "Add homework, papers and exams — or a quick task above.")
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: DS.Space.s) {
+                                ForEach(list) { a in
+                                    AssignmentRow(assignment: a) { editing = a }
+                                }
+                            }.padding(DS.Space.m)
+                        }
                     }
                 }
             }
@@ -78,8 +86,72 @@ struct AssignmentsView: View {
         }
     }
 
+    // MARK: Quick add — the lightweight task capture that used to be the To-Do module.
+
+    private var quickAddBar: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
+            TextField("Add a task or assignment…", text: $quickAdd)
+                .textFieldStyle(.plain).focused($quickFocused)
+                .onSubmit(addQuick)
+            if !quickAdd.isEmpty {
+                Button("Add", action: addQuick).buttonStyle(.borderless).font(.caption)
+            }
+        }
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
+        .background(.sbSurface.opacity(0.5))
+    }
+
+    /// One-tap, undoable import of the old To-Do list into Assignments. Non-destructive:
+    /// backed up first (if a backup folder is set) and reversible via the undo banner.
+    private var importBanner: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: "tray.and.arrow.down").foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(legacyTodos) to-do\(legacyTodos == 1 ? "" : "s") from the old list")
+                    .font(.callout.weight(.medium))
+                Text("To-Do merged into Assignments. Import to keep them here.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Import", action: importTodos).buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
+        .background(.tint.opacity(0.08))
+    }
+
+    private func addQuick() {
+        let t = quickAdd.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        state.data.assignments.append(Assignment(task: t))
+        quickAdd = ""
+        quickFocused = true
+    }
+
+    private func importTodos() {
+        let todos = state.data.todos
+        guard !todos.isEmpty else { return }
+        _ = BackupManager.backupNow(state.data)   // best-effort snapshot before the move
+        state.withUndo("Import \(todos.count) to-do\(todos.count == 1 ? "" : "s")") {
+            for t in todos {
+                let a = Assignment(migrating: t)
+                state.data.assignments.append(a)
+                // Repoint any time-block that had planned this to-do onto the new assignment.
+                let blocks = state.data.timeBlocks ?? []
+                if blocks.contains(where: { $0.todoID == t.id }) {
+                    var updated = blocks
+                    for i in updated.indices where updated[i].todoID == t.id {
+                        updated[i].assignmentID = a.id; updated[i].todoID = nil
+                    }
+                    state.data.timeBlocks = updated
+                }
+            }
+            state.data.todos.removeAll()
+        }
+    }
+
     private func consumePending() {
-        if state.pendingNew == "assignments" { state.pendingNew = nil; newAssignment() }
+        if state.pendingNew == "assignments" { state.pendingNew = nil; quickFocused = true }
     }
     private func newAssignment() {
         editing = Assignment(title: "", due: Calendar.current.date(byAdding: .day, value: 1, to: .now))

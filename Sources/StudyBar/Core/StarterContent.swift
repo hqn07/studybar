@@ -70,11 +70,13 @@ enum StarterContent {
         return added
     }
 
+    /// Getting-started tasks — seeded as Assignments (tasks with no due date) now that
+    /// To-Do is merged into Assignments.
     @discardableResult
     static func addTodos(_ state: AppState) -> Int {
         var added = 0
-        for t in todos where !state.data.todos.contains(where: { $0.text == t }) {
-            state.data.todos.append(TodoItem(text: t))
+        for t in todos where !state.data.assignments.contains(where: { $0.title == t }) {
+            state.data.assignments.append(Assignment(task: t))
             added += 1
         }
         return added

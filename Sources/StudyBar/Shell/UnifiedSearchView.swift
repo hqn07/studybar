@@ -30,8 +30,9 @@ struct UnifiedSearchView: View {
                              subtitle: String(n.body.prefix(50))))
         }
         for t in state.data.todos where has(t.text) {
-            out.append(.init(moduleID: "todos", symbol: "checkmark.circle",
-                             title: t.text, subtitle: t.done ? "Done" : "To-Do"))
+            // Legacy to-dos (pre-merge) — route to Assignments, where they can be imported.
+            out.append(.init(moduleID: "assignments", symbol: "checkmark.circle",
+                             title: t.text, subtitle: t.done ? "Done · old to-do" : "Old to-do"))
         }
         for l in state.data.links where has(l.title) || has(l.url) {
             out.append(.init(moduleID: "links", symbol: l.symbol,

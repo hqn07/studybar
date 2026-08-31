@@ -91,8 +91,6 @@ enum ModuleRegistry {
               category: .study, wide: true) { AnyView(ReadingView()) },
 
         // Organize
-        .init(id: "todos", title: "To-Do", symbol: "checkmark.circle",
-              category: .organize) { AnyView(TodosView()) },
         .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",
               category: .organize, wide: true) { AnyView(KanbanView()) },
         .init(id: "gradecalc", title: "Grade Calc", symbol: "percent",

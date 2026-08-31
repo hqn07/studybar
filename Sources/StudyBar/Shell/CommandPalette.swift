@@ -22,7 +22,7 @@ struct CommandPalette: View {
         // Quick actions
         out.append(.init(title: "New Note", subtitle: "Capture", symbol: "note.text") { newIn("notes") })
         out.append(.init(title: "New Assignment", subtitle: "Assignments", symbol: "checklist") { newIn("assignments") })
-        out.append(.init(title: "New To-Do", subtitle: "Organize", symbol: "checkmark.circle") { newIn("todos") })
+        out.append(.init(title: "New Task", subtitle: "Assignments", symbol: "checkmark.circle") { newIn("assignments") })
         out.append(.init(title: state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro",
                          subtitle: "Time & Focus", symbol: "timer") {
             state.pomodoro.toggle(); isPresented = false

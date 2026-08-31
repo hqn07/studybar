@@ -24,7 +24,7 @@ final class ModulePrefs: ObservableObject {
     /// The calm starter set shown to a brand-new user — everything else is hidden but one
     /// tap away in Settings ▸ Modules (philosophy: calm default, breadth opt-in).
     static let starterVisible: Set<String> = [
-        "today", "assignments", "notes", "calendar", "todos",
+        "today", "assignments", "notes", "calendar",
         "courses", "flashcards", "timefocus", "assistant", "settings",
     ]
     /// The modules a new install starts with hidden. Pure — safe to call anytime.

@@ -285,11 +285,10 @@ struct TodayView: View {
         let raw = quickTask.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let p = QuickParse.parse(raw, courses: state.data.courses)
-        if p.isAssignment {
-            state.data.assignments.append(Assignment(title: p.title, courseID: p.courseID, due: p.due))
-        } else {
-            state.data.todos.append(TodoItem(text: p.title, priority: p.priority, courseID: p.courseID, due: p.due))
-        }
+        // Tasks and dated assignments both land in Assignments — a task is one with no due.
+        var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
+        a.urgency = p.priority >= 2 ? 2 : nil
+        state.data.assignments.append(a)
         quickTask = ""
     }
 

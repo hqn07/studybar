@@ -86,11 +86,11 @@ struct QuickCaptureView: View {
             // Natural-language parse: "essay fri for chem" → assignment; else a todo.
             let p = QuickParse.parse(t, courses: state.data.courses)
             let course = courseID ?? p.courseID   // an explicit picker choice wins
-            if p.isAssignment {
-                state.data.assignments.append(Assignment(title: p.title, courseID: course, due: p.due))
-            } else {
-                state.data.todos.append(TodoItem(text: p.title, priority: p.priority, courseID: course, due: p.due))
-            }
+            // Both a dated assignment and a plain task are Assignments now — a task is
+            // just one with no due date (p.due is nil when nothing date-like was parsed).
+            var a = Assignment(title: p.title, courseID: course, due: p.due)
+            a.urgency = p.priority >= 2 ? 2 : nil
+            state.data.assignments.append(a)
         }
         onClose()
     }

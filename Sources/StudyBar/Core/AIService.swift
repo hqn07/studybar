@@ -992,12 +992,12 @@ enum AIActionRunner {
             var made = 0
             for s in sessions {
                 guard let title = s["title"] as? String, !title.isEmpty else { continue }
-                var todo = TodoItem(text: title, courseID: AppActions.courseID(named: s["course"] as? String))
+                var a = Assignment(task: title, courseID: AppActions.courseID(named: s["course"] as? String))
                 if let d = (s["dueInDays"] as? Int) ?? (s["dueInDays"] as? Double).map({ Int($0) }) {
-                    todo.due = Calendar.current.date(byAdding: .day, value: d, to: .now)
+                    a.due = Calendar.current.date(byAdding: .day, value: d, to: .now)
                 }
-                todo.priority = 2
-                state.data.todos.append(todo)
+                a.urgency = 2
+                state.data.assignments.append(a)
                 made += 1
             }
             return "Scheduled \(made) study block\(made == 1 ? "" : "s")."
@@ -1356,7 +1356,7 @@ enum AIToolCatalog {
     ]
 
     static let writes: [AITool] = [
-        tool("add_task", "Add a to-do.", [("text", S), ("course", S), ("dueInDays", I)], ["text"]),
+        tool("add_task", "Add a task or assignment (a task is one with no due date).", [("text", S), ("course", S), ("dueInDays", I)], ["text"]),
         tool("add_note", "Save a note.", [("title", S), ("text", S), ("course", S)], ["text"]),
         tool("create_assignment", "Add an assignment.", [("title", S), ("course", S), ("dueInDays", I), ("points", N)], ["title"]),
         tool("complete_assignment", "Mark an assignment done by title.", [("title", S)], ["title"]),

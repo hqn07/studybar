@@ -149,6 +149,23 @@ struct Assignment: Identifiable, Codable, Hashable {
     }
 }
 
+extension Assignment {
+    /// A plain task — a title with no due date. The lightweight capture that used to be a
+    /// separate To-Do now lives as an Assignment (see the Todo→Assignment merge).
+    init(task title: String, courseID: UUID? = nil) {
+        self.init(title: title, courseID: courseID)
+    }
+
+    /// Migrate a legacy `TodoItem` into an Assignment. Done → `.done`; a high-priority
+    /// todo becomes urgency "now" (2) so it still surfaces; normal/low stay unranked.
+    init(migrating t: TodoItem) {
+        self.init(title: t.text, courseID: t.courseID, due: t.due, notes: t.notes,
+                  status: t.done ? .done : .todo)
+        urgency = t.priority >= 2 ? 2 : nil
+        createdAt = t.createdAt
+    }
+}
+
 // MARK: - To-do (43)
 
 struct TodoItem: Identifiable, Codable, Hashable {

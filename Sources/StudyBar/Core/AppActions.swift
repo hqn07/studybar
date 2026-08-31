@@ -23,9 +23,9 @@ enum AppActions {
     static func addTask(_ text: String, course: String? = nil, dueInDays: Int? = nil) -> Bool {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let s = AppState.current, !t.isEmpty else { return false }
-        var todo = TodoItem(text: t, courseID: courseID(named: course))
-        if let d = dueInDays { todo.due = Calendar.current.date(byAdding: .day, value: d, to: .now) }
-        s.data.todos.append(todo)
+        var a = Assignment(task: t, courseID: courseID(named: course))
+        if let d = dueInDays { a.due = Calendar.current.date(byAdding: .day, value: d, to: .now) }
+        s.data.assignments.append(a)
         return true
     }
 
