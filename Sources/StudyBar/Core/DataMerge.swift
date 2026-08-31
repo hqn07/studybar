@@ -109,6 +109,9 @@ extension AppData {
         r.termName    = merge3(base.termName,   mine.termName,   theirs.termName)
         r.termStart   = merge3(base.termStart,  mine.termStart,  theirs.termStart)
         r.termEnd     = merge3(base.termEnd,    mine.termEnd,    theirs.termEnd)
+        // Read-state is monotonic (once read, stays read) → union across devices.
+        let readUnion = Set(mine.rssRead ?? []).union(theirs.rssRead ?? [])
+        r.rssRead     = readUnion.isEmpty ? nil : Array(readUnion)
         return r
     }
 }

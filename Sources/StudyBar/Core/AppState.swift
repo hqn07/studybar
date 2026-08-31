@@ -333,6 +333,18 @@ final class AppState: ObservableObject {
         get { data.rssFeeds ?? [] }
         set { data.rssFeeds = newValue }
     }
+    // MARK: News read-state — keyed by article link (Articles are re-parsed each refresh).
+    func isRead(_ link: String) -> Bool { (data.rssRead ?? []).contains(link) }
+    func markRead(_ link: String, _ read: Bool = true) {
+        var set = Set(data.rssRead ?? [])
+        if read { set.insert(link) } else { set.remove(link) }
+        data.rssRead = set.isEmpty ? nil : Array(set)
+    }
+    func markRead(_ links: [String]) {
+        guard !links.isEmpty else { return }
+        var set = Set(data.rssRead ?? []); set.formUnion(links)
+        data.rssRead = Array(set)
+    }
     var fileRefs: [FileRef] {
         get { data.fileRefs ?? [] }
         set { data.fileRefs = newValue }

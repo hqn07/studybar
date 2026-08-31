@@ -473,6 +473,7 @@ struct RSSFeed: Identifiable, Codable, Hashable {
     var title: String = ""
     var url: String = ""
     var courseID: UUID? = nil
+    var folder: String = ""          // optional grouping (e.g. "Journals", "News"); decode-safe
 }
 
 // MARK: - Grade "what-if" calculator
@@ -532,6 +533,7 @@ struct AppData: Codable, Equatable {
     var fileRefs: [FileRef]? = nil     // pinned files grouped into collapsible tags
     var trash: [TrashedItem]? = nil    // soft-deleted items, recoverable (decode-safe)
     var timeBlocks: [TimeBlock]? = nil // planned work on a day timeline (decode-safe)
+    var rssRead: [String]? = nil       // links of read News articles (decode-safe; unioned on merge)
 }
 
 extension AppData {
