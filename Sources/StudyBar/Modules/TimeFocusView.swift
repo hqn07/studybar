@@ -290,8 +290,9 @@ private struct PomodoroSection: View {
                 if showSettings { settingsPanel }
 
                 TickDial(title: idle ? "" : p.label, time: p.mmss, subtitle: phaseSub,
-                         progress: fractionRemaining, tint: phaseTint, digitSize: 44)
+                         progress: fractionRemaining, tint: phaseTint, digitSize: idle ? 44 : 54)
                     .padding(.horizontal, DS.Space.s)
+                    .animation(.spring(response: 0.35), value: idle)
 
                 if idle {
                     VStack(spacing: DS.Space.s) {
@@ -312,12 +313,7 @@ private struct PomodoroSection: View {
                     circleButton("forward.fill", disabled: idle, help: "Skip") { p.skip() }
                 }
 
-                goalBar
-
-                HStack(spacing: DS.Space.xl + DS.Space.m) {
-                    stat("\(p.completedFocus)", "sessions")
-                    stat(timeStr(todaySeconds), "today")
-                }
+                footer
             }
             .frame(maxWidth: .infinity).padding(DS.Space.l)
         }
@@ -354,20 +350,30 @@ private struct PomodoroSection: View {
         return Double(p.remaining) / Double(total)
     }
 
-    private var goalBar: some View {
+    /// One carded footer — sessions · focused time · daily-goal progress — instead of a
+    /// separate goal bar and a detached stat row.
+    private var footer: some View {
         let done = StudyStats.pomodorosToday(state.data)
         let hit = done >= dailyGoal
-        return VStack(spacing: 3) {
-            HStack {
-                Text("Daily goal").font(.caption2).foregroundStyle(.secondary)
+        return VStack(spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.xl) {
+                stat("\(p.completedFocus)", "sessions")
+                stat(timeStr(todaySeconds), "focused")
                 Spacer()
-                Text("\(done)/\(dailyGoal)").font(.caption2.bold())
-                    .foregroundStyle(hit ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
-                if hit { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(Color.dsDone) }
+                HStack(spacing: DS.Space.xs) {
+                    Text("\(done)/\(dailyGoal)").font(.callout.bold().monospacedDigit())
+                        .foregroundStyle(hit ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.primary))
+                    if hit { Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Color.dsDone) }
+                    Text("goal").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             ProgressView(value: Double(min(done, dailyGoal)), total: Double(max(1, dailyGoal)))
                 .tint(hit ? Color.dsDone : .accentColor)
-        }.frame(maxWidth: 240)
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: 340)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
     }
 
     private func resetPressed() {
