@@ -5,6 +5,11 @@ struct ScratchpadView: View {
     @EnvironmentObject var state: AppState
     @State private var showPreview = false
     @State private var saved = false
+    @State private var confirmingClear = false
+    /// The text a "new scratchpad" just cleared, kept so Undo can restore it. Local and
+    /// non-expiring (unlike the app's 6-second undo banner) — survives until the next
+    /// clear or until it's restored.
+    @State private var lastCleared: String?
 
     private var words: Int {
         state.data.scratchpad.split { $0.isWhitespace || $0.isNewline }.count
@@ -18,7 +23,12 @@ struct ScratchpadView: View {
                     .foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)).help("Preview Markdown")
                 Button { saveAsNote() } label: { Image(systemName: "note.text.badge.plus") }
                     .help("Save to a note").disabled(empty)
-                Button { state.data.scratchpad = "" } label: { Image(systemName: "trash") }.disabled(empty)
+                if lastCleared != nil {
+                    Button { undoClear() } label: { Image(systemName: "arrow.uturn.backward") }
+                        .help("Undo — restore the cleared text")
+                }
+                Button { confirmingClear = true } label: { Image(systemName: "square.and.pencil") }
+                    .help("New scratchpad — clears the current text").disabled(empty)
             }
         } content: {
             VStack(spacing: 0) {
@@ -36,6 +46,10 @@ struct ScratchpadView: View {
                     Text("\(words) words · \(state.data.scratchpad.count) chars")
                         .font(.caption).foregroundStyle(.secondary)
                     if saved { Text("· saved to Notes").font(.caption).foregroundStyle(.green) }
+                    if lastCleared != nil {
+                        Button { undoClear() } label: { Label("Undo clear", systemImage: "arrow.uturn.backward") }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
                     Spacer()
                     Button {
                         NSPasteboard.general.clearContents()
@@ -45,12 +59,35 @@ struct ScratchpadView: View {
                 }.padding(.horizontal, 12).padding(.vertical, 6)
             }
         }
+        .overlay {
+            if confirmingClear {
+                ConfirmCard(title: "New scratchpad?",
+                            message: "Clears the current text. You can undo right after.",
+                            confirmLabel: "Clear") {
+                    clear(); confirmingClear = false
+                } onCancel: { confirmingClear = false }
+            }
+        }
+    }
+
+    private func clear() {
+        guard !empty else { return }
+        lastCleared = state.data.scratchpad
+        state.data.scratchpad = ""
+    }
+
+    private func undoClear() {
+        guard let text = lastCleared else { return }
+        // Prepend rather than clobber, so anything typed since the clear survives too.
+        state.data.scratchpad = state.data.scratchpad.isEmpty ? text : text + "\n" + state.data.scratchpad
+        lastCleared = nil
     }
 
     private func saveAsNote() {
         guard !empty else { return }
         let firstLine = state.data.scratchpad.split(separator: "\n").first.map(String.init) ?? "Scratch note"
         state.data.notes.append(Note(title: String(firstLine.prefix(40)), body: state.data.scratchpad))
+        lastCleared = state.data.scratchpad
         state.data.scratchpad = ""
         saved = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { saved = false }
