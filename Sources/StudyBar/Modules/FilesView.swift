@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FilesView: View {
     @EnvironmentObject var state: AppState
-    @State private var mode = 0   // 0 recent, 1 pdf search
+    @State private var mode = 0   // 0 recent · 1 groups · 2 pdf search
     @State private var query = ""
     @State private var recent: [FolderAccess.FileItem] = []
     @State private var matches: [FolderAccess.PDFMatch] = []
@@ -39,19 +39,17 @@ struct FilesView: View {
             }
         } content: {
             VStack(spacing: 0) {
-                folderBar
-                Divider()
+                if mode != 1 { folderBar; Divider() }   // folders don't source Groups
                 Picker("", selection: $mode) {
-                    Text("Recent").tag(0); Text("Search PDFs").tag(1)
+                    Text("Recent").tag(0)
+                    Text("Groups").tag(1)
+                    Text("Search PDFs").tag(2)
                 }.pickerStyle(.segmented).labelsHidden().padding(8)
                 Divider()
-                if state.data.folders.isEmpty && state.fileRefs.isEmpty {
-                    EmptyState(symbol: "folder", title: "No folders or pinned files",
-                               subtitle: "Add a folder to list recent files and search PDFs, or pin files into a group for quick access.")
-                } else if mode == 0 {
-                    recentList
-                } else {
-                    pdfSearch
+                switch mode {
+                case 1: groupsTab
+                case 2: pdfSearch
+                default: recentTab
                 }
             }
         }
@@ -185,53 +183,67 @@ struct FilesView: View {
         }
     }
 
-    private var recentList: some View {
+    // MARK: Recent tab
+
+    private var recentTab: some View {
         VStack(spacing: 0) {
-            if !recent.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(fileTypes, id: \.0) { t in
-                            Button { typeFilter = t.0 } label: {
-                                Text(t.1).font(.caption)
-                                    .padding(.horizontal, 9).padding(.vertical, 3)
-                                    .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.sbSurface), in: Capsule())
-                                    .foregroundStyle(typeFilter == t.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                            }.buttonStyle(.plain)
-                        }
-                    }.padding(.horizontal, 10).padding(.vertical, 6)
+            if state.data.folders.isEmpty {
+                EmptyState(symbol: "folder.badge.plus", title: "No folders yet",
+                           subtitle: "Add a folder to list its recent files and search inside its PDFs.")
+                Button { addFolder() } label: { Label("Add a folder", systemImage: "folder.badge.plus") }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                if !recent.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(fileTypes, id: \.0) { t in
+                                Button { typeFilter = t.0 } label: {
+                                    Text(t.1).font(.caption)
+                                        .padding(.horizontal, 9).padding(.vertical, 3)
+                                        .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.sbSurface), in: Capsule())
+                                        .foregroundStyle(typeFilter == t.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(.horizontal, 10).padding(.vertical, 6)
+                    }
+                    Divider()
                 }
-                Divider()
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    if !state.fileRefs.isEmpty {
-                        Text("GROUPS").font(.caption2.bold()).foregroundStyle(.secondary)
-                    } else if !recent.isEmpty {
-                        Label("Tap the tag icon on a file to group it (e.g. Syllabus).",
-                              systemImage: "tag")
-                            .font(.caption2).foregroundStyle(.tertiary)
-                    }
-                    groupsSection
-                    if !state.fileRefs.isEmpty && !filteredRecent.isEmpty {
-                        Divider().padding(.vertical, 2)
-                        Text("RECENT").font(.caption2.bold()).foregroundStyle(.secondary)
-                    }
-                    if filteredRecent.isEmpty {
-                        if recent.isEmpty {
-                            Text(state.data.folders.isEmpty
-                                 ? "Add a folder to list recent files here."
-                                 : "No recent files in these folders.")
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        if filteredRecent.isEmpty {
+                            Text(recent.isEmpty ? "No recent files in these folders." : "No recent files match this filter.")
                                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 6)
                         } else {
-                            Text("No recent files match this filter.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 6)
+                            ForEach(filteredRecent) { f in
+                                fileRow(f.url, sub: "\(f.modified.relativeShort) · \(size(f.size))")
+                                    .contextMenu { addToGroupMenu(f.url) }
+                            }
                         }
-                    } else {
-                        ForEach(filteredRecent) { f in
-                            fileRow(f.url, sub: "\(f.modified.relativeShort) · \(size(f.size))")
-                                .contextMenu { addToGroupMenu(f.url) }
-                        }
-                    }
-                }.padding(10)
+                    }.padding(10)
+                }
+            }
+        }
+    }
+
+    // MARK: Groups tab
+
+    private var groupsTab: some View {
+        VStack(spacing: 0) {
+            if state.fileRefs.isEmpty {
+                EmptyState(symbol: "tag", title: "No groups yet",
+                           subtitle: "Pin files into a named group — a syllabus, a project, this week's readings — for one-tap access, independent of any folder.")
+                Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
+                    Label("Pin files into a group", systemImage: "pin.badge.plus")
+                }.buttonStyle(.borderedProminent)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        groupsSection
+                        Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
+                            Label("New group", systemImage: "plus")
+                        }.buttonStyle(.borderless).font(.caption).padding(.top, 4)
+                    }.padding(10)
+                }
             }
         }
     }
