@@ -115,7 +115,7 @@ struct DictionaryView: View {
                             ForEach(recents, id: \.self) { w in
                                 Button { term = w; lookup() } label: {
                                     Text(w).font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
-                                        .background(.background.secondary, in: Capsule())
+                                        .background(.sbSurface, in: Capsule())
                                 }.buttonStyle(.plain)
                             }
                             Button { recentsRaw = "" } label: { Image(systemName: "xmark.circle").font(.caption2) }

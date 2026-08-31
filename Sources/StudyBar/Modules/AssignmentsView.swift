@@ -138,7 +138,7 @@ struct AssignmentRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(DS.Space.m)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     @ViewBuilder private var statusChip: some View {

@@ -66,7 +66,7 @@ struct OnboardingView: View {
                         }.font(.caption)
                     }
                 }.padding(8).frame(maxWidth: .infinity)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
             }
             Button("Continue") { step = 2 }.buttonStyle(.borderedProminent)
         }

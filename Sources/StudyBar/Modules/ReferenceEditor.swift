@@ -29,7 +29,7 @@ struct ReferenceEditor: View {
                     labeled("Authors (one per line, “Last, First”)") {
                         TextEditor(text: $authorsText).frame(height: 60)
                             .font(.callout).scrollContentBackground(.hidden)
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                     }
                     HStack {
                         labeled("Year") { TextField("", text: $draft.year) }
@@ -80,7 +80,7 @@ struct ReferenceEditor: View {
             }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private var previewRef: Reference {

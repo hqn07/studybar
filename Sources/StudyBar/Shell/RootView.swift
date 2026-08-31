@@ -24,6 +24,7 @@ struct RootView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
     @AppStorage("density") private var densityRaw = "comfortable"
+    @AppStorage(SurfaceTheme.storageKey) private var surfaceThemeRaw = "system"
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
     @AppStorage("onboarded") private var onboarded = false
     @AppStorage("breakScreen") private var breakScreen = true
@@ -71,12 +72,29 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The popover uses macOS's translucent vibrancy material, so the desktop bleeds
-        // through as a muddy tint — paint an opaque background so it reads as a solid panel.
-        .background(surface == .popover ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(Color.clear))
+        .background(baseFill)
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
+    }
+
+    /// The base surface behind everything. Reading `surfaceThemeRaw` (an `@AppStorage`)
+    /// here ties the whole tree to the preset, so switching it re-renders live.
+    ///
+    /// - `.system`: unchanged behavior — the popover paints an opaque window background
+    ///   (macOS vibrancy otherwise lets the desktop bleed through as a muddy tint), the
+    ///   window stays clear.
+    /// - a preset: an opaque near-black base on both surfaces (which also kills the
+    ///   popover bleed).
+    private var baseFill: AnyShapeStyle {
+        switch SurfaceTheme(rawValue: surfaceThemeRaw) ?? .system {
+        case .system:
+            surface == .popover
+                ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+                : AnyShapeStyle(Color.clear)
+        case .nearBlack:
+            AnyShapeStyle(SurfaceTheme.base)
+        }
     }
 
     @ViewBuilder private var undoToast: some View {
@@ -356,7 +374,7 @@ struct SearchField: View {
             }
         }
         .padding(.horizontal, 7).padding(.vertical, 4)
-        .background(.background.secondary, in: Capsule())
+        .background(.sbSurface, in: Capsule())
     }
 }
 

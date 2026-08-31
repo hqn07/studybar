@@ -114,7 +114,7 @@ struct NotesView: View {
                 }
             }
         }
-        .background(.background.secondary.opacity(0.35))
+        .background(.sbSurface.opacity(0.35))
     }
 
     @ViewBuilder private var detailPane: some View {
@@ -199,7 +199,7 @@ struct NoteRow: View {
                 Spacer()
             }
             .padding(DS.Space.m).contentShape(Rectangle())
-            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.background.secondary),
+            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.sbSurface),
                         in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay {
                 if selected {
@@ -269,7 +269,7 @@ struct NoteEditor: View {
             if let img = screenshotImage(draft.imagePath) {
                 Image(nsImage: img).resizable().scaledToFit()
                     .frame(maxHeight: 200).frame(maxWidth: .infinity)
-                    .background(.background.secondary)
+                    .background(.sbSurface)
                 Divider()
             }
             if !showPreview && !focusMode {
@@ -498,7 +498,7 @@ struct NoteEditor: View {
                     }
                 }
                 .frame(maxHeight: 240)
-                .background(.background.secondary)
+                .background(.sbSurface)
             }
         } else {
             // Cap the writing column to a readable measure and center it (only bites once
@@ -591,7 +591,7 @@ struct NoteEditor: View {
                     }.buttonStyle(.borderless)
                 }
             }.padding(.horizontal, 12).padding(.vertical, 6)
-        }.background(.background.secondary)
+        }.background(.sbSurface)
     }
 
     // MARK: Wikilinks — autocomplete strip + backlinks
@@ -625,7 +625,7 @@ struct NoteEditor: View {
                     Text("Type a note title…").font(.caption2).foregroundStyle(.secondary)
                 }
             }.padding(.horizontal, 12).padding(.vertical, 6)
-        }.background(.background.secondary)
+        }.background(.sbSurface)
     }
 
     /// Notes whose body links to this one via `[[this title]]`.
@@ -646,7 +646,7 @@ struct NoteEditor: View {
                     }.buttonStyle(.borderless)
                 }
             }.padding(.horizontal, 12).padding(.vertical, 6)
-        }.background(.background.secondary.opacity(0.5))
+        }.background(.sbSurface.opacity(0.5))
     }
 
     /// Open a clicked `[[link]]`: navigate to the note of that title, creating it if new.
@@ -676,7 +676,7 @@ struct NoteEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }.frame(maxHeight: 130)
         }
-        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, 8).padding(.top, 6)
     }
 

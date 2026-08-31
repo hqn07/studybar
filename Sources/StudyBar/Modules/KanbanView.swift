@@ -96,7 +96,7 @@ struct DropColumn<Content: View>: View {
                 Text(status.rawValue).font(.subheadline.bold())
                 Text("\(count)").font(.caption2)
                     .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(.background.tertiary, in: Capsule())
+                    .background(.sbSurface2, in: Capsule())
                 Spacer()
                 Button(action: add) { Image(systemName: "plus") }.buttonStyle(.borderless).font(.caption)
             }.padding(.horizontal, 4)
@@ -106,7 +106,7 @@ struct DropColumn<Content: View>: View {
         }
         .frame(width: 210)
         .padding(8)
-        .background(targeted ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.background.secondary),
+        .background(targeted ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.sbSurface),
                     in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint, lineWidth: targeted ? 1.5 : 0))
         .dropDestination(for: String.self) { ids, _ in onDropIDs(ids); return true } isTargeted: { targeted = $0 }

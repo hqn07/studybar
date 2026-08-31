@@ -52,7 +52,7 @@ private struct FoldBlock: View {
                 .font(.callout.weight(.semibold)).foregroundStyle(.tint)
         }
         .padding(8)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

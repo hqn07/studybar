@@ -81,8 +81,8 @@ struct Chip: View {
     private var background: AnyShapeStyle {
         switch style {
         case .tag: AnyShapeStyle(.tint.opacity(0.15))
-        case .filter: selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary)
-        case .key: AnyShapeStyle(.background.tertiary)
+        case .filter: selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.sbSurface)
+        case .key: AnyShapeStyle(.sbSurface2)
         case .status(let s): AnyShapeStyle(s.color.opacity(0.18))
         }
     }
@@ -114,7 +114,7 @@ struct SBRow<Trailing: View>: View {
                     .font(.system(size: 14))
                     .foregroundStyle(iconTint)
                     .frame(width: 30, height: 30)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.callout.weight(.medium)).lineLimit(1)
@@ -126,7 +126,8 @@ struct SBRow<Trailing: View>: View {
             trailing()
         }
         .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
     }
 }
 extension SBRow where Trailing == EmptyView {
@@ -152,7 +153,7 @@ struct SectionHeader: View {
             if let count {
                 Text("\(count)").font(.caption2).foregroundStyle(.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(.background.secondary, in: Capsule())
+                    .background(.sbSurface, in: Capsule())
             }
         }
     }
@@ -165,7 +166,8 @@ extension View {
     /// that aren't an SBRow.
     func dsCard(padding: CGFloat = DS.Space.m) -> some View {
         self.padding(padding)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
     }
 }
 

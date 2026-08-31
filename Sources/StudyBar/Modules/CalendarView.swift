@@ -135,7 +135,7 @@ struct CalendarView: View {
                 Text(label).font(.caption)
             }
             .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(on.wrappedValue ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.background.secondary), in: Capsule())
+            .background(on.wrappedValue ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.sbSurface), in: Capsule())
             .foregroundStyle(on.wrappedValue ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .overlay(Capsule().stroke(.separator, lineWidth: on.wrappedValue ? 0 : 0.5))
         }.buttonStyle(.plain)
@@ -209,7 +209,7 @@ struct CalendarView: View {
         }
         .frame(width: 132, alignment: .leading)
         .padding(8)
-        .background(isToday ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.background.secondary),
+        .background(isToday ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.sbSurface),
                     in: RoundedRectangle(cornerRadius: 10))
     }
 
@@ -257,7 +257,7 @@ struct CalendarView: View {
                 }
             }
             .padding(10).contentShape(Rectangle())
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }
         .buttonStyle(.plain)
         .help(tip(item))

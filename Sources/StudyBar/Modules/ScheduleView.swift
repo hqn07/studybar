@@ -368,7 +368,7 @@ struct ClassEditor: View {
                                 } label: {
                                     Text(dayLetter[wd]).font(.caption.weight(.semibold))
                                         .frame(width: 30, height: 30)
-                                        .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.background.secondary), in: Circle())
+                                        .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.sbSurface), in: Circle())
                                         .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                                 }.buttonStyle(.plain)
                             }

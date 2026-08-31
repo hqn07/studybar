@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("density") private var density = "comfortable"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
+    @AppStorage(SurfaceTheme.storageKey) private var surfaceTheme = "system"
     @AppStorage("globalHotkey") private var globalHotkey = false
     @AppStorage("onboarded") private var onboarded = true
     @AppStorage("focusAutomation") private var focusAutomation = false
@@ -114,7 +115,7 @@ struct SettingsView: View {
         }
         .frame(width: 216)
         .scrollIndicators(.hidden)
-        .background(.background.secondary)
+        .background(.sbSurface)
     }
 
     private var navSeparator: some View {
@@ -212,6 +213,11 @@ struct SettingsView: View {
             Picker("Density", selection: $density) {
                 Text("Comfortable").tag("comfortable"); Text("Compact").tag("compact")
             }.pickerStyle(.segmented)
+            Picker("Surface", selection: $surfaceTheme) {
+                ForEach(SurfaceTheme.allCases) { Text($0.label).tag($0.rawValue) }
+            }.pickerStyle(.segmented)
+            Text("Near-black repaints dark-mode surfaces; light mode stays native. Accent and status colors are unchanged.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         Section("Accent") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: 12)], spacing: 12) {
@@ -251,7 +257,7 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func accentSwatch(_ hex: String) -> some View {
@@ -605,7 +611,7 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Text(key).font(.caption.monospaced())
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 4))
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 4))
             Text(desc).font(.caption)
             Spacer()
         }

@@ -89,13 +89,13 @@ struct NoteEquationComposer: View {
                 MathSourceEditor(text: $latex, controller: src)
                     .frame(height: 70)
                     .padding(6)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                     .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(.separator, lineWidth: 0.5))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("PREVIEW").font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
                     ScrollView { RichText(text: previewSource).frame(maxWidth: .infinity, alignment: .leading).padding(6) }
                         .frame(height: 66)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                 }
                 HStack {
                     Text("Tip: type LaTeX, or tap a symbol. No `$` needed.").font(.caption2).foregroundStyle(.tertiary)

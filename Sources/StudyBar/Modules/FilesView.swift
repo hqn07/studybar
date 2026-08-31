@@ -108,7 +108,7 @@ struct FilesView: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Remove from group")
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func expansion(_ g: String) -> Binding<Bool> {
@@ -134,7 +134,7 @@ struct FilesView: View {
                             ForEach(existingGroups, id: \.self) { name in
                                 Button { groupPrompt?.name = name } label: {
                                     Text(name).font(.caption2).padding(.horizontal, 7).padding(.vertical, 2)
-                                        .background(.background.secondary, in: Capsule())
+                                        .background(.sbSurface, in: Capsule())
                                 }.buttonStyle(.plain)
                             }
                         }
@@ -179,7 +179,7 @@ struct FilesView: View {
                         }.buttonStyle(.borderless).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.background.secondary, in: Capsule())
+                    .background(.sbSurface, in: Capsule())
                 }
             }.padding(.horizontal, 10).padding(.vertical, 6)
         }
@@ -194,7 +194,7 @@ struct FilesView: View {
                             Button { typeFilter = t.0 } label: {
                                 Text(t.1).font(.caption)
                                     .padding(.horizontal, 9).padding(.vertical, 3)
-                                    .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.background.secondary), in: Capsule())
+                                    .background(typeFilter == t.0 ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.sbSurface), in: Capsule())
                                     .foregroundStyle(typeFilter == t.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                             }.buttonStyle(.plain)
                         }
@@ -258,7 +258,7 @@ struct FilesView: View {
                                     Text("…\(m.snippet)…").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(9).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                                .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)
@@ -300,7 +300,7 @@ struct FilesView: View {
             Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right.square") }
                 .buttonStyle(.borderless).font(.caption).help("Open")
         }
-        .padding(8).background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     /// Open in Apple Preview for docs/images (resizable, annotatable — nicer than a

@@ -59,7 +59,7 @@ struct RSSView: View {
                 }
             }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }

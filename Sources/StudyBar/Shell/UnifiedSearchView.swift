@@ -94,7 +94,7 @@ struct UnifiedSearchView: View {
                                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 .padding(10).contentShape(Rectangle())
-                                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)

@@ -351,7 +351,7 @@ struct TimeBlockView: View {
                 }
                 .padding(.horizontal, 14).padding(.vertical, DS.Space.s)
             }
-            .background(.background.secondary.opacity(0.4))
+            .background(.sbSurface.opacity(0.4))
         }
     }
 
@@ -483,7 +483,7 @@ struct TimeBlockEditor: View {
                         TextEditor(text: $draft.notes)
                             .font(.callout).frame(minHeight: 70)
                             .padding(4)
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                     }
                 }.padding(14)
             }
