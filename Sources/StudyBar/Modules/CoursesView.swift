@@ -46,8 +46,22 @@ struct CoursesView: View {
     @State private var nextTerm = ""
     @State private var pastPrompt = false
     @State private var pastTerm = ""
+    @State private var editingTerm = false
 
     private var currentTerm: String { state.data.termName }
+
+    // Term timeline (merged in from the old Semester module).
+    private var termStart: Date? { state.data.termStart }
+    private var termEnd: Date? { state.data.termEnd }
+    private var termProgress: Double {
+        guard let s = termStart, let e = termEnd, e > s else { return 0 }
+        return min(1, max(0, Date().timeIntervalSince(s) / e.timeIntervalSince(s)))
+    }
+    private var weeksLeft: Int? {
+        guard let e = termEnd else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: .now, to: e).day ?? 0
+        return max(0, Int(ceil(Double(days) / 7)))
+    }
     private func isCurrent(_ c: Course) -> Bool { c.term.isEmpty || c.term == currentTerm }
     private var currentCourses: [Course] { state.data.courses.filter { isCurrent($0) } }
     private var pastGroups: [(term: String, courses: [Course])] {
@@ -69,8 +83,9 @@ struct CoursesView: View {
                 Menu {
                     Button { editing = Course(name: "", term: currentTerm) } label: { Label("Add course", systemImage: "plus") }
                     Button { pastTerm = ""; pastPrompt = true } label: { Label("Add past course…", systemImage: "clock.arrow.circlepath") }
+                    Divider()
+                    Button { editingTerm = true } label: { Label("Set term dates…", systemImage: "calendar.badge.plus") }
                     if !currentCourses.isEmpty {
-                        Divider()
                         Button { nextTerm = ""; archiving = true } label: { Label("Start next term…", systemImage: "arrow.right.circle") }
                     }
                 } label: { Image(systemName: "plus") }.menuStyle(.borderlessButton).fixedSize()
@@ -95,6 +110,7 @@ struct CoursesView: View {
             }
             .navigationDestination(item: $editing) { CourseEditor(course: $0) }
             .navigationDestination(item: $detailID) { CourseDetailView(courseID: $0) }
+            .navigationDestination(isPresented: $editingTerm) { TermEditor() }
         }
         .overlay { if archiving { archiveCard } }
         .overlay { if pastPrompt { pastCard } }
@@ -138,18 +154,46 @@ struct CoursesView: View {
                 Text(currentTerm.isEmpty ? "This term" : currentTerm).font(.title3.weight(.semibold))
                 Spacer()
             }
-            HStack(spacing: DS.Space.l) {
-                heroStat(gpa.map { String(format: "%.2f", $0) } ?? "—", "GPA")
-                heroSep
-                heroStat("\(currentCourses.count)", "courses")
-                heroSep
-                heroStat(gstr(credits), "credits")
-                Spacer()
-                if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
+            VStack(alignment: .leading, spacing: DS.Space.m) {
+                HStack(spacing: DS.Space.l) {
+                    heroStat(gpa.map { String(format: "%.2f", $0) } ?? "—", "GPA")
+                    heroSep
+                    heroStat("\(currentCourses.count)", "courses")
+                    heroSep
+                    heroStat(gstr(credits), "credits")
+                    Spacer()
+                    if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
+                }
+                termTimeline
             }
             .padding(DS.Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        }
+    }
+
+    /// Term progress — folded in from the old Semester module. Shows a slim progress bar
+    /// and weeks-left when the term dates are set, or a one-tap prompt to set them.
+    @ViewBuilder private var termTimeline: some View {
+        if let s = termStart, let e = termEnd, e > s {
+            Divider()
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                HStack {
+                    Text("\(s.formatted(date: .abbreviated, time: .omitted)) – \(e.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    if let w = weeksLeft {
+                        Text(w == 0 ? "term over" : "\(w) week\(w == 1 ? "" : "s") left")
+                            .font(.caption2.weight(.medium)).foregroundStyle(.tint)
+                    }
+                }
+                ProgressView(value: termProgress)
+            }
+        } else {
+            Divider()
+            Button { editingTerm = true } label: {
+                Label("Set term dates", systemImage: "calendar.badge.plus").font(.caption)
+            }.buttonStyle(.borderless)
         }
     }
     private func isCurrentCourse(_ id: UUID?) -> Bool {
@@ -590,5 +634,37 @@ struct CourseEditor: View {
             state.data.notes[i].courseID = nil
         }
         dismiss()
+    }
+}
+
+struct TermEditor: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var start = Date()
+    @State private var end = Date()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubHeader("Term Dates")
+            Divider()
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("Term name (e.g. Fall 2026)", text: $name).textFieldStyle(.roundedBorder)
+                DatePicker("Start", selection: $start, displayedComponents: .date)
+                DatePicker("End", selection: $end, displayedComponents: .date)
+            }.padding(16)
+            Divider()
+            HStack { Spacer(); Button("Cancel") { dismiss() }
+                Button("Save") {
+                    state.data.termName = name; state.data.termStart = start; state.data.termEnd = end; dismiss()
+                }.keyboardShortcut(.defaultAction) }.padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .onAppear {
+            name = state.data.termName
+            start = state.data.termStart ?? Date()
+            end = state.data.termEnd ?? Calendar.current.date(byAdding: .month, value: 4, to: Date())!
+        }
     }
 }

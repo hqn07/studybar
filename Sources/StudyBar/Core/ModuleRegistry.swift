@@ -97,8 +97,6 @@ enum ModuleRegistry {
               category: .organize) { AnyView(TodosView()) },
         .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",
               category: .organize, wide: true) { AnyView(KanbanView()) },
-        .init(id: "semester", title: "Semester", symbol: "calendar.badge.clock",
-              category: .organize) { AnyView(SemesterView()) },
         .init(id: "gradecalc", title: "Grade Calc", symbol: "percent",
               category: .organize) { AnyView(GradeCalcView()) },
         .init(id: "courses", title: "Courses", symbol: "graduationcap",
