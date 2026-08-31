@@ -13,12 +13,30 @@ struct NotesView: View {
     @State private var newDraft: Note?          // wide window: a not-yet-saved new note
     @State private var search = ""
     @State private var sort = NoteSort.updated
+    @State private var scope: NoteScope = .all
 
     /// The split (list + editor) needs real width; below this we push one note at a time.
     private let splitMinWidth: CGFloat = 640
 
+    /// Which course slice the list is showing. Tabs across the top switch it.
+    enum NoteScope: Hashable { case all, untagged, course(UUID) }
+
+    /// Courses that actually own a note, in the app's course order — the tab set.
+    private var coursesWithNotes: [Course] {
+        let used = Set(state.data.notes.compactMap(\.courseID))
+        return state.data.courses.filter { used.contains($0.id) }
+    }
+    private var hasUntagged: Bool { state.data.notes.contains { $0.courseID == nil } }
+    /// Only worth showing tabs once notes span at least one course.
+    private var showTabs: Bool { !coursesWithNotes.isEmpty }
+
     private var notes: [Note] {
         var list = state.data.notes
+        switch scope {
+        case .all: break
+        case .untagged: list = list.filter { $0.courseID == nil }
+        case .course(let id): list = list.filter { $0.courseID == id }
+        }
         if !search.isEmpty {
             list = list.filter {
                 $0.title.localizedCaseInsensitiveContains(search) ||
@@ -74,8 +92,33 @@ struct NotesView: View {
 
     // MARK: Narrow / popover — list that pushes one note
 
+    /// Course tabs — All · one per course with notes · Untagged. Filters the list so a
+    /// heavy notebook stays navigable. Hidden until at least one note is course-tagged.
+    @ViewBuilder private var courseTabBar: some View {
+        if showTabs {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    tabChip("All", scope: .all)
+                    ForEach(coursesWithNotes) { c in
+                        tabChip(c.code.isEmpty ? c.name : c.code, scope: .course(c.id), dot: c.color)
+                    }
+                    if hasUntagged { tabChip("Untagged", scope: .untagged) }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 6)
+            }
+            Divider()
+        }
+    }
+
+    private func tabChip(_ label: String, scope s: NoteScope, dot: Color? = nil) -> some View {
+        Button { scope = s } label: {
+            Chip(label, .filter, selected: scope == s, dot: dot)
+        }.buttonStyle(.plain)
+    }
+
     private var stackBody: some View {
         VStack(spacing: 0) {
+            courseTabBar
             if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
             if notes.isEmpty {
                 notesEmptyState
@@ -101,6 +144,7 @@ struct NotesView: View {
 
     private var listPane: some View {
         VStack(spacing: 0) {
+            courseTabBar
             if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
             if notes.isEmpty {
                 notesEmptyState
@@ -147,7 +191,8 @@ struct NotesView: View {
         if state.pendingNew == "notes" { state.pendingNew = nil; newNote(split: split) }
     }
     private func newNote(split: Bool) {
-        let n = Note()
+        var n = Note()
+        if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
         if split { newDraft = n; selection = n.id }   // editor inserts it on first edit
         else { editing = n }                          // insert only on Save
     }
@@ -155,6 +200,7 @@ struct NotesView: View {
     private func newFromTemplate(_ t: NoteTemplates.Template, split: Bool) {
         let attr = t.build()
         var n = Note(title: t.title)
+        if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
         n.rich = attr.rtfdData(); n.body = attr.string
         state.data.notes.append(n)                    // has content → insert now
         if split { selection = n.id; newDraft = nil } else { editing = n }
