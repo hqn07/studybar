@@ -56,8 +56,8 @@ struct Chip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if let dot { Circle().fill(dot).frame(width: 7, height: 7) }
-            if let systemImage { Image(systemName: systemImage).font(.system(size: 9, weight: .bold)) }
+            if let dot { Circle().fill(dot).frame(width: 7, height: 7).accessibilityHidden(true) }
+            if let systemImage { Image(systemName: systemImage).font(.system(size: 9, weight: .bold)).accessibilityHidden(true) }
             Text(text)
         }
         .font(font)
@@ -115,6 +115,7 @@ struct SBRow<Trailing: View>: View {
                     .font(.system(size: 14))
                     .foregroundStyle(iconTint)
                     .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)   // decorative — the title carries the meaning
                     .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
             VStack(alignment: .leading, spacing: 1) {

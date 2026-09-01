@@ -196,6 +196,7 @@ struct AssignmentRow: View {
                     .font(.title3)
                     .foregroundStyle(done ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
             }.buttonStyle(.plain)
+                .accessibilityLabel(done ? "Mark not done" : "Mark done")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: DS.Space.xs) {
@@ -218,9 +219,11 @@ struct AssignmentRow: View {
             if !assignment.link.isEmpty {
                 Button { open(assignment.link) } label: { Image(systemName: "arrow.up.right.square") }
                     .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel("Open link")
             }
             Button { onEdit() } label: { Image(systemName: "pencil") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
+                .accessibilityLabel("Edit assignment")
         }
         .padding(DS.Space.m)
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))

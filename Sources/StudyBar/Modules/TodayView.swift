@@ -330,6 +330,8 @@ struct TodayView: View {
                 .contentTransition(.numericText()).animation(.snappy, value: streak)
             Text("day streak").font(.caption).foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(streak) day study streak")
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, _ count: Int, _ icon: String, @ViewBuilder _ c: () -> C) -> some View {

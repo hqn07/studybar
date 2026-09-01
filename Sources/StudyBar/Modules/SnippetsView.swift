@@ -204,6 +204,7 @@ struct SnippetRow: View {
             .buttonStyle(.borderless)
             .foregroundStyle(copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
             .help("Copy (expands placeholders)")
+            .accessibilityLabel(copied ? "Copied" : "Copy snippet")
         }
         .padding(.horizontal, DS.Space.xs).padding(.vertical, DS.Space.m)
         .contentShape(Rectangle())
