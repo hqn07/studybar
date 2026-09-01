@@ -14,6 +14,7 @@ struct InsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     if AIConfig.isReady { weeklyReviewCard }
+                    todayCard
                     streakCard
                     section("Last 7 days", nil, "chart.bar.fill") { barChart }
                     section("This week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
@@ -50,6 +51,15 @@ struct InsightsView: View {
     }
 
     // MARK: - Metric tiles (mono-accent — semantic color is state only)
+
+    /// Today's counters — moved here from the Today module (which is now glance-first).
+    private var todayCard: some View {
+        HStack(spacing: DS.Space.m) {
+            metric(timeStr(StudyStats.secondsToday(state.data)), "studied today", "clock")
+            metric("\(StudyStats.pomodorosToday(state.data))", "pomodoros", "timer")
+            metric("\(state.data.assignments.filter { $0.status != .done }.count)", "open tasks", "checklist")
+        }
+    }
 
     private var streakCard: some View {
         HStack(spacing: DS.Space.m) {

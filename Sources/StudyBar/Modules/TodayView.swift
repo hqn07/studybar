@@ -1,189 +1,150 @@
 import SwiftUI
-import EventKit
 
+/// Today — a proactive glance. The hero is the single item that most deserves a head
+/// start (ranked by `TodayFocus`, with an AI-written line when an engine is configured),
+/// followed by an overdue flag, a week-load strip, today's classes, and the next 7 days.
+/// Vanity counters (studied / pomodoros / open tasks) live in Insights now.
 struct TodayView: View {
     @EnvironmentObject var state: AppState
-    @StateObject private var cal = CalendarService()
     @State private var quickTask = ""
+    @State private var aiLine: String?
+    @State private var aiForID: UUID?
 
     // MARK: derived
 
-    private var upNext: [EKEvent] {
-        cal.events.filter { $0.endDate >= .now && !$0.isAllDay }
-            .sorted { $0.startDate < $1.startDate }.prefix(3).map { $0 }
-    }
     private var streak: Int { StudyStats.currentStreak(state.data) }
-    private var todayMin: Int { StudyStats.secondsToday(state.data) / 60 }
-    private var week7Min: [Int] { StudyStats.last7Days(state.data).map(\.minutes) }
-    private var openTasks: Int { state.data.assignments.filter { $0.status != .done }.count }
-
-    private var dueToday: [Assignment] {
-        state.data.assignments.filter {
-            guard $0.status != .done, let d = $0.daysUntilDue else { return false }
-            return d <= 0
-        }.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
-    }
-    private var dueSoon: [Assignment] {
-        state.data.assignments.filter {
-            guard $0.status != .done, let d = $0.daysUntilDue else { return false }
-            return d > 0 && d <= 3
-        }.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
-    }
-    private var currentlyReading: [ReadingItem] {
-        state.data.reading.filter { $0.shelf == 1 }.sorted { $0.updatedAt > $1.updatedAt }.prefix(3).map { $0 }
-    }
-
     private var todayWeekday: Int { Calendar.current.component(.weekday, from: .now) }
     private var nowMinutes: Int {
         let c = Calendar.current.dateComponents([.hour, .minute], from: .now)
         return (c.hour ?? 0) * 60 + (c.minute ?? 0)
     }
-    private var nextClass: ClassSession? {
-        state.data.classes
-            .filter { $0.meets(on: todayWeekday) && $0.endMinutes >= nowMinutes }
-            .sorted { $0.startMinutes < $1.startMinutes }.first
+
+    private var focus: Assignment? { TodayFocus.top(state.data) }
+    private var overdue: [Assignment] {
+        state.data.assignments.filter { $0.status != .done && $0.isOverdue }
+            .sorted { ($0.due ?? .distantPast) < ($1.due ?? .distantPast) }
     }
-
-    // MARK: hero resolution — the single "what do I do now"
-
+    private var todayClasses: [ClassSession] {
+        state.data.classes.filter { $0.meets(on: todayWeekday) }.sorted { $0.startMinutes < $1.startMinutes }
+    }
+    private var nextClass: ClassSession? { todayClasses.first { $0.endMinutes >= nowMinutes } }
     private func inSession(_ c: ClassSession) -> Bool { c.startMinutes <= nowMinutes && c.endMinutes >= nowMinutes }
-    private var overdueFirst: Assignment? { dueToday.first(where: { $0.isOverdue }) }
 
-    private enum Hero { case cls(ClassSession), assignment(Assignment), reading(ReadingItem), caughtUp }
-    /// "What do I do now" — attention order, not just chronology.
-    private var hero: Hero {
-        if let c = nextClass, inSession(c) { return .cls(c) }   // you're literally in class
-        if let a = overdueFirst { return .assignment(a) }        // overdue beats an upcoming class
-        if let c = nextClass { return .cls(c) }
-        if let a = dueToday.first { return .assignment(a) }
-        if let a = dueSoon.first { return .assignment(a) }
-        if let r = currentlyReading.first { return .reading(r) }
-        return .caughtUp
+    private var next7: [Assignment] {
+        state.data.assignments
+            .filter { $0.status != .done }
+            .filter { if let d = $0.daysUntilDue { return d >= 0 && d <= 7 } else { return false } }
+            .filter { $0.id != focus?.id }
+            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
-    private var heroAssignmentID: UUID? { if case .assignment(let a) = hero { return a.id }; return nil }
-    private var heroReadingID: UUID? { if case .reading(let r) = hero { return r.id }; return nil }
 
     // MARK: body
 
     var body: some View {
-        ModulePane(title: greeting) {
-            streakChip
-        } content: {
+        ModulePane(title: greeting) { streakChip } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.l) {
                     heroCard
-                    statRow
+                    if !overdue.isEmpty { overdueBanner }
+                    weekStrip
                     quickAddBlock
-
-                    let dueTodayList = dueToday.filter { $0.id != heroAssignmentID }
-                    let dueSoonList = dueSoon.filter { $0.id != heroAssignmentID }
-                    let readingList = currentlyReading.filter { $0.id != heroReadingID }
-
-                    if !dueTodayList.isEmpty {
-                        section("Due today", dueTodayList.count, "exclamationmark.circle") {
-                            ForEach(dueTodayList) { assignmentRow($0, urgent: true) }
+                    if !todayClasses.isEmpty {
+                        section("Today", todayClasses.count, "clock") {
+                            ForEach(todayClasses) { classRow($0) }
                         }
                     }
-                    if !dueSoonList.isEmpty {
-                        section("Next 3 days", dueSoonList.count, "calendar") {
-                            ForEach(dueSoonList) { assignmentRow($0, urgent: false) }
-                        }
-                    }
-                    if !upNext.isEmpty {
-                        section("Up next", upNext.count, "clock") {
-                            ForEach(Array(upNext.enumerated()), id: \.offset) { _, e in eventRow(e) }
-                        }
-                    }
-                    if !readingList.isEmpty {
-                        section("Currently reading", readingList.count, "book") {
-                            ForEach(readingList) { readingRow($0) }
+                    if !next7.isEmpty {
+                        section("Next 7 days", next7.count, "calendar") {
+                            ForEach(next7) { assignmentRow($0) }
                         }
                     }
                 }.padding(DS.Space.l)
             }
         }
-        .onAppear { if cal.authorized { cal.load(days: 2) } }
+        .task(id: focus?.id) { await refreshAILine() }
     }
 
-    // MARK: - Hero card
-
-    @ViewBuilder private var heroCard: some View {
-        switch hero {
-        case .cls(let c):        classHero(c)
-        case .assignment(let a): assignmentHero(a)
-        case .reading(let r):    readingHero(r)
-        case .caughtUp:          caughtUpHero
+    /// Fetch the AI hero line for the current focus item (falls back silently to `reason`).
+    private func refreshAILine() async {
+        aiLine = nil
+        guard let a = focus else { aiForID = nil; return }
+        aiForID = a.id
+        if let line = await TodayFocus.aiLine(for: a, data: state.data), aiForID == a.id {
+            withAnimation(.easeOut(duration: 0.25)) { aiLine = line }
         }
     }
 
-    /// Leading semantic stripe + card surface, whole thing tappable.
-    private func heroFrame<C: View>(stripe: Color, jump: String, @ViewBuilder _ content: () -> C) -> some View {
-        Button { state.selectedModuleID = jump } label: {
-            HStack(spacing: DS.Space.l) {
-                RoundedRectangle(cornerRadius: 2).fill(stripe).frame(width: 4)
-                content()
-                Spacer(minLength: DS.Space.s)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(DS.Space.l)
-            .frame(minHeight: 74)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(stripe.opacity(0.25), lineWidth: 0.5))
-        }.buttonStyle(.plain)
+    // MARK: - Hero
+
+    @ViewBuilder private var heroCard: some View {
+        if let a = focus { focusHero(a) }
+        else if let c = nextClass { classHero(c) }
+        else { caughtUpHero }
     }
 
-    private func eyebrow(_ text: String, _ color: Color) -> some View {
-        Text(text.uppercased()).font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(color)
+    /// The proactive hero — accent-tinted card, the top-ranked item, its reason (AI or
+    /// heuristic), and two actions. The whole card isn't a button (it holds buttons); the
+    /// title opens the assignment.
+    private func focusHero(_ a: Assignment) -> some View {
+        let days = a.daysUntilDue ?? 99
+        let dueLabel = a.isOverdue ? "\(-days)d overdue" : (days == 0 ? "Due today" : days == 1 ? "Tomorrow" : (a.due?.dayMonth ?? ""))
+        let dueStatus: Chip.Status = a.isOverdue ? .now : (days <= 3 ? .week : .neutral)
+        return VStack(alignment: .leading, spacing: DS.Space.s) {
+            Label("One thing worth a head start", systemImage: "sparkles")
+                .font(.caption2.weight(.bold)).textCase(.uppercase).foregroundStyle(.tint)
+            Button { state.selectedModuleID = "assignments" } label: {
+                Text(a.title.isEmpty ? "Untitled" : a.title)
+                    .font(.title3.weight(.semibold)).lineLimit(2)
+                    .foregroundStyle(.primary).multilineTextAlignment(.leading)
+            }.buttonStyle(.plain)
+            HStack(spacing: DS.Space.s) {
+                CourseChip(course: state.course(a.courseID))
+                if !dueLabel.isEmpty { Chip(dueLabel, .status(dueStatus)) }
+            }
+            Text(aiLine ?? TodayFocus.reason(a))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: DS.Space.m) {
+                Button { AppActions.startFocus(label: a.title); state.selectedModuleID = "timefocus" } label: {
+                    Label("Start focus", systemImage: "timer")
+                }.buttonStyle(.borderedProminent).controlSize(.small)
+                if AIConfig.isReady {
+                    Button { AppActions.assistant(DailyPlan.prompt(state.data)) } label: {
+                        Label("Plan my day", systemImage: "sparkles")
+                    }.buttonStyle(.bordered).controlSize(.small)
+                }
+            }.padding(.top, DS.Space.xs)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DS.Space.l)
+        .background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25), lineWidth: 0.5))
     }
 
     private func classHero(_ c: ClassSession) -> some View {
         let course = state.course(c.courseID)
-        let inSession = c.startMinutes <= nowMinutes && c.endMinutes >= nowMinutes
+        let live = inSession(c)
         let until = c.startMinutes - nowMinutes
-        return heroFrame(stripe: course?.color ?? .accentColor, jump: "schedule") {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                eyebrow(inSession ? "In class now" : "Next class", inSession ? .dsNow : .accentColor)
-                Text(course?.name ?? (c.title.isEmpty ? "Class" : c.title))
-                    .font(.title3.weight(.semibold)).lineLimit(1)
-                HStack(spacing: DS.Space.s) {
-                    Text("\(c.startString) – \(c.endString)").font(.caption).foregroundStyle(.secondary)
-                    if !c.room.isEmpty { Text("· \(c.room)").font(.caption).foregroundStyle(.secondary) }
-                    if !c.link.isEmpty { Image(systemName: "video.fill").font(.caption2).foregroundStyle(.tint) }
+        return Button { state.selectedModuleID = "schedule" } label: {
+            HStack(spacing: DS.Space.l) {
+                RoundedRectangle(cornerRadius: 2).fill(course?.color ?? .accentColor).frame(width: 4)
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    Text(live ? "IN CLASS NOW" : "NEXT CLASS").font(.caption2.weight(.bold)).tracking(0.6)
+                        .foregroundStyle(live ? Color.dsNow : .accentColor)
+                    Text(course?.name ?? (c.title.isEmpty ? "Class" : c.title)).font(.title3.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: DS.Space.s) {
+                        Text("\(c.startString) – \(c.endString)").font(.caption).foregroundStyle(.secondary)
+                        if !c.room.isEmpty { Text("· \(c.room)").font(.caption).foregroundStyle(.secondary) }
+                    }
                 }
+                Spacer(minLength: DS.Space.s)
+                if live { Chip("Now", .status(.now)) }
+                else if until < 60 { Chip("in \(max(0, until))m", .status(.week)) }
+                else { Chip(c.startString, .status(.neutral)) }
             }
-            Spacer(minLength: DS.Space.s)
-            if inSession { Chip("Now", .status(.now)) }
-            else if until < 60 { Chip("in \(max(0, until))m", .status(.week)) }
-            else { Chip(c.startString, .status(.neutral)) }
-        }
-    }
-
-    private func assignmentHero(_ a: Assignment) -> some View {
-        let urgent = (a.daysUntilDue ?? 99) <= 0
-        let label = a.isOverdue ? "Overdue" : (a.daysUntilDue == 0 ? "Due today" : (a.due?.dayMonth ?? "Due soon"))
-        return heroFrame(stripe: urgent ? .dsNow : .dsWeek, jump: "assignments") {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                eyebrow(a.isOverdue ? "Overdue" : "Next due", urgent ? .dsNow : .dsWeek)
-                Text(a.title.isEmpty ? "Untitled" : a.title)
-                    .font(.title3.weight(.semibold)).lineLimit(2)
-                CourseChip(course: state.course(a.courseID))
-            }
-            Spacer(minLength: DS.Space.s)
-            Chip(label, .status(urgent ? .now : .week))
-        }
-    }
-
-    private func readingHero(_ r: ReadingItem) -> some View {
-        heroFrame(stripe: .accentColor, jump: "reading") {
-            CoverThumb(coverPath: r.coverPath, size: CGSize(width: 34, height: 48))
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                eyebrow("Pick up reading", .accentColor)
-                Text(r.title).font(.callout.weight(.semibold)).lineLimit(1)
-                ProgressView(value: r.progress).tint(.accentColor)
-                Text(r.totalPages > 0 ? "\(r.currentPage)/\(r.totalPages) p" : "\(r.currentPage) p")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-        }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(DS.Space.l).frame(minHeight: 74)
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        }.buttonStyle(.plain)
     }
 
     private var caughtUpHero: some View {
@@ -192,35 +153,101 @@ struct TodayView: View {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("All caught up").font(.callout.weight(.semibold))
                 Text(streak > 0 ? "\(streak)-day streak going — start a focus session to keep it."
-                                : "Nothing urgent. Start a focus session or add a course to get going.")
+                                : "Nothing urgent on the horizon. Add a course or start a focus session.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: DS.Space.s)
         }
-        .padding(DS.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DS.Space.l).frame(maxWidth: .infinity, alignment: .leading)
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
-    // MARK: - Stat row
+    // MARK: - Overdue flag
 
-    private var statRow: some View {
-        HStack(spacing: DS.Space.m) {
-            statTile("\(todayMin)m", "studied today", "clock", "timefocus", spark: week7Min)
-            statTile("\(StudyStats.pomodorosToday(state.data))", "pomodoros", "timer", "timefocus")
-            statTile("\(openTasks)", "open tasks", "checklist", "assignments")
+    private var overdueBanner: some View {
+        Button { state.selectedModuleID = "assignments" } label: {
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.dsNow)
+                Text("\(overdue.count) overdue").font(.callout.weight(.semibold))
+                Text(overdue.prefix(2).map { $0.title.isEmpty ? "Untitled" : $0.title }.joined(separator: ", "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: DS.Space.s)
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
+            .background(Color.dsNow.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(Color.dsNow.opacity(0.25), lineWidth: 0.5))
+        }.buttonStyle(.plain)
+    }
+
+    // MARK: - Week-load strip
+
+    private var weekStrip: some View {
+        let load = TodayFocus.load(state.data, days: 7)
+        let maxV = CGFloat(max(1, load.max() ?? 1))
+        let cal = Calendar.current
+        return VStack(alignment: .leading, spacing: DS.Space.s) {
+            SectionHeader(title: "This week", systemImage: "chart.bar")
+            HStack(alignment: .bottom, spacing: DS.Space.s) {
+                ForEach(0..<7, id: \.self) { i in
+                    let day = cal.date(byAdding: .day, value: i, to: cal.startOfDay(for: .now)) ?? .now
+                    VStack(spacing: 4) {
+                        Text(load[i] == 0 ? "·" : "\(load[i])")
+                            .font(.caption2.monospacedDigit()).foregroundStyle(load[i] == 0 ? .tertiary : .secondary)
+                        ZStack(alignment: .bottom) {
+                            RoundedRectangle(cornerRadius: 3).fill(.sbSurface2).frame(height: 40)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(i == 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.45)))
+                                .frame(height: load[i] == 0 ? 0 : max(5, CGFloat(load[i]) / maxV * 40))
+                        }
+                        Text(String(day.formatted(.dateTime.weekday(.narrow))))
+                            .font(.caption2).foregroundStyle(i == 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    }.frame(maxWidth: .infinity)
+                }
+            }
         }
     }
 
-    private func statTile(_ v: String, _ l: String, _ icon: String, _ jump: String, spark: [Int]? = nil) -> some View {
-        Button { state.selectedModuleID = jump } label: {
-            VStack(spacing: DS.Space.xs) {
-                Image(systemName: icon).font(.caption).foregroundStyle(.tint)
-                Text(v).font(.title3.bold().monospacedDigit())
-                Text(l).font(.caption2).foregroundStyle(.secondary)
-                if let spark { Sparkline(values: spark).frame(height: 16).padding(.top, 1) }
+    // MARK: - Rows
+
+    private func classRow(_ c: ClassSession) -> some View {
+        let course = state.course(c.courseID)
+        let live = inSession(c)
+        let isNext = c.id == nextClass?.id
+        return Button { state.selectedModuleID = "schedule" } label: {
+            HStack(spacing: DS.Space.m) {
+                Text(c.startString).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+                Circle().fill(course?.color ?? .accentColor).frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(course?.name ?? (c.title.isEmpty ? "Class" : c.title)).font(.callout.weight(.medium)).lineLimit(1)
+                    if !c.room.isEmpty { Text(c.room).font(.caption2).foregroundStyle(.secondary) }
+                }
+                Spacer(minLength: DS.Space.s)
+                if live { Chip("Now", .status(.now)) }
+                else if isNext { Chip("Next", .status(.week)) }
             }
-            .frame(maxWidth: .infinity).padding(.vertical, DS.Space.m)
+            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        }.buttonStyle(.plain)
+    }
+
+    private func assignmentRow(_ a: Assignment) -> some View {
+        let days = a.daysUntilDue ?? 99
+        let label = days == 0 ? "Today" : days == 1 ? "Tomorrow" : (a.due?.dayMonth ?? "")
+        let status: Chip.Status = days == 0 ? .now : (days <= 3 ? .week : .neutral)
+        return Button { state.selectedModuleID = "assignments" } label: {
+            HStack(spacing: DS.Space.m) {
+                Circle().fill(state.course(a.courseID)?.color ?? Color.secondary).frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(a.title.isEmpty ? "Untitled" : a.title).font(.callout.weight(.medium)).lineLimit(1)
+                    CourseChip(course: state.course(a.courseID))
+                }
+                Spacer(minLength: DS.Space.s)
+                if TodayFocus.weight(a.title) >= 0.9 { Chip("project", .tag) }
+                if !label.isEmpty { Chip(label, .status(status)) }
+            }
+            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
     }
@@ -243,35 +270,22 @@ struct TodayView: View {
                 Button { state.pendingNew = "notes"; state.selectedModuleID = "notes" } label: {
                     Image(systemName: "note.text.badge.plus")
                 }.buttonStyle(.borderless).help("New note")
-                Button { state.selectedModuleID = "timefocus" } label: {
-                    Image(systemName: "timer")
-                }.buttonStyle(.borderless).help("Start a timer")
             }
             if showParsePreview { parsePreview }
-            if AIConfig.isReady {
-                Button {
-                    AppActions.assistant(DailyPlan.prompt(state.data))
-                } label: {
-                    Label("Plan my day", systemImage: "sparkles").frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered).controlSize(.large).tint(.accentColor)
-                .help("Plan my day with the assistant")
-            }
         }
     }
 
     private var parsePreview: some View {
         let p = parsedQuick
         return HStack(spacing: DS.Space.s) {
-            Image(systemName: p.isAssignment ? "checklist" : "circle")
-                .font(.caption2).foregroundStyle(.secondary)
+            Image(systemName: p.isAssignment ? "checklist" : "circle").font(.caption2).foregroundStyle(.secondary)
             Text(p.title.isEmpty ? "…" : p.title).font(.caption).lineLimit(1)
             if let c = state.course(p.courseID) { CourseChip(course: c) }
             if let due = p.due { Chip(due.dayMonth, .status(dueStatus(due))) }
             Spacer(minLength: DS.Space.s)
             Chip(p.isAssignment ? "Assignment" : "Task", .tag)
         }
-        .padding(.horizontal, DS.Space.xs)
-        .transition(.opacity)
+        .padding(.horizontal, DS.Space.xs).transition(.opacity)
     }
 
     private func dueStatus(_ due: Date) -> Chip.Status {
@@ -285,69 +299,10 @@ struct TodayView: View {
         let raw = quickTask.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let p = QuickParse.parse(raw, courses: state.data.courses)
-        // Tasks and dated assignments both land in Assignments — a task is one with no due.
         var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
         a.urgency = p.priority >= 2 ? 2 : nil
         state.data.assignments.append(a)
         quickTask = ""
-    }
-
-    // MARK: - Rows
-
-    private func assignmentRow(_ a: Assignment, urgent: Bool) -> some View {
-        let label = a.isOverdue ? "Overdue" : (a.daysUntilDue == 0 ? "Today" : (a.due?.dayMonth ?? ""))
-        return Button { state.selectedModuleID = "assignments" } label: {
-            HStack(spacing: DS.Space.l) {
-                Image(systemName: "circle").font(.system(size: 14))
-                    .foregroundStyle(urgent ? Color.dsNow : .secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(a.title.isEmpty ? "Untitled" : a.title).font(.callout.weight(.medium)).lineLimit(1)
-                    CourseChip(course: state.course(a.courseID))
-                }
-                Spacer(minLength: DS.Space.s)
-                if !label.isEmpty { Chip(label, .status(urgent ? .now : .week)) }
-            }
-            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        }.buttonStyle(.plain)
-    }
-
-    private func eventRow(_ e: EKEvent) -> some View {
-        Button { state.selectedModuleID = "calendar" } label: {
-            HStack(spacing: DS.Space.l) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(e.calendar.cgColor.map { Color(cgColor: $0) } ?? .accentColor)
-                    .frame(width: 4, height: 30)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(e.title ?? "Event").font(.callout.weight(.medium)).lineLimit(1)
-                    Text(e.startDate.formatted(date: .omitted, time: .shortened))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: DS.Space.s)
-                Image(systemName: "calendar").font(.caption2).foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        }.buttonStyle(.plain)
-    }
-
-    private func readingRow(_ item: ReadingItem) -> some View {
-        HStack(spacing: DS.Space.l) {
-            CoverThumb(coverPath: item.coverPath, size: CGSize(width: 30, height: 42))
-            Button { state.selectedModuleID = "reading" } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title).font(.callout.weight(.medium)).lineLimit(1)
-                    ProgressView(value: item.progress).tint(.accentColor)
-                    Text(item.totalPages > 0 ? "\(item.currentPage)/\(item.totalPages) p" : "\(item.currentPage) p")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }.buttonStyle(.plain)
-            Spacer(minLength: DS.Space.s)
-            Button { state.bumpReading(item.id, by: 1) } label: { Image(systemName: "plus") }.buttonStyle(.bordered)
-            Button { state.bumpReading(item.id, by: 10) } label: { Text("+10").font(.caption) }.buttonStyle(.bordered)
-        }
-        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Pieces
@@ -369,37 +324,6 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
             SectionHeader(title: title, count: count, systemImage: icon)
             c()
-        }
-    }
-}
-
-/// Minimal area+line sparkline for a stat tile. Emphasized endpoint = latest.
-private struct Sparkline: View {
-    let values: [Int]
-    var body: some View {
-        GeometryReader { geo in
-            let maxV = CGFloat(max(1, values.max() ?? 1))
-            let n = CGFloat(max(1, values.count - 1))
-            let pts = values.enumerated().map { i, v in
-                CGPoint(x: geo.size.width * CGFloat(i) / n,
-                        y: geo.size.height * (1 - CGFloat(v) / maxV))
-            }
-            ZStack {
-                Path { p in
-                    guard let first = pts.first, let last = pts.last else { return }
-                    p.move(to: CGPoint(x: first.x, y: geo.size.height))
-                    for pt in pts { p.addLine(to: pt) }
-                    p.addLine(to: CGPoint(x: last.x, y: geo.size.height))
-                    p.closeSubpath()
-                }.fill(.tint.opacity(0.15))
-                Path { p in
-                    guard let first = pts.first else { return }
-                    p.move(to: first); for pt in pts.dropFirst() { p.addLine(to: pt) }
-                }.stroke(.tint, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-                if let last = pts.last {
-                    Circle().fill(.tint).frame(width: 4, height: 4).position(last)
-                }
-            }
         }
     }
 }
