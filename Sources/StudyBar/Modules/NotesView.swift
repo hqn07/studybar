@@ -149,12 +149,20 @@ struct NotesView: View {
             if notes.isEmpty {
                 notesEmptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(notes) { n in
-                            NoteRow(note: n, selected: n.id == selection) { select(n.id) }
-                        }
-                    }.padding(8)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(notes) { n in
+                                NoteRow(note: n, selected: n.id == selection) { select(n.id) }
+                                    .id(n.id)
+                            }
+                        }.padding(8)
+                    }
+                    .keyboardListNav(ids: notes.map(\.id), selection: $selection,
+                                     onActivate: { select($0) }, onEscape: { selection = nil })
+                    .onChange(of: selection) { _, id in
+                        if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
+                    }
                 }
             }
         }

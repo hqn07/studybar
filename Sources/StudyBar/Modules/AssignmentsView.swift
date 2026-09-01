@@ -11,6 +11,7 @@ struct AssignmentsView: View {
     @State private var editing: Assignment?
     @State private var classifying = false
     @State private var quickAdd = ""
+    @State private var selectedID: UUID?
     @FocusState private var quickFocused: Bool
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
 
@@ -69,14 +70,24 @@ struct AssignmentsView: View {
                         EmptyState(symbol: "checklist", title: "No assignments",
                                    subtitle: "Add homework, papers and exams — or a quick task above.")
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: DS.Space.s) {
-                                ForEach(list) { a in
-                                    AssignmentRow(assignment: a) { editing = a }
-                                        .transition(.move(edge: .leading).combined(with: .opacity))
-                                }
-                            }.padding(DS.Space.m)
-                            .animation(.snappy(duration: 0.28), value: list)   // complete/add slides, not pops
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(spacing: DS.Space.s) {
+                                    ForEach(list) { a in
+                                        AssignmentRow(assignment: a) { editing = a }
+                                            .kbSelected(a.id == selectedID)
+                                            .id(a.id)
+                                            .transition(.move(edge: .leading).combined(with: .opacity))
+                                    }
+                                }.padding(DS.Space.m)
+                                .animation(.snappy(duration: 0.28), value: list)   // complete/add slides, not pops
+                            }
+                            .keyboardListNav(ids: list.map(\.id), selection: $selectedID,
+                                             onActivate: { id in editing = list.first { $0.id == id } },
+                                             onEscape: { selectedID = nil })
+                            .onChange(of: selectedID) { _, id in
+                                if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
+                            }
                         }
                     }
                 }
