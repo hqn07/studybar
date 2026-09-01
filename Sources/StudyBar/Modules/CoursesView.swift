@@ -366,6 +366,7 @@ struct CourseDetailView: View {
     let courseID: UUID
     @State private var editing: Course?
     @State private var editingAssignment: Assignment?
+    @AppStorage("gradeTarget") private var gradeTarget = 90.0
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
@@ -395,7 +396,7 @@ struct CourseDetailView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         headerCard(c)
                         effortCard(c)
-                        if !courseGradeItems.isEmpty { gradeCard() }
+                        gradeCard()
                         if !assignments.isEmpty {
                             section("OPEN ASSIGNMENTS (\(assignments.count))") {
                                 ForEach(assignments) { a in assignmentRow(a) }
@@ -516,27 +517,88 @@ struct CourseDetailView: View {
         }
     }
 
+    // MARK: - Grade what-if (folded in from the retired Grade Calc module)
+
+    private var gradedWeight: Double { courseGradeItems.filter(\.graded).reduce(0) { $0 + $1.weight } }
+    private var ungradedWeight: Double { courseGradeItems.filter { !$0.graded }.reduce(0) { $0 + $1.weight } }
+    private var totalWeight: Double { courseGradeItems.reduce(0) { $0 + $1.weight } }
+    private var earnedPoints: Double { courseGradeItems.filter(\.graded).reduce(0) { $0 + $1.weight * $1.score / 100 } }
+    private var currentPct: Double { gradedWeight > 0 ? earnedPoints / gradedWeight * 100 : 0 }
+    /// Score needed on the remaining (ungraded) weight to reach the target overall.
+    private var neededOnRest: Double? {
+        guard ungradedWeight > 0 else { return nil }
+        return (gradeTarget - earnedPoints) / ungradedWeight * 100
+    }
+    private var neededMessage: (text: String, color: Color)? {
+        guard let need = neededOnRest else { return nil }
+        if need <= 0 { return ("Already secured — even a 0% on the rest keeps you at target.", .green) }
+        if need > 100 { return ("Out of reach on the remaining \(Int(ungradedWeight))% — the most you can finish with is \(String(format: "%.1f", earnedPoints + ungradedWeight))%.", .red) }
+        return (String(format: "Need %.1f%% on the remaining %d%% to hit %d%%.", need, Int(ungradedWeight), Int(gradeTarget)), .primary)
+    }
+
     @ViewBuilder private func gradeCard() -> some View {
-        let graded = courseGradeItems.filter { $0.graded }
-        let gw = graded.reduce(0.0) { $0 + $1.weight }
         section("GRADE") {
-            if gw > 0 {
-                let earned = graded.reduce(0.0) { $0 + $1.weight * $1.score / 100 }
-                Text(String(format: "%.1f%% earned on %d%% graded", earned / gw * 100, Int(gw)))
-                    .font(.callout.weight(.semibold))
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
+                Text(gradedWeight > 0 ? String(format: "%.1f%%", currentPct) : "—")
+                    .font(.system(size: 30, weight: .bold, design: .rounded)).monospacedDigit()
+                if gradedWeight > 0 { Text(letterForPct(currentPct)).font(.title3.bold()).foregroundStyle(.tint) }
+                Spacer()
+                Text(gradedWeight > 0 ? "\(Int(gradedWeight))% of grade in" : "no graded work yet")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-            ForEach(courseGradeItems) { g in
-                HStack {
-                    Text(g.name.isEmpty ? "Component" : g.name).font(.callout)
-                    Spacer()
-                    Text("\(Int(g.weight))%").font(.caption).foregroundStyle(.secondary)
-                    Text(g.graded ? "\(Int(g.score))%" : "—").font(.caption.weight(.medium))
-                        .frame(width: 44, alignment: .trailing)
-                }
-                .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            if totalWeight > 0 && totalWeight != 100 {
+                Label("Weights sum to \(Int(totalWeight))% — usually 100%.", systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.orange)
             }
-            Button("Open Grade Calc") { state.selectedModuleID = "gradecalc" }
-                .font(.caption).buttonStyle(.borderless)
+
+            // What-if target
+            HStack {
+                Text("Target").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $gradeTarget, in: 50...100, step: 1)
+                Text("\(Int(gradeTarget))%").font(.caption.monospacedDigit()).foregroundStyle(.tint).frame(width: 34)
+            }
+            if let m = neededMessage {
+                Label(m.text, systemImage: "target").font(.caption).foregroundStyle(m.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !courseGradeItems.isEmpty {
+                Text("Mark a component “not taken yet” to compute what you need on it.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            // Editable components
+            ForEach(courseGradeItems) { g in gradeItemRow(g) }
+            Button { state.gradeItems.append(GradeItem(courseID: courseID)) } label: {
+                Label("Add component", systemImage: "plus").font(.caption)
+            }.buttonStyle(.borderless)
+        }
+    }
+
+    private func gradeItemRow(_ item: GradeItem) -> some View {
+        let b = Binding<GradeItem>(
+            get: { state.gradeItems.first { $0.id == item.id } ?? item },
+            set: { nv in if let i = state.gradeItems.firstIndex(where: { $0.id == item.id }) { state.gradeItems[i] = nv } })
+        return VStack(spacing: 6) {
+            HStack(spacing: DS.Space.s) {
+                TextField("Component (e.g. Midterm)", text: b.name).textFieldStyle(.plain).fontWeight(.medium)
+                Button(role: .destructive) { state.gradeItems.removeAll { $0.id == item.id } } label: {
+                    Image(systemName: "trash")
+                }.buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: DS.Space.m) {
+                gradeField("Weight", b.weight)
+                if item.graded { gradeField("Score", b.score) }
+                Toggle("Taken", isOn: b.graded).toggleStyle(.button).controlSize(.small).font(.caption)
+            }
+        }
+        .padding(DS.Space.m).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func gradeField(_ label: String, _ value: Binding<Double>) -> some View {
+        HStack(spacing: 3) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            TextField(label, value: value, format: .number).textFieldStyle(.roundedBorder)
+                .frame(width: 52).multilineTextAlignment(.trailing)
+            Text("%").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
