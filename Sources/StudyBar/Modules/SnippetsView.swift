@@ -8,7 +8,6 @@ struct SnippetsView: View {
     @State private var search = ""
     @State private var byUse = false
     @State private var selectedCategory: String? = nil     // nil = All
-    @State private var collapsed: Set<String> = []
 
     private static func cat(_ s: Snippet) -> String { s.category.isEmpty ? "General" : s.category }
 
@@ -54,13 +53,7 @@ struct SnippetsView: View {
                     if state.data.snippets.count > 4 { SearchField(text: $search).padding(8); Divider() }
                     if categories.count > 1 { categoryChips; Divider() }
 
-                    if searched.isEmpty {
-                        emptyState
-                    } else if search.isEmpty && selectedCategory == nil {
-                        groupedList
-                    } else {
-                        flatList(items: selectedCategory.map { items(in: $0) } ?? searched)
-                    }
+                    if searched.isEmpty { emptyState } else { snippetList }
                 }
             }
             .navigationDestination(item: $editing) { SnippetEditor(snippet: $0) }
@@ -101,34 +94,47 @@ struct SnippetsView: View {
         Button(action: tap) { Chip(label, .filter, selected: active) }.buttonStyle(.plain)
     }
 
-    // Collapsible category sections (shown for "All", no search).
-    private var groupedList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(categories, id: \.self) { c in
-                    let rows = items(in: c)
-                    DisclosureGroup(isExpanded: expansion(c)) {
-                        VStack(spacing: 6) { ForEach(rows) { s in SnippetRow(snippet: s) { editing = s } } }
-                            .padding(.top, 4)
-                    } label: {
-                        SectionHeader(title: c, count: rows.count, systemImage: "number")
+    /// Categories shown right now — every one with matching items, or just the picked chip.
+    private var visibleCategories: [String] {
+        if let c = selectedCategory { return items(in: c).isEmpty ? [] : [c] }
+        return categories.filter { !items(in: $0).isEmpty }
+    }
+    /// Reorder is only meaningful on the natural order — not while searching or sorted-by-use.
+    private var reorderable: Bool { search.isEmpty && !byUse }
+
+    /// One plain List: light section labels + hairline-separated rows, drag to reorder
+    /// within a category. Chips narrow it to a single section.
+    private var snippetList: some View {
+        List {
+            ForEach(visibleCategories, id: \.self) { c in
+                Section {
+                    ForEach(items(in: c)) { s in
+                        SnippetRow(snippet: s) { editing = s }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 8))
+                            .listRowBackground(Color.clear)
                     }
+                    .onMove { from, to in move(category: c, from: from, to: to) }
+                    .moveDisabled(!reorderable)
+                } header: {
+                    Text("\(c) · \(items(in: c).count)")
+                        .font(.caption2.weight(.semibold)).tracking(0.5)
+                        .foregroundStyle(.secondary).textCase(nil)
                 }
-            }.padding(10)
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
-    private func flatList(items: [Snippet]) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 6) {
-                ForEach(items) { s in SnippetRow(snippet: s) { editing = s } }
-            }.padding(10)
-        }
-    }
-
-    private func expansion(_ c: String) -> Binding<Bool> {
-        Binding(get: { !collapsed.contains(c) },
-                set: { open in if open { collapsed.remove(c) } else { collapsed.insert(c) } })
+    /// Reorder within a category, written back into `state.data.snippets` in place so the
+    /// other categories keep their positions.
+    private func move(category c: String, from: IndexSet, to: Int) {
+        var all = state.data.snippets
+        let slots = all.indices.filter { Self.cat(all[$0]) == c }
+        var sub = slots.map { all[$0] }
+        sub.move(fromOffsets: from, toOffset: to)
+        for (k, i) in slots.enumerated() { all[i] = sub[k] }
+        state.data.snippets = all
     }
 
     private var emptyState: some View {
@@ -184,27 +190,24 @@ struct SnippetRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             KeywordPill(keyword: snippet.keyword)
             VStack(alignment: .leading, spacing: 1) {
-                Text(snippet.title.isEmpty ? "Untitled" : snippet.title).fontWeight(.medium).lineLimit(1)
+                Text(snippet.title.isEmpty ? "Untitled" : snippet.title)
+                    .font(.callout.weight(.medium)).lineLimit(1)
                 Text(preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer(minLength: 6)
-            if SnippetExpand.hasPlaceholders(snippet.body) {
-                Image(systemName: "curlybraces").font(.caption2).foregroundStyle(.tint).help("Has placeholders")
+            Spacer(minLength: DS.Space.s)
+            Button { copy() } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
             }
-            if snippet.uses > 0 {
-                Text("\(snippet.uses)×").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-            }
-            Button { copy() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
-                .buttonStyle(.borderless).foregroundStyle(copied ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
-                .help("Copy (expands placeholders)")
-            Button(action: onEdit) { Image(systemName: "pencil") }
-                .buttonStyle(.borderless).foregroundStyle(.secondary)
+            .buttonStyle(.borderless)
+            .foregroundStyle(copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(.secondary))
+            .help("Copy (expands placeholders)")
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(.horizontal, DS.Space.xs).padding(.vertical, DS.Space.m)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onEdit)   // the row edits; copy is the one explicit control
     }
 
     private func copy() {
