@@ -29,8 +29,9 @@ struct FilesView: View {
     }
 
     var body: some View {
-        ModulePane(title: "Files") {
+        ModulePane(title: "Library") {
             HStack(spacing: 8) {
+                LibraryTabPicker()
                 Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
                     Image(systemName: "pin.badge.plus")
                 }.help("Pin files into a group")

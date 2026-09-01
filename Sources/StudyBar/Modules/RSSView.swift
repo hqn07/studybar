@@ -31,8 +31,9 @@ struct RSSView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "News") {
+            ModulePane(title: "Library") {
                 HStack(spacing: 8) {
+                    LibraryTabPicker()
                     if unreadCount > 0 {
                         Button { markAllRead() } label: { Image(systemName: "checkmark.circle") }
                             .help("Mark all as read")

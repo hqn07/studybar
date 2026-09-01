@@ -15,8 +15,9 @@ struct ReadingListView: View {
     }
 
     var body: some View {
-        ModulePane(title: "Reading List") {
+        ModulePane(title: "Library") {
             HStack(spacing: 8) {
+                LibraryTabPicker()
                 Toggle("Unread", isOn: $hideRead).toggleStyle(.switch).controlSize(.mini)
                 Button { addCurrentTab() } label: { Image(systemName: "safari") }
                     .help("Add current browser tab")

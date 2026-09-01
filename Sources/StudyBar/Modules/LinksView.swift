@@ -25,8 +25,9 @@ struct LinksView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Quick Links") {
+            ModulePane(title: "Library") {
                 HStack(spacing: 8) {
+                    LibraryTabPicker()
                     Button { addCurrentTab() } label: { Image(systemName: "safari") }
                         .help("Add current browser tab")
                     Button { editing = QuickLink(title: "", url: "") } label: { Image(systemName: "plus") }

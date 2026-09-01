@@ -60,15 +60,9 @@ enum ModuleRegistry {
         .init(id: "calendar", title: "Calendar", symbol: "calendar",
               category: .schedule, wide: true) { AnyView(CalendarView()) },
 
-        // Links
-        .init(id: "links", title: "Quick Links", symbol: "link",
-              category: .links) { AnyView(LinksView()) },
-        .init(id: "readinglist", title: "Reading List", symbol: "books.vertical",
-              category: .links) { AnyView(ReadingListView()) },
-        .init(id: "files", title: "Files", symbol: "folder",
-              category: .links) { AnyView(FilesView()) },
-        .init(id: "news", title: "News", symbol: "dot.radiowaves.left.and.right",
-              category: .links) { AnyView(RSSView()) },
+        // Links & resources
+        .init(id: "library", title: "Library", symbol: "books.vertical",
+              category: .links, wide: true) { AnyView(LibraryView()) },
 
         // Research
         .init(id: "citations", title: "Citations", symbol: "quote.opening",

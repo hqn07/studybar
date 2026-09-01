@@ -11,6 +11,7 @@ struct UnifiedSearchView: View {
         let symbol: String
         let title: String
         let subtitle: String
+        var libraryTab: String? = nil   // when moduleID == "library", which shelf to open
     }
 
     private var results: [Result] {
@@ -35,7 +36,7 @@ struct UnifiedSearchView: View {
                              title: t.text, subtitle: t.done ? "Done · old to-do" : "Old to-do"))
         }
         for l in state.data.links where has(l.title) || has(l.url) {
-            out.append(.init(moduleID: "links", symbol: l.symbol,
+            out.append(.init(moduleID: "library", symbol: l.symbol,
                              title: l.title.isEmpty ? l.url : l.title, subtitle: l.url))
         }
         for s in state.data.snippets where has(s.title) || has(s.body) || has(s.keyword) {
@@ -56,8 +57,9 @@ struct UnifiedSearchView: View {
                              subtitle: c.authors.first ?? (c.year.isEmpty ? "Citation" : c.year)))
         }
         for r in state.data.readingList where has(r.title) || has(r.url) {
-            out.append(.init(moduleID: "readinglist", symbol: "books.vertical",
-                             title: r.title.isEmpty ? r.url : r.title, subtitle: r.url))
+            out.append(.init(moduleID: "library", symbol: "books.vertical",
+                             title: r.title.isEmpty ? r.url : r.title, subtitle: r.url,
+                             libraryTab: LibraryTab.readlater.rawValue))
         }
         for card in state.data.flashcards where has(card.front) || has(card.back) {
             let deck = state.data.decks.first { $0.id == card.deckID }?.name ?? "Flashcards"
@@ -82,6 +84,7 @@ struct UnifiedSearchView: View {
                     LazyVStack(spacing: 4) {
                         ForEach(results) { r in
                             Button {
+                                if let t = r.libraryTab { UserDefaults.standard.set(t, forKey: "libraryTab") }
                                 state.selectedModuleID = r.moduleID
                                 state.globalSearch = ""
                             } label: {
