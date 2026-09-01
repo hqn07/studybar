@@ -229,8 +229,10 @@ final class AppState: ObservableObject {
         pomodoro.onComplete = { [weak self] seconds, label, courseID, assignmentID in
             self?.logPomodoro(seconds: seconds, label: label, courseID: courseID, assignmentID: assignmentID)
         }
+        // The Clipboard module was retired; the monitor stays instantiated (Snippets still
+        // toggles `.enabled` while copying an expanded snippet) but is never started, so no
+        // copies are recorded. data.clips is preserved for decode-safety and export.
         clipboard = ClipboardMonitor(state: self)
-        clipboard.start()
         AppState.current = self
 
         // The window remembers the last module you were in (validated → falls back to

@@ -203,6 +203,11 @@ struct SettingsView: View {
             Text("If nothing appears, allow StudyBar in System Settings ▸ Notifications.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        Section("Snippets") {
+            Button("Manage snippets…") { state.selectedModuleID = "snippets" }
+            Text("Reusable text with placeholders like {date}, {time} and {clipboard}. Expand them by keyword in the editor, or from the system Services menu — no need for a sidebar module.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         Section("Starter Content") {
             HStack {
                 Button("Add study links") { starterStatus = "Added \(StarterContent.addLinks(state)) links." }

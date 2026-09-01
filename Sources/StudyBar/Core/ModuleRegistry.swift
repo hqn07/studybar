@@ -45,8 +45,8 @@ enum ModuleRegistry {
               category: .capture, wide: true) { AnyView(NotesView()) },
         .init(id: "voice", title: "Voice Note", symbol: "mic",
               category: .capture) { AnyView(VoiceView()) },
-        .init(id: "clipboard", title: "Clipboard", symbol: "doc.on.clipboard",
-              category: .capture) { AnyView(ClipboardView()) },
+        // Snippets — managed from Settings ▸ Snippets; kept off the starter sidebar. The
+        // expansion engine (keyword typing + system Services) runs regardless.
         .init(id: "snippets", title: "Snippets", symbol: "text.badge.plus",
               category: .capture) { AnyView(SnippetsView()) },
 
