@@ -61,6 +61,7 @@ struct RootView: View {
 
     private var shell: some View {
         VStack(spacing: 0) {
+            dataSafetyBanner
             if surface == .popover {
                 popoverBar
                 Divider()
@@ -76,6 +77,36 @@ struct RootView: View {
         .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
+    }
+
+    /// Shown app-wide (both surfaces) only when the store could not be read at launch and
+    /// saving is blocked — so the user is never silently editing a read-only session. The
+    /// real file is preserved untouched (see AppState's load guard); this points them at it.
+    @ViewBuilder private var dataSafetyBanner: some View {
+        if state.dataSaveBlocked {
+            VStack(spacing: 0) {
+                HStack(spacing: DS.Space.m) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Read-only — couldn't open your data file").font(.caption.weight(.semibold))
+                        Text("Your data is safe and untouched, but changes now won't be saved. Quit and reopen StudyBar; if it persists, restore a backup from the data folder.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: DS.Space.s)
+                    Button("Reveal Backups") { revealDataFolder() }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
+                .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.15))
+                Divider()
+            }
+        }
+    }
+
+    private func revealDataFolder() {
+        NSWorkspace.shared.activateFileViewerSelecting([state.dataFileURL])
     }
 
     /// The base surface behind everything. Reading `surfaceThemeRaw` (an `@AppStorage`)
