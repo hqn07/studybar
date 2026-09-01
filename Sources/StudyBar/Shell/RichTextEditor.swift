@@ -728,7 +728,7 @@ struct RichTextEditor: NSViewRepresentable {
         tv.delegate = context.coordinator
         tv.mathController = controller
         let installed = initial.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv)).installingWikilinks().applyingNotesTypography()
-        if installed.length > 0 { tv.textStorage?.setAttributedString(installed) }
+        if installed.length > 0 { tv.textStorage?.setAttributedString(installed); tv.highlightCode() }
         tv.typingAttributes = [.font: RichTextController.baseFont,
                                .foregroundColor: NSColor.labelColor,
                                .paragraphStyle: RichTextController.bodyParagraph]
@@ -751,6 +751,7 @@ struct RichTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             if let tv = notification.object as? NSTextView { controller.snapshot = tv.attributedString() }
+            (notification.object as? FoldingTextView)?.scheduleHighlight()   // paste / delete / cut
             controller.detectLinkContext()
             controller.detectSlashContext()
             controller.onEdit()
@@ -1240,6 +1241,7 @@ final class FoldingTextView: NSTextView {
         }
         clearGhost()
         super.insertText(string, replacementRange: replacementRange)
+        scheduleHighlight()
         if expandSnippet(typed) { return }        // typed ";keyword " → expanded in place
         if applyMarkdownRules(typed) { return }   // typed markdown → formatted in place
         scheduleGhost()
@@ -1249,6 +1251,37 @@ final class FoldingTextView: NSTextView {
     /// delegate's selection-change hook. Safe during typing: the selection change fires
     /// inside `super.insertText` *before* `scheduleGhost`, so the fresh task survives.
     func dismissGhost() { if ghost != nil { clearGhost() } }
+
+    // MARK: - Code syntax highlighting (display-only temporary attributes)
+
+    private var highlightTask: Task<Void, Never>?
+    /// Debounced re-highlight so typing stays cheap on large notes.
+    func scheduleHighlight() {
+        highlightTask?.cancel()
+        highlightTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run { self.highlightCode() }
+        }
+    }
+
+    /// Color tokens inside monospaced (code-block) runs via the layout manager's temporary
+    /// attributes — never written to the text storage, so the note's stored content and its
+    /// own color formatting are untouched.
+    func highlightCode() {
+        guard let ts = textStorage, let lm = layoutManager, ts.length > 0 else { return }
+        let full = NSRange(location: 0, length: ts.length)
+        lm.removeTemporaryAttribute(.foregroundColor, forCharacterRange: full)
+        let nsstr = ts.string as NSString
+        ts.enumerateAttribute(.font, in: full, options: []) { value, range, _ in
+            guard let f = value as? NSFont, f.isFixedPitch, range.length > 0 else { return }
+            let sub = nsstr.substring(with: range)
+            for (r, kind) in CodeHighlight.spans(sub) {
+                let abs = NSRange(location: range.location + r.location, length: r.length)
+                lm.addTemporaryAttribute(.foregroundColor, value: CodeHighlight.color(kind), forCharacterRange: abs)
+            }
+        }
+    }
     private func clearGhost() {
         ghostTask?.cancel(); ghost = nil; ghostLabel.isHidden = true
         if case .error = mathController?.ghostPhase { } else { setPhase(.idle) }
