@@ -98,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         applyAppearanceSetting()
         Notifier.requestAuthorization()
+        Notifier.rescheduleAll(state.data)   // class + assignment reminders from current data
 
         popover.behavior = .transient
         popover.animates = true

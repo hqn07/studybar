@@ -11,6 +11,9 @@ struct SettingsView: View {
     @AppStorage("density") private var density = "comfortable"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
     @AppStorage(SurfaceTheme.storageKey) private var surfaceTheme = "system"
+    @AppStorage("notifyClasses") private var notifyClasses = true
+    @AppStorage("notifyAssignments") private var notifyAssignments = true
+    @AppStorage("notifyClassLead") private var notifyClassLead = 10
     @AppStorage("globalHotkey") private var globalHotkey = false
     @AppStorage("onboarded") private var onboarded = true
     @AppStorage("focusAutomation") private var focusAutomation = false
@@ -199,10 +202,21 @@ struct SettingsView: View {
             }
         }
         Section("Notifications") {
+            Toggle("Remind me before class", isOn: $notifyClasses)
+            if notifyClasses {
+                Stepper("Lead time: \(notifyClassLead) min", value: $notifyClassLead, in: 0...60, step: 5)
+                    .font(.caption)
+            }
+            Toggle("Remind me about due assignments", isOn: $notifyAssignments)
+            Text("Class reminders repeat weekly; assignment reminders fire the evening before, for work due in the next two weeks.")
+                .font(.caption).foregroundStyle(.secondary)
             Button("Send a test notification") { Notifier.post(title: "StudyBar", body: "Notifications are working.") }
             Text("If nothing appears, allow StudyBar in System Settings ▸ Notifications.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .onChange(of: notifyClasses) { _, _ in Notifier.rescheduleAll(state.data) }
+        .onChange(of: notifyAssignments) { _, _ in Notifier.rescheduleAll(state.data) }
+        .onChange(of: notifyClassLead) { _, _ in Notifier.rescheduleAll(state.data) }
         Section("Snippets") {
             Button("Manage snippets…") { state.selectedModuleID = "snippets" }
             Text("Reusable text with placeholders like {date}, {time} and {clipboard}. Expand them by keyword in the editor, or from the system Services menu — no need for a sidebar module.")

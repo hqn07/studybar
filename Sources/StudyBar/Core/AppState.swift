@@ -247,7 +247,10 @@ final class AppState: ObservableObject {
         // copy never holds stale data that a later save would clobber.
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.reloadIfChanged() }
+            Task { @MainActor in
+                self?.reloadIfChanged()
+                if let d = self?.data { Notifier.rescheduleAll(d) }   // keep reminders fresh as time passes
+            }
         }
 
         // Forward nested engine changes so views observing AppState re-render each tick.
