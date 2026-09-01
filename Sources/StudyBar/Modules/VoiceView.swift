@@ -11,6 +11,8 @@ struct VoiceView: View {
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
     @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
     @State private var organizing = false
+    @State private var rawBeforeOrganize: String?
+    @State private var organizeError: String?
 
     private var idle: Bool { voice.status == .idle }
     private var whisper: Bool { voiceEngine == "whisper" }
@@ -105,6 +107,23 @@ struct VoiceView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var modelName: String {
+        VoiceService.whisperModels.first { $0.id == voiceWhisperModel }?.label
+            .components(separatedBy: " · ").first ?? voiceWhisperModel
+    }
+
+    private var downloadPrompt: some View {
+        VStack(spacing: DS.Space.m) {
+            Image(systemName: "arrow.down.circle").font(.largeTitle).foregroundStyle(.tint)
+            Text("Whisper \(modelName) model isn't downloaded yet").font(.callout.weight(.medium))
+            Button { voice.prepareWhisper() } label: {
+                Label("Download now", systemImage: "arrow.down.circle.fill")
+            }.buttonStyle(.borderedProminent)
+            Text("One-time download; then it runs fully offline. Or switch to Apple Speech (menu) for instant, no-download transcription.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
+        }.padding(.top, DS.Space.l)
+    }
+
     private func importAudio() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio]
@@ -149,29 +168,46 @@ struct VoiceView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
 
+                if let err = organizeError {
+                    Label(err, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                }
                 if organizing {
                     HStack(spacing: DS.Space.s) {
                         ProgressView().controlSize(.small)
-                        Text("Organizing into notes…").font(.caption).foregroundStyle(.secondary)
+                        Text("Organizing into notes… your raw transcript is kept.").font(.caption).foregroundStyle(.secondary)
                     }
                 } else if idle {
                     HStack(spacing: DS.Space.m) {
                         Button { saveNote() } label: { Label("Save as note", systemImage: "note.text.badge.plus") }
                             .buttonStyle(.borderedProminent)
-                        if AIConfig.isReady {
+                        if let raw = rawBeforeOrganize {
+                            Button { voice.transcript = raw; rawBeforeOrganize = nil; organizeError = nil } label: {
+                                Label("Revert to raw", systemImage: "arrow.uturn.backward")
+                            }.buttonStyle(.bordered).help("Undo AI organize — restore the original transcript")
+                        } else if AIConfig.isReady {
                             Button { organize() } label: { Label("Organize with AI", systemImage: "sparkles") }
                                 .buttonStyle(.bordered)
-                                .help("Reshape the raw transcript into structured notes — headings + bullet points")
+                                .help("Reshape the raw transcript into structured notes — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = "" }.buttonStyle(.bordered)
+                        Button("Discard") { voice.transcript = ""; rawBeforeOrganize = nil; organizeError = nil }
+                            .buttonStyle(.bordered)
                     }
                 }
             } else if idle {
-                Text(voiceEngine == "whisper"
-                     ? "Record a memo or a whole lecture — Whisper transcribes it on your Mac after you stop. Higher accuracy, fully offline."
-                     : "Speak a memo, a thought, or a whole lecture — StudyBar transcribes it live on your Mac as you talk. Nothing leaves the device.")
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    .frame(maxWidth: 420).padding(.top, DS.Space.xl)
+                if whisper && !voice.whisperReady {
+                    downloadPrompt
+                } else {
+                    if whisper && voice.whisperReady {
+                        Label("Whisper \(modelName) ready · offline", systemImage: "checkmark.circle")
+                            .font(.caption2).foregroundStyle(.green)
+                    }
+                    Text(whisper
+                         ? "Record a memo or a whole lecture — Whisper transcribes it after you stop. Higher accuracy, fully offline."
+                         : "Speak a memo, a thought, or a whole lecture — StudyBar transcribes it live as you talk. Nothing leaves the device.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .frame(maxWidth: 420).padding(.top, DS.Space.l)
+                }
             }
             Spacer()
         }
@@ -180,6 +216,7 @@ struct VoiceView: View {
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        organizeError = nil
         organizing = true
         Task {
             let sys = """
@@ -187,14 +224,31 @@ struct VoiceView: View {
             clean, structured study notes: a short title line, section headings, and concise \
             bullet points capturing the key facts, terms, definitions, dates, and numbers. Be \
             faithful — do NOT add information that isn't in the transcript, don't answer \
-            questions or editorialize. Plain markdown.
+            questions or editorialize. Output ONLY the notes as plain markdown — no JSON, no \
+            code fences, no preamble.
             """
             let text = try? await provider.complete(system: sys, messages: [AIMessage(role: .user, text: raw)])
             await MainActor.run {
                 organizing = false
-                if let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { voice.transcript = t }
+                let cleaned = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if isPlausibleNotes(cleaned) {
+                    rawBeforeOrganize = raw            // keep the original — never lost, revertible
+                    voice.transcript = cleaned
+                } else {
+                    // The model returned junk (e.g. a JSON blob). Leave the transcript ALONE.
+                    organizeError = "The AI returned an unusable result — your transcript is unchanged. A stronger engine (Settings ▸ Intelligence) organizes far better than the local model."
+                }
             }
         }
+    }
+
+    /// Guard against a broken model reply overwriting good text — must be substantial and
+    /// not an obvious JSON/garbage blob.
+    private func isPlausibleNotes(_ s: String) -> Bool {
+        guard s.count >= 24 else { return false }
+        if s.first == "{" && s.last == "}" { return false }
+        if s.first == "[" && s.last == "]" { return false }
+        return true
     }
 
     private var deniedState: some View {

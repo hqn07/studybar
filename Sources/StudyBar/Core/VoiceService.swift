@@ -50,16 +50,18 @@ final class VoiceService: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var committed = ""
+    private var currentPartial = ""
+    private var emptyRestarts = 0
     private var wantsRecording = false
     // Whisper
     private var whisper: WhisperKit?
-    private var loadedModel: String?
+    @Published private(set) var loadedModel: String?   // published so the UI knows when a model is ready
     private var audioFile: AVAudioFile?
     private var recordURL: URL?
     private var whisperMode = false
 
     /// True when the loaded Whisper model matches the current pref (no download needed).
-    var whisperReady: Bool { whisper != nil && loadedModel == whisperModel }
+    var whisperReady: Bool { loadedModel == whisperModel }
 
     var isRecording: Bool { status == .recording }
     func toggle() {
@@ -71,7 +73,7 @@ final class VoiceService: ObservableObject {
     }
 
     func start() {
-        transcript = ""; committed = ""; wantsRecording = true
+        transcript = ""; committed = ""; currentPartial = ""; emptyRestarts = 0; wantsRecording = true
         waveform = Array(repeating: 0, count: 48)
         whisperMode = useWhisper
         Task { @MainActor in
@@ -120,17 +122,34 @@ final class VoiceService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let result {
-                    self.transcript = self.join(self.committed, result.bestTranscription.formattedString)
-                    if result.isFinal { self.segmentFinished(result.bestTranscription.formattedString) }
-                } else if error != nil { self.finish() }
+                    self.currentPartial = result.bestTranscription.formattedString
+                    self.transcript = self.join(self.committed, self.currentPartial)
+                    if result.isFinal { self.commitAndContinue() }
+                } else if error != nil {
+                    // On-device Speech ends a segment with an error (not just isFinal),
+                    // routinely near the ~1-minute cap. Commit what we have and keep going,
+                    // rather than stopping and dropping the paragraph.
+                    self.commitAndContinue()
+                }
             }
         }
     }
 
-    private func segmentFinished(_ partial: String) {
-        committed = join(committed, partial); transcript = committed
+    /// A segment ended (final or errored): fold its text into the running transcript, then
+    /// start the next segment if the user is still recording. Bails out only if the user
+    /// stopped or several segments in a row produced nothing (a real fault, not a boundary).
+    private func commitAndContinue() {
+        if !currentPartial.isEmpty {
+            committed = join(committed, currentPartial)
+            transcript = committed
+            emptyRestarts = 0
+        } else {
+            emptyRestarts += 1
+        }
+        currentPartial = ""
         task = nil; request = nil
-        if wantsRecording && engine.isRunning { startSegment() } else { finish() }
+        guard wantsRecording, engine.isRunning, emptyRestarts < 6 else { finish(); return }
+        startSegment()
     }
 
     // MARK: - Whisper (record to file → transcribe)
