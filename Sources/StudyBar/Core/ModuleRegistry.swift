@@ -77,12 +77,6 @@ enum ModuleRegistry {
               category: .research) { AnyView(CitationsView()) },
         .init(id: "wordcount", title: "Word Count", symbol: "textformat",
               category: .research) { AnyView(WordCountView()) },
-        .init(id: "dictionary", title: "Dictionary", symbol: "character.book.closed",
-              category: .research) { AnyView(DictionaryView()) },
-        .init(id: "lookup", title: "Lookup", symbol: "magnifyingglass",
-              category: .research) { AnyView(LookupView()) },
-        .init(id: "equation", title: "Equation", symbol: "function",
-              category: .research) { AnyView(EquationView()) },
 
         // Study
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
