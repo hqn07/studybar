@@ -73,8 +73,10 @@ struct AssignmentsView: View {
                             LazyVStack(spacing: DS.Space.s) {
                                 ForEach(list) { a in
                                     AssignmentRow(assignment: a) { editing = a }
+                                        .transition(.move(edge: .leading).combined(with: .opacity))
                                 }
                             }.padding(DS.Space.m)
+                            .animation(.snappy(duration: 0.28), value: list)   // complete/add slides, not pops
                         }
                     }
                 }

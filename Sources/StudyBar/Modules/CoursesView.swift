@@ -541,6 +541,7 @@ struct CourseDetailView: View {
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
                 Text(gradedWeight > 0 ? String(format: "%.1f%%", currentPct) : "—")
                     .font(.system(size: 30, weight: .bold, design: .rounded)).monospacedDigit()
+                    .contentTransition(.numericText()).animation(.snappy, value: currentPct)
                 if gradedWeight > 0 { Text(letterForPct(currentPct)).font(.title3.bold()).foregroundStyle(.tint) }
                 Spacer()
                 Text(gradedWeight > 0 ? "\(Int(gradedWeight))% of grade in" : "no graded work yet")

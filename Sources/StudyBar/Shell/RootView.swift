@@ -200,6 +200,9 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .id(state.selectedModuleID)                                   // clean swap per module
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.16), value: state.selectedModuleID)   // subtle crossfade
     }
 
     // MARK: Window body (sidebar + content)

@@ -327,6 +327,7 @@ struct TodayView: View {
         HStack(spacing: 4) {
             Image(systemName: "flame.fill").foregroundStyle(streak > 0 ? .orange : .secondary)
             Text("\(streak)").fontWeight(.bold)
+                .contentTransition(.numericText()).animation(.snappy, value: streak)
             Text("day streak").font(.caption).foregroundStyle(.secondary)
         }
     }

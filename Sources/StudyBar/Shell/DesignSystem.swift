@@ -66,6 +66,7 @@ struct Chip: View {
         .background(background, in: shape)
         .overlay { if style == .key { RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(.separator, lineWidth: 0.5) } }
         .foregroundStyle(foreground)
+        .animation(.snappy(duration: 0.18), value: selected)   // filter/tab chips ease on toggle
     }
 
     private var font: Font {
