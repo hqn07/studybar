@@ -114,6 +114,8 @@ struct DeckView: View {
     @State private var cardFilter = ""
     @State private var studying = false
     @State private var practiceAll = false
+    @State private var matching = false
+    @State private var testing = false
     @State private var editingCard: Flashcard?
     @State private var importing = false
 
@@ -153,6 +155,8 @@ struct DeckView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
         .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll) }
+        .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id) }
+        .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id) }
         .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
         .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id) }
     }
@@ -165,6 +169,13 @@ struct DeckView: View {
             CoursePicker(courseID: courseBinding)
             Spacer()
             Menu {
+                if cards.count >= 4 {
+                    Section("Study modes") {
+                        Button { matching = true } label: { Label("Match game", systemImage: "square.grid.2x2") }
+                        Button { testing = true } label: { Label("Test yourself", systemImage: "checklist") }
+                    }
+                    Divider()
+                }
                 Button { importing = true } label: { Label("Import from Anki / CSV…", systemImage: "square.and.arrow.down") }
                 Button { exportFile() } label: { Label("Export for Anki…", systemImage: "square.and.arrow.up") }
                 Button { exportCSV() } label: { Label("Copy deck as CSV", systemImage: "doc.on.doc") }
@@ -752,5 +763,240 @@ struct StudyView: View {
 
     private func color(_ g: SM2.Grade) -> Color {
         switch g { case .again: return .red; case .hard: return .orange; case .good: return .blue; case .easy: return .green }
+    }
+}
+
+// MARK: - Match game (Quizlet-style pairing — practice only, no FSRS scheduling)
+
+/// Tap a term, then its definition. Correct pairs fade out; mismatches flash. Times you.
+struct MatchView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let deckID: UUID
+
+    private struct Tile: Identifiable, Equatable { let id = UUID(); let pair: UUID; let text: String; let isTerm: Bool }
+    @State private var tiles: [Tile] = []
+    @State private var picked: UUID? = nil
+    @State private var gone: Set<UUID> = []
+    @State private var wrong: Set<UUID> = []
+    @State private var startAt = Date()
+    @State private var finishedAt: Date? = nil
+
+    private var pairCount: Int { tiles.count / 2 }
+    private var done: Bool { !tiles.isEmpty && gone.count == tiles.count }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if done { result } else { grid }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .onAppear { if tiles.isEmpty { build() } }
+    }
+
+    private var header: some View {
+        HStack(spacing: DS.Space.m) {
+            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+                .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
+            Text("Match").font(.headline)
+            Spacer()
+            if !done {
+                TimelineView(.periodic(from: startAt, by: 0.1)) { ctx in
+                    Text(String(format: "%.1fs", (finishedAt ?? ctx.date).timeIntervalSince(startAt)))
+                        .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text("\(gone.count / 2)/\(pairCount)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Button { build() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless).help("Shuffle")
+        }.padding(12)
+    }
+
+    private var grid: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 10)], spacing: 10) {
+                ForEach(tiles) { tile in
+                    let isGone = gone.contains(tile.id)
+                    Button { tap(tile) } label: {
+                        Text(tile.text).font(.callout).multilineTextAlignment(.center).lineLimit(4)
+                            .frame(maxWidth: .infinity, minHeight: 62).padding(8)
+                            .background(fill(tile), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .overlay(RoundedRectangle(cornerRadius: DS.Radius.card)
+                                .strokeBorder(stroke(tile), lineWidth: 1.2))
+                    }
+                    .buttonStyle(.plain).disabled(isGone)
+                    .opacity(isGone ? 0 : 1).animation(.easeOut(duration: 0.2), value: isGone)
+                }
+            }.padding(14)
+        }
+    }
+
+    private var result: some View {
+        VStack(spacing: DS.Space.l) {
+            Image(systemName: "checkmark.seal.fill").font(.largeTitle).foregroundStyle(Color.dsDone)
+            Text("Matched \(pairCount) pairs").font(.title3.weight(.semibold))
+            if let f = finishedAt {
+                Text(String(format: "in %.1f seconds", f.timeIntervalSince(startAt)))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            HStack(spacing: DS.Space.m) {
+                Button { build() } label: { Label("Play again", systemImage: "arrow.clockwise") }.buttonStyle(.borderedProminent)
+                Button("Done") { dismiss() }.buttonStyle(.bordered)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func fill(_ t: Tile) -> AnyShapeStyle {
+        if picked == t.id { return AnyShapeStyle(.tint.opacity(0.18)) }
+        if wrong.contains(t.id) { return AnyShapeStyle(Color.dsNow.opacity(0.18)) }
+        return AnyShapeStyle(.sbSurface)
+    }
+    private func stroke(_ t: Tile) -> Color {
+        if picked == t.id { return .accentColor }
+        if wrong.contains(t.id) { return .dsNow }
+        return .clear
+    }
+
+    private func build() {
+        let cards = state.data.flashcards
+            .filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty }
+            .shuffled().prefix(6)
+        var t: [Tile] = []
+        for c in cards {
+            t.append(Tile(pair: c.id, text: Cloze.parse(c.front).plain, isTerm: true))
+            t.append(Tile(pair: c.id, text: c.back, isTerm: false))
+        }
+        tiles = t.shuffled(); picked = nil; gone = []; wrong = []; startAt = Date(); finishedAt = nil
+    }
+
+    private func tap(_ tile: Tile) {
+        guard !gone.contains(tile.id), finishedAt == nil, wrong.isEmpty else { return }
+        guard let first = picked else { picked = tile.id; return }
+        if first == tile.id { picked = nil; return }
+        let a = tiles.first { $0.id == first }, b = tile
+        if let a, a.pair == b.pair, a.isTerm != b.isTerm {
+            gone.insert(first); gone.insert(tile.id); picked = nil
+            if gone.count == tiles.count { finishedAt = Date() }
+        } else {
+            wrong = [first, tile.id]; picked = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { wrong = [] }
+        }
+    }
+}
+
+// MARK: - Test (multiple-choice quiz — practice only, no FSRS scheduling)
+
+/// A quick multiple-choice quiz over the deck: the card's front, four options drawn from
+/// other cards' backs. Scores at the end. Doesn't change scheduling.
+struct TestView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let deckID: UUID
+
+    private struct Q: Identifiable { let id = UUID(); let front: String; let answer: String; let options: [String] }
+    @State private var qs: [Q] = []
+    @State private var idx = 0
+    @State private var score = 0
+    @State private var picked: String? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if qs.isEmpty {
+                EmptyState(symbol: "checklist", title: "Not enough cards",
+                           subtitle: "Add a few more cards with distinct answers to take a test.")
+            } else if idx >= qs.count {
+                result
+            } else {
+                question(qs[idx])
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .onAppear { if qs.isEmpty { build() } }
+    }
+
+    private var header: some View {
+        HStack(spacing: DS.Space.m) {
+            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+                .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
+            Text("Test").font(.headline)
+            Spacer()
+            if !qs.isEmpty && idx < qs.count {
+                Text("\(idx + 1)/\(qs.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }.padding(12)
+    }
+
+    private func question(_ q: Q) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.l) {
+            Text(q.front).font(.title3.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(DS.Space.l)
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            VStack(spacing: DS.Space.s) {
+                ForEach(q.options, id: \.self) { opt in
+                    Button { if picked == nil { picked = opt; if opt == q.answer { score += 1 } } } label: {
+                        HStack {
+                            Text(opt).multilineTextAlignment(.leading)
+                            Spacer(minLength: DS.Space.s)
+                            if picked != nil && opt == q.answer { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.dsDone) }
+                            else if picked == opt { Image(systemName: "xmark.circle.fill").foregroundStyle(Color.dsNow) }
+                        }
+                        .padding(DS.Space.m).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(optionFill(opt, q), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(optionStroke(opt, q), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                }
+            }
+            if picked != nil {
+                Button { idx += 1; picked = nil } label: {
+                    Label(idx + 1 == qs.count ? "See score" : "Next", systemImage: "arrow.right").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent)
+            }
+            Spacer()
+        }.padding(DS.Space.l)
+    }
+
+    private func optionFill(_ opt: String, _ q: Q) -> AnyShapeStyle {
+        guard let picked else { return AnyShapeStyle(.sbSurface) }
+        if opt == q.answer { return AnyShapeStyle(Color.dsDone.opacity(0.15)) }
+        if opt == picked { return AnyShapeStyle(Color.dsNow.opacity(0.15)) }
+        return AnyShapeStyle(.sbSurface)
+    }
+    private func optionStroke(_ opt: String, _ q: Q) -> Color {
+        guard picked != nil else { return .clear }
+        if opt == q.answer { return .dsDone }
+        if opt == picked { return .dsNow }
+        return .clear
+    }
+
+    private var result: some View {
+        let pct = qs.isEmpty ? 0 : Int(round(Double(score) / Double(qs.count) * 100))
+        return VStack(spacing: DS.Space.l) {
+            Image(systemName: pct >= 80 ? "checkmark.seal.fill" : "flag.checkered")
+                .font(.largeTitle).foregroundStyle(pct >= 80 ? Color.dsDone : .accentColor)
+            Text("\(score) / \(qs.count) correct").font(.title2.weight(.semibold))
+            Text("\(pct)%").font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: DS.Space.m) {
+                Button { build() } label: { Label("Retake", systemImage: "arrow.clockwise") }.buttonStyle(.borderedProminent)
+                Button("Done") { dismiss() }.buttonStyle(.bordered)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func build() {
+        let cards = state.data.flashcards.filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty }
+        let backs = Array(Set(cards.map(\.back)))
+        guard cards.count >= 2 && backs.count >= 2 else { qs = []; idx = 0; score = 0; picked = nil; return }
+        qs = cards.shuffled().prefix(12).map { c in
+            var opts = [c.back]
+            let distractors = backs.filter { $0 != c.back }.shuffled().prefix(3)
+            opts.append(contentsOf: distractors)
+            return Q(front: Cloze.parse(c.front).plain, answer: c.back, options: opts.shuffled())
+        }
+        idx = 0; score = 0; picked = nil
     }
 }
