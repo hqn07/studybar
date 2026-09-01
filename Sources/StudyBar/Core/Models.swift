@@ -473,7 +473,24 @@ struct RSSFeed: Identifiable, Codable, Hashable {
     var title: String = ""
     var url: String = ""
     var courseID: UUID? = nil
-    var folder: String = ""          // optional grouping (e.g. "Journals", "News"); decode-safe
+    var folder: String = ""          // optional grouping (e.g. "Journals", "News")
+
+    // `folder` was added after 1.6.0. It's a non-optional String, so the *synthesized*
+    // decoder would throw `.keyNotFound` on any feed written before it existed — which
+    // fails the whole AppData decode and drops the user to an empty store. Decode every
+    // field leniently (missing → default) so old data always loads. NEVER let a new
+    // non-optional field reach the model without this treatment.
+    init(id: UUID = UUID(), title: String = "", url: String = "", courseID: UUID? = nil, folder: String = "") {
+        self.id = id; self.title = title; self.url = url; self.courseID = courseID; self.folder = folder
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        courseID = try c.decodeIfPresent(UUID.self, forKey: .courseID)
+        folder = try c.decodeIfPresent(String.self, forKey: .folder) ?? ""
+    }
 }
 
 // MARK: - Grade "what-if" calculator
