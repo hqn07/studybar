@@ -13,6 +13,7 @@ struct VoiceView: View {
     @State private var organizing = false
     @State private var rawBeforeOrganize: String?
     @State private var organizeError: String?
+    @State private var draftAvailable = false
 
     private var idle: Bool { voice.status == .idle }
     private var whisper: Bool { voiceEngine == "whisper" }
@@ -75,7 +76,7 @@ struct VoiceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             }
-            .onAppear(perform: updateVocab)
+            .onAppear { updateVocab(); draftAvailable = VoiceService.draftText() != nil }
             .onChange(of: courseID) { _, _ in updateVocab() }
         }
     }
@@ -133,6 +134,23 @@ struct VoiceView: View {
 
     private var recorder: some View {
         VStack(spacing: 14) {
+            if draftAvailable && voice.transcript.isEmpty && idle {
+                HStack(spacing: DS.Space.m) {
+                    Image(systemName: "arrow.uturn.backward.circle").foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Unsaved transcript recovered").font(.caption.weight(.medium))
+                        Text("From an interrupted session — autosaved as you spoke.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: DS.Space.s)
+                    Button("Recover") { if let t = VoiceService.draftText() { voice.transcript = t }; draftAvailable = false }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                    Button("Dismiss") { VoiceService.clearDraft(); draftAvailable = false }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
+                .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
+                .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            }
             Button { voice.toggle() } label: {
                 ZStack {
                     Circle().fill(voice.isRecording ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
@@ -190,7 +208,7 @@ struct VoiceView: View {
                                 .buttonStyle(.bordered)
                                 .help("Reshape the raw transcript into structured notes — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = ""; rawBeforeOrganize = nil; organizeError = nil }
+                        Button("Discard") { voice.transcript = ""; rawBeforeOrganize = nil; organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -269,6 +287,8 @@ struct VoiceView: View {
         let title = "Voice note \(Date().dayMonth)"
         state.data.notes.append(Note(title: title, body: text, courseID: courseID))
         voice.transcript = ""
+        rawBeforeOrganize = nil
+        VoiceService.clearDraft(); draftAvailable = false     // saved for real — clear the crash-safe draft
         state.selectedModuleID = "notes"
     }
 }
