@@ -67,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--decode-selftest") {
             exit(DecodeSelfTest.run())
         }
+        if CommandLine.arguments.contains("--search-selftest") {
+            exit(SearchSelfTest.run())
+        }
         if CommandLine.arguments.contains("--ai-selftest") {
             exit(AIToolSelfTest.run())
         }

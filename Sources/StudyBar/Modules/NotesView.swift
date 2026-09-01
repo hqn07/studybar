@@ -38,11 +38,9 @@ struct NotesView: View {
         case .course(let id): list = list.filter { $0.courseID == id }
         }
         if !search.isEmpty {
-            list = list.filter {
-                $0.title.localizedCaseInsensitiveContains(search) ||
-                $0.body.localizedCaseInsensitiveContains(search) ||
-                $0.tags.contains { $0.localizedCaseInsensitiveContains(search) }
-            }
+            // Fuzzy + relevance-ranked while searching (overrides the sort picker).
+            return list.compactMap { n in FuzzyMatch.best(search, [n.title, n.body] + n.tags).map { (n, $0) } }
+                .sorted { $0.1 > $1.1 }.map(\.0)
         }
         switch sort {
         case .updated: list.sort { $0.updatedAt > $1.updatedAt }

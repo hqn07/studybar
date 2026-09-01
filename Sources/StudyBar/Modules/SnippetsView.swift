@@ -12,14 +12,11 @@ struct SnippetsView: View {
     private static func cat(_ s: Snippet) -> String { s.category.isEmpty ? "General" : s.category }
 
     private var searched: [Snippet] {
-        var list = state.data.snippets
+        let list = state.data.snippets
         if !search.isEmpty {
-            list = list.filter {
-                $0.title.localizedCaseInsensitiveContains(search) ||
-                $0.keyword.localizedCaseInsensitiveContains(search) ||
-                $0.body.localizedCaseInsensitiveContains(search) ||
-                $0.category.localizedCaseInsensitiveContains(search)
-            }
+            // Fuzzy + relevance-ranked while searching.
+            return list.compactMap { s in FuzzyMatch.best(search, [s.title, s.keyword, s.body, s.category]).map { (s, $0) } }
+                .sorted { $0.1 > $1.1 }.map(\.0)
         }
         return byUse ? list.sorted { $0.uses > $1.uses } : list
     }
