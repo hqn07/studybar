@@ -5,12 +5,24 @@ struct VoiceView: View {
     @EnvironmentObject var state: AppState
     @StateObject private var voice = VoiceService()
     @State private var courseID: UUID?
+    @AppStorage("voiceLocale") private var voiceLocale = "en-US"
 
     var body: some View {
         NavigationStack {
             ModulePane(title: "Voice Note") {
-                if !voice.transcript.isEmpty && !voice.isRecording {
-                    CoursePicker(courseID: $courseID)
+                HStack(spacing: 8) {
+                    if !voice.isRecording {
+                        Menu {
+                            ForEach(VoiceService.locales, id: \.id) { loc in
+                                Button { voiceLocale = loc.id } label: {
+                                    Label(loc.label, systemImage: voiceLocale == loc.id ? "checkmark" : "globe")
+                                }
+                            }
+                        } label: { Image(systemName: "globe") }.help("Dictation language")
+                    }
+                    if !voice.transcript.isEmpty && !voice.isRecording {
+                        CoursePicker(courseID: $courseID)
+                    }
                 }
             } content: {
                 VStack(spacing: 16) {
@@ -61,7 +73,7 @@ struct VoiceView: View {
                     }
                 }
             } else if !voice.isRecording {
-                Text("Speak a quick memo — a reminder, an idea, a to-do — and StudyBar transcribes it into a note, all on your Mac.")
+                Text("Speak a memo, a thought, or a whole lecture — StudyBar transcribes it on your Mac as you talk, for as long as you keep going. Nothing leaves the device.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .padding(.top, 24)
             }
