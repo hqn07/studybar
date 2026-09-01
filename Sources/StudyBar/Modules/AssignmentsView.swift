@@ -227,6 +227,20 @@ struct AssignmentRow: View {
         }
         .padding(DS.Space.m)
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .contextMenu {
+            Button { toggleDone() } label: {
+                Label(done ? "Mark not done" : "Mark done", systemImage: done ? "arrow.uturn.backward" : "checkmark")
+            }
+            if !done, assignment.due != nil {
+                Button { AppActions.snoozeAssignment(id: assignment.id, days: 1) } label: { Label("Snooze 1 day", systemImage: "clock") }
+                Button { AppActions.snoozeAssignment(id: assignment.id, days: 7) } label: { Label("Snooze 1 week", systemImage: "clock") }
+            }
+            Button { onEdit() } label: { Label("Edit…", systemImage: "pencil") }
+            Divider()
+            Button(role: .destructive) {
+                state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == assignment.id } }
+            } label: { Label("Delete", systemImage: "trash") }
+        }
     }
 
     @ViewBuilder private var statusChip: some View {
