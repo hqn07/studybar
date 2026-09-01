@@ -35,8 +35,13 @@ enum QuickParse {
             work = strip(token, from: work)
         }
 
-        // 3) due date
+        // 3) due date — the hand-rolled relative parser first (best at "next fri", "in 2
+        // weeks"), then NSDataDetector as a fallback for explicit dates it doesn't cover
+        // (dashed "3-15", 4-digit years, ordinals, localized formats).
         if let (date, span) = matchDate(work.lowercased(), now: now, cal: calendar) {
+            r.due = endOfDay(date, cal: calendar)
+            work = strip(span, from: work)
+        } else if let (date, span) = detectDate(work, cal: calendar) {
             r.due = endOfDay(date, cal: calendar)
             work = strip(span, from: work)
         }
@@ -115,6 +120,23 @@ enum QuickParse {
            let mo = Int(m.groups[0]), let day = Int(m.groups[1]), (1...12).contains(mo), (1...31).contains(day) {
             let year = m.groups.count > 2 && !m.groups[2].isEmpty ? normalizeYear(Int(m.groups[2]) ?? 0) : nil
             return (explicitDate(mo, day, year, today: today, cal: cal), m.whole)
+        }
+        return nil
+    }
+
+    /// Fallback date extraction via Apple's data detector. Skips bare clock times
+    /// ("3pm") so "essay 3pm" isn't read as due-today; a real date phrase wins.
+    private static func detectDate(_ s: String, cal: Calendar) -> (Date, String)? {
+        guard let dd = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return nil }
+        let ns = s as NSString
+        for m in dd.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            guard let d = m.date else { continue }
+            let span = ns.substring(with: m.range)
+            // Reject spans that are only a time (no date part) — those aren't a due date.
+            let timeOnly = span.range(of: #"^\s*\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?\s*$"#,
+                                      options: [.regularExpression, .caseInsensitive]) != nil
+            if timeOnly { continue }
+            return (d, span)
         }
         return nil
     }
