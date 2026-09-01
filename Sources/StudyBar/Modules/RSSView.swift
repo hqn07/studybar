@@ -8,6 +8,7 @@ struct RSSView: View {
     @EnvironmentObject var state: AppState
     @State private var articles: [Article] = []
     @State private var loading = false
+    @State private var reachedAny = true
     @State private var managing = false
     @State private var reader: Article?
     @State private var unreadOnly = false
@@ -86,7 +87,13 @@ struct RSSView: View {
 
     private var list: some View {
         Group {
-            if visible.isEmpty && !loading {
+            if visible.isEmpty && !loading && !reachedAny {
+                VStack(spacing: 12) {
+                    EmptyState(symbol: "wifi.slash", title: "Couldn't reach your feeds",
+                               subtitle: "You may be offline, or the feed servers didn't respond. Check your connection and try again.")
+                    Button("Retry") { Task { await refresh() } }.buttonStyle(.borderedProminent)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if visible.isEmpty && !loading {
                 EmptyState(symbol: unreadOnly ? "checkmark.circle" : "tray",
                            title: unreadOnly ? "All caught up" : "No recent items",
                            subtitle: unreadOnly ? "No unread articles. Refresh, or show all." : "Refresh, or check the feed URLs.")
@@ -240,9 +247,10 @@ struct RSSView: View {
     private func markAllRead() { state.markRead(visible.map(\.link)) }
 
     private func refresh() async {
-        guard !state.rssFeeds.isEmpty else { articles = []; return }
+        guard !state.rssFeeds.isEmpty else { articles = []; reachedAny = true; return }
         loading = true
-        articles = await RSSService.fetchAll(state.rssFeeds)
+        let r = await RSSService.fetchAll(state.rssFeeds)
+        articles = r.articles; reachedAny = r.reachedAny
         loading = false
     }
 

@@ -131,7 +131,13 @@ struct CitationsView: View {
                 await MainActor.run { grabText = ""; fetching = false; editing = r }
             } catch {
                 await MainActor.run {
-                    self.error = "Couldn't fetch that. Try a title search instead."
+                    // Distinguish "you're offline" from "that DOI didn't resolve".
+                    let offline = (error as? URLError).map {
+                        [.notConnectedToInternet, .timedOut, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost].contains($0.code)
+                    } ?? false
+                    self.error = offline
+                        ? "Couldn't reach the citation service — check your connection and try again."
+                        : "Couldn't fetch that. Try a title search instead."
                     fetching = false
                 }
             }

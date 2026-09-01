@@ -16,30 +16,39 @@ struct Article: Identifiable, Hashable {
 
 enum RSSService {
 
-    /// Fetch one feed → (discovered feed title, its recent articles).
-    static func fetch(_ feed: RSSFeed) async -> (title: String, items: [Article]) {
-        guard let url = URL(string: feed.url) else { return (feed.title, []) }
+    /// Fetch one feed → (discovered feed title, its recent articles, whether the server was
+    /// reached). `reached` is false only when the request itself failed (offline / timeout /
+    /// bad host) — a reachable feed that simply had no items returns `true` with `[]`, so the
+    /// UI can tell "you're offline" apart from "nothing new".
+    static func fetch(_ feed: RSSFeed) async -> (title: String, items: [Article], reached: Bool) {
+        guard let url = URL(string: feed.url) else { return (feed.title, [], true) }
         var req = URLRequest(url: url)
         req.setValue("StudyBar/1.0", forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 20
-        guard let (data, resp) = try? await URLSession.sb.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return (feed.title, []) }
+        guard let (data, resp) = try? await URLSession.sb.data(for: req) else {
+            return (feed.title, [], false)   // request failed — not reached
+        }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            return (feed.title, [], true)    // reached, but bad status → no items
+        }
         let parser = XMLParser(data: data)
         let d = FeedParser()
         parser.delegate = d
         parser.parse()
         let source = feed.title.isEmpty ? d.feedTitle : feed.title
         let items = d.items.map { a -> Article in var x = a; x.source = source.isEmpty ? a.source : source; return x }
-        return (d.feedTitle.isEmpty ? feed.title : d.feedTitle, items)
+        return (d.feedTitle.isEmpty ? feed.title : d.feedTitle, items, true)
     }
 
-    /// Fetch every feed concurrently, merged newest-first.
-    static func fetchAll(_ feeds: [RSSFeed]) async -> [Article] {
-        await withTaskGroup(of: [Article].self) { group in
-            for f in feeds { group.addTask { await fetch(f).items } }
+    /// Fetch every feed concurrently, merged newest-first, plus whether *any* feed was
+    /// reached (all-failed ⇒ show an offline state, not an empty one).
+    static func fetchAll(_ feeds: [RSSFeed]) async -> (articles: [Article], reachedAny: Bool) {
+        await withTaskGroup(of: (items: [Article], reached: Bool).self) { group in
+            for f in feeds { group.addTask { let r = await fetch(f); return (r.items, r.reached) } }
             var all: [Article] = []
-            for await items in group { all += items }
-            return all.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            var reachedAny = false
+            for await r in group { all += r.items; reachedAny = reachedAny || r.reached }
+            return (all.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }, reachedAny)
         }
     }
 
