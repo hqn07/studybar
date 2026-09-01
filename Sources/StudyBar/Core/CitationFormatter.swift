@@ -1,7 +1,9 @@
 import Foundation
 
 enum CiteStyle: String, CaseIterable, Identifiable {
-    case apa = "APA", mla = "MLA", chicago = "Chicago", bibtex = "BibTeX"
+    case apa = "APA", mla = "MLA", chicago = "Chicago"
+    case ieee = "IEEE", harvard = "Harvard", vancouver = "Vancouver"
+    case bibtex = "BibTeX"
     var id: String { rawValue }
 }
 
@@ -15,11 +17,106 @@ enum CitationFormatter {
 
     static func format(_ r: Reference, style: CiteStyle) -> String {
         switch style {
-        case .apa:     return apa(r)
-        case .mla:     return mla(r)
-        case .chicago: return chicago(r)
-        case .bibtex:  return bibtex(r)
+        case .apa:       return apa(r)
+        case .mla:       return mla(r)
+        case .chicago:   return chicago(r)
+        case .ieee:      return ieee(r)
+        case .harvard:   return harvard(r)
+        case .vancouver: return vancouver(r)
+        case .bibtex:    return bibtex(r)
         }
+    }
+
+    // MARK: - Author helpers for the added styles
+
+    /// "Last, First M" → "F. M. Last" (IEEE).
+    private static func initialsFirst(_ name: String) -> String {
+        let p = name.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard p.count == 2 else { return name }
+        let inits = p[1].split(separator: " ").compactMap { $0.first }.map { "\($0)." }.joined(separator: " ")
+        return "\(inits) \(p[0])"
+    }
+    /// "Last, First M" → "Last, F." (Harvard).
+    private static func lastInitials(_ name: String) -> String {
+        let p = name.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard p.count == 2 else { return name }
+        let inits = p[1].split(separator: " ").compactMap { $0.first }.map { "\($0)." }.joined(separator: " ")
+        return "\(p[0]), \(inits)"
+    }
+    /// "Last, First M" → "Last FM" (Vancouver — no periods).
+    private static func lastInitialsCompact(_ name: String) -> String {
+        let p = name.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard p.count == 2 else { return name }
+        let inits = p[1].split(separator: " ").compactMap { $0.first }.map(String.init).joined()
+        return "\(p[0]) \(inits)"
+    }
+    private static func joinAnd(_ names: [String]) -> String {
+        if names.count <= 1 { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
+    // MARK: - IEEE
+
+    private static func ieee(_ r: Reference) -> String {
+        var s = joinAnd(r.authors.map(initialsFirst)); if !s.isEmpty { s += ", " }
+        switch r.type {
+        case .article:
+            s += "\"\(r.title),\" *\(r.container)*"
+            if !r.volume.isEmpty { s += ", vol. \(r.volume)" }
+            if !r.issue.isEmpty { s += ", no. \(r.issue)" }
+            if !r.pages.isEmpty { s += ", pp. \(r.pages)" }
+            if !r.year.isEmpty { s += ", \(r.year)" }
+            s += "."
+            if !r.doi.isEmpty { s += " doi: \(r.doi)." }
+        case .book:
+            s += "*\(r.title)*. \(r.container), \(r.year)."
+        case .website:
+            s += "\"\(r.title).\" \(r.container)."
+            if !r.url.isEmpty { s += " [Online]. Available: \(r.url)" }
+        }
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
+    // MARK: - Harvard (author–date)
+
+    private static func harvard(_ r: Reference) -> String {
+        var s = joinAnd(r.authors.map(lastInitials)); if !s.isEmpty { s += " " }
+        s += "(\(r.year.isEmpty ? "n.d." : r.year)) "
+        switch r.type {
+        case .article:
+            s += "'\(r.title)', *\(r.container)*"
+            if !r.volume.isEmpty { s += ", \(r.volume)" }
+            if !r.issue.isEmpty { s += "(\(r.issue))" }
+            if !r.pages.isEmpty { s += ", pp. \(r.pages)" }
+            s += "."
+        case .book:
+            s += "*\(r.title)*. \(r.container)."
+        case .website:
+            s += "*\(r.title)*. Available at: \(r.url) (Accessed: \(r.year))."
+        }
+        return s.trimmingCharacters(in: .whitespaces)
+    }
+
+    // MARK: - Vancouver (numeric bibliographies; entry form)
+
+    private static func vancouver(_ r: Reference) -> String {
+        let names = r.authors.prefix(6).map(lastInitialsCompact)
+        var s = names.joined(separator: ", ")
+        if r.authors.count > 6 { s += ", et al" }
+        if !s.isEmpty { s += ". " }
+        switch r.type {
+        case .article:
+            s += "\(r.title). \(r.container). \(r.year)"
+            if !r.volume.isEmpty { s += ";\(r.volume)" }
+            if !r.issue.isEmpty { s += "(\(r.issue))" }
+            if !r.pages.isEmpty { s += ":\(r.pages)" }
+            s += "."
+        case .book:
+            s += "\(r.title). \(r.container); \(r.year)."
+        case .website:
+            s += "\(r.title) [Internet]. \(r.container); \(r.year). Available from: \(r.url)"
+        }
+        return s.trimmingCharacters(in: .whitespaces)
     }
 
     // "Last, First" list -> style-specific author string
