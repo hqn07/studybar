@@ -64,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--merge-selftest") {
             exit(MergeSelfTest.run())
         }
+        if CommandLine.arguments.contains("--decode-selftest") {
+            exit(DecodeSelfTest.run())
+        }
         if CommandLine.arguments.contains("--ai-selftest") {
             exit(AIToolSelfTest.run())
         }

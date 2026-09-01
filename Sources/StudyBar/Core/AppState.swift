@@ -137,6 +137,12 @@ final class AppState: ObservableObject {
     private var baseData: AppData
     /// Set while adopting on-disk data so the reload doesn't re-trigger a save.
     private var suppressSave = false
+    /// Set when the data file existed but could not be decoded on launch. While true the
+    /// app NEVER writes the store — the unreadable file is preserved untouched so a fix or
+    /// a manual restore can recover it, instead of an empty session overwriting it.
+    /// (Read by the UI to warn the user; see `dataSaveBlocked`.)
+    private(set) var saveBlocked = false
+    var dataSaveBlocked: Bool { saveBlocked }
 
     private static func mtime(_ url: URL) -> Date? {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -157,8 +163,25 @@ final class AppState: ObservableObject {
         return d
     }
     static func dataURL(iCloud: Bool) -> URL {
+        // Dev/test override so a build can point at a throwaway store instead of the
+        // user's live data (never test a build against the real iCloud file).
+        if let override = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"], !override.isEmpty {
+            let dir = URL(fileURLWithPath: override, isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir.appendingPathComponent("data.json")
+        }
         let dir = (iCloud ? iCloudDir : nil) ?? localDir
         return dir.appendingPathComponent("data.json")
+    }
+
+    /// Preserve the raw bytes of a data file that wouldn't decode, so nothing is lost even
+    /// if it never decodes — the load guard also blocks saves so the original stays put.
+    static func quarantineUnreadable(_ url: URL, raw: Data) {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let dst = url.deletingLastPathComponent()
+            .appendingPathComponent("data.json.unreadable-\(f.string(from: Date()))")
+        if !FileManager.default.fileExists(atPath: dst.path) { try? raw.write(to: dst, options: .atomic) }
+        NSLog("StudyBar: data file did not decode — preserved a copy at %@ and blocked saves", dst.lastPathComponent)
     }
 
     var usingICloud: Bool { UserDefaults.standard.bool(forKey: "iCloudSync") }
@@ -168,11 +191,21 @@ final class AppState: ObservableObject {
         fileURL = AppState.dataURL(iCloud: useCloud)
 
         var initial: AppData
-        if let raw = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) {
+        let existingRaw = try? Data(contentsOf: fileURL)
+        if let raw = existingRaw, let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) {
             initial = decoded
-        } else {
+        } else if let raw = existingRaw, raw.count > 2 {
+            // The file EXISTS and has content but would not decode (a schema break, or
+            // corruption). Seeding an empty store here and then autosaving it is exactly
+            // how the 2026-08-31 wipe happened. Instead: preserve the raw bytes to a
+            // sibling, load an empty session, and BLOCK every save so the real file is
+            // never overwritten. The user keeps their data; the app is read-only until
+            // relaunched against a build/file that decodes.
+            AppState.quarantineUnreadable(fileURL, raw: raw)
             initial = AppData.seed()
+            saveBlocked = true
+        } else {
+            initial = AppData.seed()   // genuinely fresh install (no file, or empty file)
         }
         // Age out trashed items older than 30 days (before adopting, so no extra save).
         if let tr = initial.trash {
@@ -246,10 +279,21 @@ final class AppState: ObservableObject {
     /// survive — then write the union. The raw newer disk file is also copied to a
     /// timestamped `.conflict-*` backup first, belt-and-suspenders.
     private func commitSave() {
+        // The on-disk file couldn't be read at launch and is quarantined — never overwrite it.
+        guard !saveBlocked else { return }
         if let merged = mergeAgainstDiskIfChanged() {
             suppressSave = true
             data = merged
             suppressSave = false
+        }
+        // Shrink guard: refuse to write an effectively-empty store over a non-empty file.
+        // A full wipe is virtually always a bug (bad load, decode fallback), not intent —
+        // back the disk copy up and skip the destructive write rather than lose records.
+        if data.isEffectivelyEmpty, let raw = try? Data(contentsOf: fileURL),
+           let disk = try? JSONDecoder.studybar.decode(AppData.self, from: raw), !disk.isEffectivelyEmpty {
+            backupDiskFile()
+            NSLog("StudyBar: refused to overwrite a non-empty store (%d records) with an empty one", disk.contentCount)
+            return
         }
         guard let raw = try? JSONEncoder.studybar.encode(data) else { return }
         do {
