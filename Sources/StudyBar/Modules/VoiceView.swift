@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Voice Note: record a memo, transcribe it on-device, save it as a note.
 struct VoiceView: View {
@@ -8,9 +9,11 @@ struct VoiceView: View {
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
+    @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
     @State private var organizing = false
 
     private var idle: Bool { voice.status == .idle }
+    private var whisper: Bool { voiceEngine == "whisper" }
 
     var body: some View {
         NavigationStack {
@@ -22,14 +25,22 @@ struct VoiceView: View {
                                 Text("Apple Speech · instant, live").tag("apple")
                                 Text("Whisper · higher quality").tag("whisper")
                             }
-                            if voiceEngine == "whisper" {
-                                Picker("Whisper model", selection: $voiceWhisperModel) {
-                                    Text("Tiny · ~75 MB").tag("tiny")
-                                    Text("Base · ~150 MB").tag("base")
-                                    Text("Small · ~500 MB").tag("small")
+                            if whisper {
+                                Picker("Model", selection: $voiceWhisperModel) {
+                                    ForEach(VoiceService.whisperModels, id: \.id) { Text($0.label).tag($0.id) }
                                 }
+                                Picker("Language", selection: $voiceWhisperLang) {
+                                    ForEach(VoiceService.whisperLangs, id: \.id) { Text($0.label).tag($0.id) }
+                                }
+                                Divider()
+                                Button { voice.prepareWhisper() } label: {
+                                    Label(voice.whisperReady ? "Model ready" : "Download model now",
+                                          systemImage: voice.whisperReady ? "checkmark.circle" : "arrow.down.circle")
+                                }.disabled(voice.whisperReady)
+                                Button { importAudio() } label: { Label("Transcribe an audio file…", systemImage: "waveform.badge.plus") }
                             }
-                        } label: { Image(systemName: "waveform") }.help("Transcription engine")
+                        } label: { Image(systemName: whisper ? "cpu" : "waveform") }
+                            .help("Transcription engine")
                         if voiceEngine == "apple" {
                             Menu {
                                 ForEach(VoiceService.locales, id: \.id) { loc in
@@ -51,6 +62,8 @@ struct VoiceView: View {
                         deniedState
                     case .unavailable(let msg):
                         EmptyState(symbol: "mic.slash", title: "Can't record", subtitle: msg)
+                    case .preparing:
+                        preparingState
                     case .transcribing:
                         transcribingState
                     default:
@@ -60,16 +73,43 @@ struct VoiceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             }
+            .onAppear(perform: updateVocab)
+            .onChange(of: courseID) { _, _ in updateVocab() }
         }
+    }
+
+    /// Bias Whisper toward the picked course's vocabulary.
+    private func updateVocab() {
+        if let c = state.course(courseID) {
+            voice.vocabPrompt = "Course: \(c.name)\(c.code.isEmpty ? "" : " (\(c.code))")."
+        } else { voice.vocabPrompt = nil }
+    }
+
+    private var preparingState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "cpu").font(.largeTitle).foregroundStyle(.tint)
+            ProgressView(value: voice.prepProgress).frame(width: 240)
+            Text("Downloading Whisper \(voiceWhisperModel) model — \(Int(voice.prepProgress * 100))%")
+                .font(.callout.weight(.medium))
+            Text("One-time download from Apple/Hugging Face; after this it runs fully offline.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var transcribingState: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
-            Text("Transcribing with Whisper…").font(.callout.weight(.medium))
-            Text("The \(voiceWhisperModel) model downloads once on first use, then runs offline. Larger models take longer.")
+            Text("Transcribing with Whisper (\(voiceWhisperModel))…").font(.callout.weight(.medium))
+            Text("Running on-device. Larger models are more accurate but take longer.")
                 .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func importAudio() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url { voice.importFile(url) }
     }
 
     private var recorder: some View {
@@ -102,6 +142,12 @@ struct VoiceView: View {
                         .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .frame(maxHeight: 260)
+
+                if !voice.lastEngine.isEmpty {
+                    Label("Transcribed by \(voice.lastEngine)",
+                          systemImage: voice.lastEngine.hasPrefix("Whisper") ? "cpu" : "waveform")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
 
                 if organizing {
                     HStack(spacing: DS.Space.s) {

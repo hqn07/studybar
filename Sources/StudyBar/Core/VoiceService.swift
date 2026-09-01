@@ -6,16 +6,22 @@ import WhisperKit
 /// Records a voice memo and transcribes it on-device — nothing leaves the Mac. Two engines:
 ///  • **Apple Speech** (default): live streaming transcript, instant, tiny. Segments chain
 ///    past the recognizer's ~1-minute auto-finalize so dictation runs as long as you talk.
-///  • **Whisper** (opt-in): records to a file, then transcribes with WhisperKit (CoreML) for
-///    higher accuracy. The model downloads once on first use, then works fully offline.
+///  • **Whisper** (opt-in, WhisperKit/CoreML): higher accuracy. The model downloads once
+///    (with visible progress) and then runs fully offline; a course-vocabulary prompt biases
+///    recognition toward the class's terms.
 @MainActor
 final class VoiceService: ObservableObject {
-    enum Status: Equatable { case idle, recording, transcribing, denied, unavailable(String) }
+    enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
     @Published var status: Status = .idle
     @Published var transcript = ""
-    /// Recent input loudness (0…1), newest last — drives the live level meter so the user can
-    /// see sound is being captured and how loud it is (aim the mic at the professor).
+    /// Rolling input loudness (0…1), newest last — drives the live level meter.
     @Published var waveform: [Float] = Array(repeating: 0, count: 48)
+    /// Model-download progress (0…1) while `.preparing`.
+    @Published var prepProgress: Double = 0
+    /// What produced the current transcript, e.g. "Whisper (base)" or "Apple Speech".
+    @Published var lastEngine = ""
+    /// Course-vocabulary bias for Whisper (set by the view when a course is picked).
+    var vocabPrompt: String?
     private var lastMeter = Date.distantPast
 
     static let locales: [(id: String, label: String)] = [
@@ -24,9 +30,19 @@ final class VoiceService: ObservableObject {
         ("pt-BR", "Portuguese"), ("zh-CN", "Chinese"), ("ja-JP", "Japanese"),
         ("ko-KR", "Korean"), ("hi-IN", "Hindi"), ("ar-SA", "Arabic"),
     ]
+    static let whisperModels: [(id: String, label: String)] = [
+        ("tiny", "Tiny · ~75 MB · fastest"), ("base", "Base · ~150 MB · balanced"),
+        ("small", "Small · ~500 MB · better"), ("large-v3", "Large v3 · ~1.5 GB · best"),
+    ]
+    static let whisperLangs: [(id: String, label: String)] = [
+        ("auto", "Auto-detect"), ("en", "English"), ("es", "Spanish"), ("fr", "French"),
+        ("de", "German"), ("zh", "Chinese"), ("ja", "Japanese"), ("hi", "Hindi"),
+    ]
+
     var localeID: String { UserDefaults.standard.string(forKey: "voiceLocale") ?? "en-US" }
     private var useWhisper: Bool { (UserDefaults.standard.string(forKey: "voiceEngine") ?? "apple") == "whisper" }
-    private var whisperModel: String { UserDefaults.standard.string(forKey: "voiceWhisperModel") ?? "base" }
+    var whisperModel: String { UserDefaults.standard.string(forKey: "voiceWhisperModel") ?? "base" }
+    private var whisperLang: String { UserDefaults.standard.string(forKey: "voiceWhisperLang") ?? "auto" }
 
     private let engine = AVAudioEngine()
     // Apple Speech
@@ -37,15 +53,19 @@ final class VoiceService: ObservableObject {
     private var wantsRecording = false
     // Whisper
     private var whisper: WhisperKit?
+    private var loadedModel: String?
     private var audioFile: AVAudioFile?
     private var recordURL: URL?
     private var whisperMode = false
+
+    /// True when the loaded Whisper model matches the current pref (no download needed).
+    var whisperReady: Bool { whisper != nil && loadedModel == whisperModel }
 
     var isRecording: Bool { status == .recording }
     func toggle() {
         switch status {
         case .recording: userStop()
-        case .transcribing: break            // busy — ignore taps
+        case .preparing, .transcribing: break
         default: start()
         }
     }
@@ -69,6 +89,7 @@ final class VoiceService: ObservableObject {
     // MARK: - Apple Speech (live)
 
     private func startAppleSpeech() {
+        lastEngine = "Apple Speech"
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeID))
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             Task { @MainActor [weak self] in
@@ -129,32 +150,75 @@ final class VoiceService: ObservableObject {
     private func finishFileRecordingAndTranscribe() {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
-        audioFile = nil                                   // close/flush the file
+        audioFile = nil
         guard let url = recordURL else { status = .idle; return }
-        status = .transcribing
         Task { @MainActor in
-            let text = await transcribeWhisper(url)
+            let text = await runWhisper(url)
             if case .unavailable = status {} else { status = .idle }
             transcript = text ?? transcript
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    private func transcribeWhisper(_ url: URL) async -> String? {
+    /// Transcribe an existing audio file the user imported (record on a phone, drop it here).
+    func importFile(_ url: URL) {
+        transcript = ""; whisperMode = true
+        Task { @MainActor in
+            let text = await runWhisper(url)
+            if case .unavailable = status {} else { status = .idle }
+            transcript = text ?? ""
+        }
+    }
+
+    /// Pre-download + load the model so the first lecture isn't interrupted. Idempotent.
+    func prepareWhisper() {
+        Task { @MainActor in
+            do { try await ensureWhisper(); if case .preparing = status { status = .idle } }
+            catch { status = .unavailable("Couldn't prepare Whisper: \(error.localizedDescription)") }
+        }
+    }
+
+    /// Ensure the current Whisper model is downloaded (with progress) and loaded.
+    private func ensureWhisper() async throws {
+        if whisperReady { return }
+        whisper = nil; loadedModel = nil
+        status = .preparing; prepProgress = 0
+        let model = whisperModel
         do {
-            if whisper == nil { whisper = try await WhisperKit(model: whisperModel) }
-            let results = try await whisper!.transcribe(audioPath: url.path)
-            let text = results.map(\.text).joined(separator: " ")
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let folder = try await WhisperKit.download(variant: "openai_whisper-\(model)") { [weak self] p in
+                Task { @MainActor in self?.prepProgress = p.fractionCompleted }
+            }
+            whisper = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path, load: true, download: false))
+        } catch {
+            // Fallback: let WhisperKit resolve + fetch the short name itself (no progress bar).
+            whisper = try await WhisperKit(WhisperKitConfig(model: model, load: true, download: true))
+        }
+        loadedModel = model
+    }
+
+    private func runWhisper(_ url: URL) async -> String? {
+        do {
+            try await ensureWhisper()
+            status = .transcribing
+            var promptTokens: [Int]? = nil
+            if let v = vocabPrompt, !v.isEmpty, let toks = whisper?.tokenizer?.encode(text: " " + v), !toks.isEmpty {
+                promptTokens = toks
+            }
+            let opts = DecodingOptions(language: whisperLang == "auto" ? nil : whisperLang,
+                                       detectLanguage: whisperLang == "auto",
+                                       promptTokens: promptTokens)
+            let results = try await whisper!.transcribe(audioPath: url.path, decodeOptions: opts)
+            lastEngine = "Whisper (\(loadedModel ?? model(from: url)))"
+            return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             status = .unavailable("Whisper couldn't transcribe: \(error.localizedDescription)")
             return nil
         }
     }
+    private func model(from _: URL) -> String { whisperModel }
 
     // MARK: - Shared
 
-    /// Install the input tap. `write` = also stream buffers into `audioFile` (Whisper mode).
     private func installTap(write: Bool) -> Bool {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -168,7 +232,6 @@ final class VoiceService: ObservableObject {
         return true
     }
 
-    /// RMS → dBFS → 0…1, pushed into the rolling waveform (throttled to ~30 fps).
     nonisolated private func meter(_ buf: AVAudioPCMBuffer) {
         guard let ch = buf.floatChannelData?[0] else { return }
         let n = Int(buf.frameLength); guard n > 0 else { return }
@@ -176,7 +239,7 @@ final class VoiceService: ObservableObject {
         for i in 0..<n { let s = ch[i]; sum += s * s }
         let rms = (sum / Float(n)).squareRoot()
         let db = 20 * log10(max(rms, 1e-7))
-        let level = max(0, min(1, (db + 50) / 50))          // -50 dBFS … 0 → 0 … 1
+        let level = max(0, min(1, (db + 50) / 50))
         Task { @MainActor in
             guard Date().timeIntervalSince(self.lastMeter) > 0.033 else { return }
             self.lastMeter = Date()
