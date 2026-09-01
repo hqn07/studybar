@@ -79,7 +79,7 @@ final class CalendarService: ObservableObject {
         if s.hasPrefix("webcal://") { s = "https://" + s.dropFirst("webcal://".count) }
         guard let url = URL(string: s) else { return nil }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.sb.data(from: url)
             guard let text = String(data: data, encoding: .utf8) else { return nil }
             return ICSParser.parse(text)
         } catch { return nil }

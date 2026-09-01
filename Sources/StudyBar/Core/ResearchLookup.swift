@@ -42,7 +42,7 @@ enum ResearchLookup {
               let url = URL(string: "https://api.openalex.org/works/doi:\(enc)?mailto=studybar@example.com") else { return nil }
         var req = URLRequest(url: url)
         req.setValue("StudyBar/1.0", forHTTPHeaderField: "User-Agent")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await URLSession.sb.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let title = o["display_name"] as? String ?? o["title"] as? String ?? clean
@@ -69,7 +69,7 @@ enum ResearchLookup {
               let url = URL(string: "https://en.wikipedia.org/api/rest_v1/page/summary/\(slug)") else { return nil }
         var req = URLRequest(url: url)
         req.setValue("StudyBar/1.0 (macOS study app)", forHTTPHeaderField: "User-Agent")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await URLSession.sb.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let type = obj["type"] as? String ?? ""
@@ -88,7 +88,7 @@ enum ResearchLookup {
         guard !q.isEmpty,
               let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "https://export.arxiv.org/api/query?search_query=all:\(enc)&start=0&max_results=\(max)&sortBy=relevance") else { return [] }
-        guard let (data, resp) = try? await URLSession.shared.data(from: url),
+        guard let (data, resp) = try? await URLSession.sb.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         let parser = XMLParser(data: data)
         let delegate = ArxivParser()

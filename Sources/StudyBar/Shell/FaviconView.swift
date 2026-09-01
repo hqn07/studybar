@@ -17,7 +17,7 @@ enum FaviconStore {
     }
     static func download(_ host: String) async -> NSImage? {
         guard let url = URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=64"),
-              let data = try? await URLSession.shared.data(from: url).0, data.count > 100 else { return nil }
+              let data = try? await URLSession.sb.data(from: url).0, data.count > 100 else { return nil }
         try? data.write(to: dir.appendingPathComponent("\(host).png"), options: .atomic)
         return NSImage(data: data)
     }

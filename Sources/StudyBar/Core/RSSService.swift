@@ -22,7 +22,7 @@ enum RSSService {
         var req = URLRequest(url: url)
         req.setValue("StudyBar/1.0", forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 20
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await URLSession.sb.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return (feed.title, []) }
         let parser = XMLParser(data: data)
         let d = FeedParser()
@@ -46,7 +46,7 @@ enum RSSService {
     /// Probe a URL for its feed title (used when adding a subscription).
     static func probeTitle(_ urlString: String) async -> String? {
         guard let url = URL(string: urlString) else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard let (data, _) = try? await URLSession.sb.data(from: url) else { return nil }
         let parser = XMLParser(data: data); let d = FeedParser(); parser.delegate = d; parser.parse()
         return d.feedTitle.isEmpty ? nil : d.feedTitle
     }

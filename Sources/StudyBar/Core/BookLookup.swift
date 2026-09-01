@@ -40,7 +40,7 @@ enum BookLookup {
               let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "https://openlibrary.org/search.json?q=\(enc)&limit=12&fields=title,author_name,first_publish_year,cover_i,isbn,number_of_pages_median,publisher")
         else { return [] }
-        guard let data = try? await URLSession.shared.data(from: url).0,
+        guard let data = try? await URLSession.sb.data(from: url).0,
               let resp = try? JSONDecoder().decode(OLSearch.self, from: data) else { return [] }
         return resp.docs.compactMap { d in
             guard let title = d.title else { return nil }
@@ -72,7 +72,7 @@ enum BookLookup {
 
     private static func google(_ isbn: String) async -> BookInfo? {
         guard let url = URL(string: "https://www.googleapis.com/books/v1/volumes?q=isbn:\(isbn)") else { return nil }
-        guard let data = try? await URLSession.shared.data(from: url).0,
+        guard let data = try? await URLSession.sb.data(from: url).0,
               let resp = try? JSONDecoder().decode(GBResponse.self, from: data),
               let v = resp.items?.first?.volumeInfo, let title = v.title else { return nil }
         var cover = v.imageLinks?.thumbnail ?? v.imageLinks?.smallThumbnail ?? ""
@@ -89,7 +89,7 @@ enum BookLookup {
 
     private static func openLibrary(_ isbn: String) async -> BookInfo? {
         guard let url = URL(string: "https://openlibrary.org/api/books?bibkeys=ISBN:\(isbn)&format=json&jscmd=data") else { return nil }
-        guard let data = try? await URLSession.shared.data(from: url).0,
+        guard let data = try? await URLSession.sb.data(from: url).0,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let book = obj["ISBN:\(isbn)"] as? [String: Any] else { return nil }
         let title = book["title"] as? String ?? "Unknown"
@@ -116,7 +116,7 @@ enum CoverStore {
     /// Downloads a cover to `<id>.jpg`; returns the filename, or nil.
     static func download(from urlString: String, id: UUID) async -> String? {
         guard let url = URL(string: urlString) else { return nil }
-        guard let data = try? await URLSession.shared.data(from: url).0, data.count > 200 else { return nil }
+        guard let data = try? await URLSession.sb.data(from: url).0, data.count > 200 else { return nil }
         let name = "\(id.uuidString).jpg"
         try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
         return name

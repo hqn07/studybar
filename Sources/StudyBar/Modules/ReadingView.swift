@@ -673,7 +673,7 @@ struct RemoteThumb: View {
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .task {
             guard image == nil, let u = URL(string: url),
-                  let data = try? await URLSession.shared.data(from: u).0 else { return }
+                  let data = try? await URLSession.sb.data(from: u).0 else { return }
             image = NSImage(data: data)
         }
     }

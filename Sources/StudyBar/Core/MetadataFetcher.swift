@@ -29,7 +29,7 @@ enum MetadataFetcher {
         guard let url = URL(string: "https://api.crossref.org/works/\(doi)") else { throw FetchError.badInput }
         var req = URLRequest(url: url)
         req.setValue("StudyBar/0.1 (mailto:studybar@example.com)", forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await URLSession.sb.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let m = json["message"] as? [String: Any] else { throw FetchError.notFound }
@@ -45,7 +45,7 @@ enum MetadataFetcher {
         else { return [] }
         var req = URLRequest(url: url)
         req.setValue("StudyBar/0.1 (mailto:studybar@example.com)", forHTTPHeaderField: "User-Agent")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await URLSession.sb.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let message = json["message"] as? [String: Any],
@@ -84,7 +84,7 @@ enum MetadataFetcher {
     static func pageTitle(_ urlString: String) async -> String? {
         let s = urlString.contains("://") ? urlString : "https://\(urlString)"
         guard let url = URL(string: s),
-              let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+              let (data, _) = try? await URLSession.sb.data(from: url) else { return nil }
         let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
         return html.flatMap { extractTitle($0) }
     }
@@ -97,7 +97,7 @@ enum MetadataFetcher {
         var r = Reference(type: .website, url: s)
         r.container = url.host?.replacingOccurrences(of: "www.", with: "") ?? ""
         r.year = String(Calendar.current.component(.year, from: .now))
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await URLSession.sb.data(from: url)
         if let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) {
             r.title = extractTitle(html) ?? url.host ?? s
         } else {
