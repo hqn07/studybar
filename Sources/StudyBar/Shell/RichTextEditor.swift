@@ -1056,6 +1056,35 @@ final class FoldingTextView: NSTextView {
     private static let mdStrike = try! NSRegularExpression(pattern: #"~~([^~\n]+)~~$"#)
     private let dividerText = "──────────────────────────────"
 
+    /// Inline snippet expansion: typing a snippet keyword (e.g. `;quote`) then a space,
+    /// tab, or return replaces it in place with the expanded body ({date}/{clipboard}/…
+    /// resolved). Only punctuation-prefixed keywords auto-fire, so ordinary words never
+    /// surprise-expand. Returns true if it expanded something.
+    private func expandSnippet(_ typed: String) -> Bool {
+        guard typed == " " || typed == "\t" || typed == "\n" else { return false }
+        guard let app = AppState.current, !app.data.snippets.isEmpty else { return false }
+        let ns = string as NSString
+        let caret = selectedRange().location
+        guard caret >= 2, caret <= ns.length else { return false }
+        let boundary = caret - 1                       // the space/tab/return we just typed
+        var start = boundary
+        while start > 0 {
+            let ch = ns.substring(with: NSRange(location: start - 1, length: 1))
+            if ch == " " || ch == "\t" || ch == "\n" { break }
+            start -= 1
+        }
+        guard boundary > start else { return false }
+        let token = ns.substring(with: NSRange(location: start, length: boundary - start))
+        guard let snip = app.data.snippets.first(where: { $0.keyword.caseInsensitiveCompare(token) == .orderedSame }),
+              let firstCh = snip.keyword.unicodeScalars.first,
+              !CharacterSet.alphanumerics.contains(firstCh) else { return false }
+        // Replace just the keyword; the trailing boundary character stays.
+        super.insertText(SnippetExpand.run(snip.body),
+                         replacementRange: NSRange(location: start, length: boundary - start))
+        if let i = app.data.snippets.firstIndex(where: { $0.id == snip.id }) { app.data.snippets[i].uses += 1 }
+        return true
+    }
+
     /// Called from `insertText` after the character lands. Turns markdown the user typed
     /// into real formatting. Returns true if it transformed something.
     private func applyMarkdownRules(_ typed: String) -> Bool {
@@ -1211,6 +1240,7 @@ final class FoldingTextView: NSTextView {
         }
         clearGhost()
         super.insertText(string, replacementRange: replacementRange)
+        if expandSnippet(typed) { return }        // typed ";keyword " → expanded in place
         if applyMarkdownRules(typed) { return }   // typed markdown → formatted in place
         scheduleGhost()
     }

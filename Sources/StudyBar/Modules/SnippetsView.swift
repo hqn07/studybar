@@ -141,7 +141,7 @@ struct SnippetsView: View {
         VStack(spacing: 12) {
             EmptyState(symbol: "text.badge.plus",
                        title: state.data.snippets.isEmpty ? "No snippets" : "No matches",
-                       subtitle: state.data.snippets.isEmpty ? "Save email templates, citations or boilerplate. Placeholders {date} {time} {clipboard} expand on copy." : "Try a different search.")
+                       subtitle: state.data.snippets.isEmpty ? "Save email templates, citations or boilerplate. Type a keyword like ;quote in the Notes editor to expand it inline, or Copy. Placeholders {date} {time} {clipboard} resolve on expand." : "Try a different search.")
             if state.data.snippets.isEmpty {
                 Button { addSamples() } label: { Label("Add sample snippets", systemImage: "sparkles") }
                     .buttonStyle(.borderedProminent)
@@ -267,7 +267,7 @@ struct SnippetEditor: View {
                 TextEditor(text: $draft.body).frame(height: 140)
                     .font(.body).scrollContentBackground(.hidden)
                     .background(.sbSurface, in: RoundedRectangle(cornerRadius: 6))
-                Text("Placeholders expand when you copy: {date} · {time} · {datetime} · {clipboard}")
+                Text("Type the keyword in the Notes editor (then space) to expand inline — start it with a symbol like “;” for that to fire. Placeholders resolve on expand or copy: {date} · {time} · {datetime} · {clipboard}")
                     .font(.caption2).foregroundStyle(.secondary)
             }.padding(14)
             Divider()
