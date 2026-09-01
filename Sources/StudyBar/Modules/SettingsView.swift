@@ -244,8 +244,8 @@ struct SettingsView: View {
             }.pickerStyle(.segmented)
             Picker("Surface", selection: $surfaceTheme) {
                 ForEach(SurfaceTheme.allCases) { Text($0.label).tag($0.rawValue) }
-            }.pickerStyle(.segmented)
-            Text("Near-black repaints dark-mode surfaces; light mode stays native. Accent and status colors are unchanged.")
+            }.pickerStyle(.menu)
+            Text("Near-black and Dim gray repaint dark mode; Warm paper repaints light mode. The other appearance stays native, and accent + status colors are unchanged.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         Section("Accent") {

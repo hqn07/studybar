@@ -118,14 +118,13 @@ struct RootView: View {
     /// - a preset: an opaque near-black base on both surfaces (which also kills the
     ///   popover bleed).
     private var baseFill: AnyShapeStyle {
-        switch SurfaceTheme(rawValue: surfaceThemeRaw) ?? .system {
-        case .system:
-            surface == .popover
+        let theme = SurfaceTheme(rawValue: surfaceThemeRaw) ?? .system
+        if theme == .system {
+            return surface == .popover
                 ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
                 : AnyShapeStyle(Color.clear)
-        case .nearBlack:
-            AnyShapeStyle(SurfaceTheme.base)
         }
+        return AnyShapeStyle(theme.base)   // any preset paints its own base
     }
 
     @ViewBuilder private var undoToast: some View {
