@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("menuBarShow") private var menuBarShow = MenuBarContent.smart.rawValue
     @AppStorage("popoverSize") private var popoverSize = PopoverSize.medium.rawValue
+    @AppStorage("menuBarClick") private var menuBarClick = "popover"
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("density") private var density = "comfortable"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
@@ -162,11 +163,20 @@ struct SettingsView: View {
             Picker("Show in menu bar", selection: $menuBarShow) {
                 ForEach(MenuBarContent.allCases) { Text($0.rawValue).tag($0.rawValue) }
             }
-            Picker("Popover size", selection: $popoverSize) {
-                ForEach(PopoverSize.allCases) { Text($0.rawValue).tag($0.rawValue) }
+            Picker("Clicking the icon opens", selection: $menuBarClick) {
+                Text("Quick popover").tag("popover")
+                Text("Main window").tag("window")
             }
-            Text("Reopen the popover to apply a new size. For a resizable view, open the window (⌘O).")
-                .font(.caption).foregroundStyle(.secondary)
+            if menuBarClick == "popover" {
+                Picker("Popover size", selection: $popoverSize) {
+                    ForEach(PopoverSize.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }
+                Text("Reopen the popover to apply a new size. For a resizable view, open the window (⌘O).")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("The icon opens the main window; click again to hide it. Right-click still opens the quick-actions menu (new task, note, Pomodoro).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         Section("Startup") {
             Toggle("Launch StudyBar at login", isOn: $launchAtLogin)

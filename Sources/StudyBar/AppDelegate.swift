@@ -145,8 +145,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastStatusClickAt = Date()
         if NSApp.currentEvent?.type == .rightMouseUp {
             showRightMenu()
+        } else if UserDefaults.standard.string(forKey: "menuBarClick") == "window" {
+            openOrToggleWindow()
         } else {
             togglePopover()
+        }
+    }
+
+    /// "Menu bar opens the window" mode: click fronts the main window (creating it if
+    /// needed), click again while it's the key window hides it — the popover's toggle feel,
+    /// but on the workspace. Right-click still opens the quick-actions menu either way.
+    private func openOrToggleWindow() {
+        if popover.isShown { popover.performClose(nil) }
+        if let w = window, w.isVisible, w.isKeyWindow {
+            w.orderOut(nil)
+        } else {
+            showWindow()
         }
     }
 
