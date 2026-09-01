@@ -8,6 +8,7 @@ struct VoiceView: View {
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
+    @State private var organizing = false
 
     private var idle: Bool { voice.status == .idle }
 
@@ -72,44 +73,81 @@ struct VoiceView: View {
     }
 
     private var recorder: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Button { voice.toggle() } label: {
                 ZStack {
                     Circle().fill(voice.isRecording ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
-                        .frame(width: 78, height: 78)
+                        .frame(width: 74, height: 74)
                     Image(systemName: voice.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 30)).foregroundStyle(.white)
+                        .font(.system(size: 28)).foregroundStyle(.white)
                 }
             }
-            .buttonStyle(.plain)
-            .overlay(alignment: .bottom) {
-                Text(voice.isRecording ? "Recording — tap to stop" : "Tap to record")
-                    .font(.caption).foregroundStyle(.secondary).offset(y: 22)
+            .buttonStyle(.plain).padding(.top, DS.Space.s)
+
+            Text(voice.isRecording ? "Recording — tap to stop" : "Tap to record")
+                .font(.caption).foregroundStyle(.secondary)
+
+            if voice.isRecording {
+                LevelMeter(levels: voice.waveform).frame(height: 42).padding(.horizontal, 36)
+                Text("Aim the mic at the speaker — the bars move when it's picking up their voice.")
+                    .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             }
 
             if !voice.transcript.isEmpty {
                 ScrollView {
                     Text(voice.transcript)
-                        .font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                        .font(.callout).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                         .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                 }
-                .frame(maxHeight: 220)
+                .frame(maxHeight: 260)
 
-                if !voice.isRecording {
-                    HStack {
-                        Button("Save as note") { saveNote() }.buttonStyle(.borderedProminent)
+                if organizing {
+                    HStack(spacing: DS.Space.s) {
+                        ProgressView().controlSize(.small)
+                        Text("Organizing into notes…").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else if idle {
+                    HStack(spacing: DS.Space.m) {
+                        Button { saveNote() } label: { Label("Save as note", systemImage: "note.text.badge.plus") }
+                            .buttonStyle(.borderedProminent)
+                        if AIConfig.isReady {
+                            Button { organize() } label: { Label("Organize with AI", systemImage: "sparkles") }
+                                .buttonStyle(.bordered)
+                                .help("Reshape the raw transcript into structured notes — headings + bullet points")
+                        }
                         Button("Discard") { voice.transcript = "" }.buttonStyle(.bordered)
                     }
                 }
-            } else if !voice.isRecording {
+            } else if idle {
                 Text(voiceEngine == "whisper"
                      ? "Record a memo or a whole lecture — Whisper transcribes it on your Mac after you stop. Higher accuracy, fully offline."
                      : "Speak a memo, a thought, or a whole lecture — StudyBar transcribes it live on your Mac as you talk. Nothing leaves the device.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    .padding(.top, 24)
+                    .frame(maxWidth: 420).padding(.top, DS.Space.xl)
             }
             Spacer()
+        }
+    }
+
+    private func organize() {
+        let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        organizing = true
+        Task {
+            let sys = """
+            You are a study assistant. Reorganize the student's own lecture transcript into \
+            clean, structured study notes: a short title line, section headings, and concise \
+            bullet points capturing the key facts, terms, definitions, dates, and numbers. Be \
+            faithful — do NOT add information that isn't in the transcript, don't answer \
+            questions or editorialize. Plain markdown.
+            """
+            let text = try? await provider.complete(system: sys, messages: [AIMessage(role: .user, text: raw)])
+            await MainActor.run {
+                organizing = false
+                if let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { voice.transcript = t }
+            }
         }
     }
 
@@ -132,5 +170,33 @@ struct VoiceView: View {
         state.data.notes.append(Note(title: title, body: text, courseID: courseID))
         voice.transcript = ""
         state.selectedModuleID = "notes"
+    }
+}
+
+/// Live input-level meter: centered bars whose height tracks recent loudness. Gray = quiet,
+/// green = good level, red = near clipping. Lets the user confirm the mic is catching the
+/// speaker (not silence, not overload).
+struct LevelMeter: View {
+    let levels: [Float]
+    var body: some View {
+        GeometryReader { geo in
+            let n = max(1, levels.count)
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<levels.count, id: \.self) { i in
+                    let lv = CGFloat(max(0.02, levels[i]))
+                    Capsule()
+                        .fill(color(levels[i]))
+                        .frame(height: lv * geo.size.height)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .animation(.linear(duration: 0.05), value: levels)
+            .accessibilityHidden(true)
+            .id(n)
+        }
+    }
+    private func color(_ l: Float) -> Color {
+        l > 0.85 ? .red : (l > 0.14 ? .green : Color.secondary.opacity(0.35))
     }
 }

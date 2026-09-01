@@ -13,6 +13,10 @@ final class VoiceService: ObservableObject {
     enum Status: Equatable { case idle, recording, transcribing, denied, unavailable(String) }
     @Published var status: Status = .idle
     @Published var transcript = ""
+    /// Recent input loudness (0…1), newest last — drives the live level meter so the user can
+    /// see sound is being captured and how loud it is (aim the mic at the professor).
+    @Published var waveform: [Float] = Array(repeating: 0, count: 48)
+    private var lastMeter = Date.distantPast
 
     static let locales: [(id: String, label: String)] = [
         ("en-US", "English (US)"), ("en-GB", "English (UK)"), ("es-ES", "Spanish"),
@@ -48,6 +52,7 @@ final class VoiceService: ObservableObject {
 
     func start() {
         transcript = ""; committed = ""; wantsRecording = true
+        waveform = Array(repeating: 0, count: 48)
         whisperMode = useWhisper
         Task { @MainActor in
             guard await AVCaptureDevice.requestAccess(for: .audio) else { status = .denied; return }
@@ -157,9 +162,26 @@ final class VoiceService: ObservableObject {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
             if write { try? self.audioFile?.write(from: buf) } else { self.request?.append(buf) }
+            self.meter(buf)
         }
         engine.prepare()
         return true
+    }
+
+    /// RMS → dBFS → 0…1, pushed into the rolling waveform (throttled to ~30 fps).
+    nonisolated private func meter(_ buf: AVAudioPCMBuffer) {
+        guard let ch = buf.floatChannelData?[0] else { return }
+        let n = Int(buf.frameLength); guard n > 0 else { return }
+        var sum: Float = 0
+        for i in 0..<n { let s = ch[i]; sum += s * s }
+        let rms = (sum / Float(n)).squareRoot()
+        let db = 20 * log10(max(rms, 1e-7))
+        let level = max(0, min(1, (db + 50) / 50))          // -50 dBFS … 0 → 0 … 1
+        Task { @MainActor in
+            guard Date().timeIntervalSince(self.lastMeter) > 0.033 else { return }
+            self.lastMeter = Date()
+            var w = self.waveform; w.removeFirst(); w.append(level); self.waveform = w
+        }
     }
 
     private func finish() {
