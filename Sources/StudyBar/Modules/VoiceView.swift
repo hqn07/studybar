@@ -6,21 +6,40 @@ struct VoiceView: View {
     @StateObject private var voice = VoiceService()
     @State private var courseID: UUID?
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
+    @AppStorage("voiceEngine") private var voiceEngine = "apple"
+    @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
+
+    private var idle: Bool { voice.status == .idle }
 
     var body: some View {
         NavigationStack {
             ModulePane(title: "Voice Note") {
                 HStack(spacing: 8) {
-                    if !voice.isRecording {
+                    if idle {
                         Menu {
-                            ForEach(VoiceService.locales, id: \.id) { loc in
-                                Button { voiceLocale = loc.id } label: {
-                                    Label(loc.label, systemImage: voiceLocale == loc.id ? "checkmark" : "globe")
+                            Picker("Engine", selection: $voiceEngine) {
+                                Text("Apple Speech · instant, live").tag("apple")
+                                Text("Whisper · higher quality").tag("whisper")
+                            }
+                            if voiceEngine == "whisper" {
+                                Picker("Whisper model", selection: $voiceWhisperModel) {
+                                    Text("Tiny · ~75 MB").tag("tiny")
+                                    Text("Base · ~150 MB").tag("base")
+                                    Text("Small · ~500 MB").tag("small")
                                 }
                             }
-                        } label: { Image(systemName: "globe") }.help("Dictation language")
+                        } label: { Image(systemName: "waveform") }.help("Transcription engine")
+                        if voiceEngine == "apple" {
+                            Menu {
+                                ForEach(VoiceService.locales, id: \.id) { loc in
+                                    Button { voiceLocale = loc.id } label: {
+                                        Label(loc.label, systemImage: voiceLocale == loc.id ? "checkmark" : "globe")
+                                    }
+                                }
+                            } label: { Image(systemName: "globe") }.help("Dictation language")
+                        }
                     }
-                    if !voice.transcript.isEmpty && !voice.isRecording {
+                    if !voice.transcript.isEmpty && idle {
                         CoursePicker(courseID: $courseID)
                     }
                 }
@@ -31,6 +50,8 @@ struct VoiceView: View {
                         deniedState
                     case .unavailable(let msg):
                         EmptyState(symbol: "mic.slash", title: "Can't record", subtitle: msg)
+                    case .transcribing:
+                        transcribingState
                     default:
                         recorder
                     }
@@ -39,6 +60,15 @@ struct VoiceView: View {
                 .padding(16)
             }
         }
+    }
+
+    private var transcribingState: some View {
+        VStack(spacing: 14) {
+            ProgressView().controlSize(.large)
+            Text("Transcribing with Whisper…").font(.callout.weight(.medium))
+            Text("The \(voiceWhisperModel) model downloads once on first use, then runs offline. Larger models take longer.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var recorder: some View {
@@ -73,7 +103,9 @@ struct VoiceView: View {
                     }
                 }
             } else if !voice.isRecording {
-                Text("Speak a memo, a thought, or a whole lecture — StudyBar transcribes it on your Mac as you talk, for as long as you keep going. Nothing leaves the device.")
+                Text(voiceEngine == "whisper"
+                     ? "Record a memo or a whole lecture — Whisper transcribes it on your Mac after you stop. Higher accuracy, fully offline."
+                     : "Speak a memo, a thought, or a whole lecture — StudyBar transcribes it live on your Mac as you talk. Nothing leaves the device.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .padding(.top, 24)
             }

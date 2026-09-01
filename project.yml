@@ -10,6 +10,11 @@ packages:
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath.git
     from: "1.5.0"
+  # On-device Whisper transcription (CoreML) — opt-in higher-quality Voice engine.
+  # Models download at runtime; Apple Speech remains the default.
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    from: "0.9.0"
 settings:
   base:
     MARKETING_VERSION: "1.7.1"
@@ -25,6 +30,7 @@ targets:
     platform: macOS
     dependencies:
       - package: SwiftMath
+      - package: WhisperKit
     sources:
       - path: Sources/StudyBar
         excludes:
