@@ -433,6 +433,35 @@ final class AppState: ObservableObject {
         withUndo("Delete block") { timeBlocks.removeAll { $0.id == id } }
     }
 
+    /// The next open 60-minute slot on `day`: the next hour if today (never before 9am),
+    /// else 9am, bumped past any block already on that day. Shared by the day planner and
+    /// Today's "add to plan" so both drop work in the same sensible place.
+    func nextFreeSlot(on day: Date) -> Int {
+        let cal = Calendar.current
+        var start: Int
+        if cal.isDateInToday(day) {
+            let c = cal.dateComponents([.hour, .minute], from: .now)
+            start = max(9 * 60, (((c.hour ?? 0) * 60 + (c.minute ?? 0)) / 60 + 1) * 60)
+        } else { start = 9 * 60 }
+        for b in timeBlocks(on: day) where start < b.endMinutes && start + 60 > b.startMinutes {
+            start = b.endMinutes
+        }
+        return min(start, 22 * 60)
+    }
+
+    /// Time-block an assignment onto a day at the next open slot (60 min), linked back to
+    /// the assignment. Returns the created block. Powers the drag-to-schedule flow.
+    @discardableResult
+    func planAssignment(_ a: Assignment, on day: Date) -> TimeBlock {
+        let s = nextFreeSlot(on: day)
+        let block = TimeBlock(title: a.title.isEmpty ? "Assignment" : a.title,
+                              day: Calendar.current.startOfDay(for: day),
+                              startMinutes: s, endMinutes: min(24 * 60, s + 60),
+                              courseID: a.courseID, assignmentID: a.id)
+        upsertTimeBlock(block)
+        return block
+    }
+
     /// Start a focus session for a planned block: it inherits the block's course and
     /// linked assignment (so the logged time lands back on them) and runs for the block's
     /// planned length. Caller-independent — also jumps to the Time & Focus module so the

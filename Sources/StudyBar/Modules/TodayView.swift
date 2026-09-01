@@ -9,6 +9,15 @@ struct TodayView: View {
     @State private var quickTask = ""
     @State private var aiLine: String?
     @State private var aiForID: UUID?
+    @AppStorage("scheduleMode") private var scheduleMode = "week"
+
+    /// Turn an assignment into a time block on today's plan, then jump to Schedule ▸ Plan
+    /// so it's visible and draggable — the daily-planning move, adapted to a single pane.
+    private func plan(_ a: Assignment) {
+        state.planAssignment(a, on: Date())
+        scheduleMode = "plan"
+        state.selectedModuleID = "schedule"
+    }
 
     // MARK: derived
 
@@ -108,11 +117,10 @@ struct TodayView: View {
                 Button { AppActions.startFocus(label: a.title); state.selectedModuleID = "timefocus" } label: {
                     Label("Start focus", systemImage: "timer")
                 }.buttonStyle(.borderedProminent).controlSize(.small)
-                if AIConfig.isReady {
-                    Button { AppActions.assistant(DailyPlan.prompt(state.data)) } label: {
-                        Label("Plan my day", systemImage: "sparkles")
-                    }.buttonStyle(.bordered).controlSize(.small)
-                }
+                Button { plan(a) } label: {
+                    Label("Add to plan", systemImage: "calendar.badge.plus")
+                }.buttonStyle(.bordered).controlSize(.small)
+                    .help("Block time for this on today's plan")
             }.padding(.top, DS.Space.xs)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -250,6 +258,9 @@ struct TodayView: View {
             .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         }.buttonStyle(.plain)
+        .contextMenu {
+            Button { plan(a) } label: { Label("Add to today's plan", systemImage: "calendar.badge.plus") }
+        }
     }
 
     // MARK: - Quick add + Plan my day
