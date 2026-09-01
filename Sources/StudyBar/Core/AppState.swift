@@ -207,6 +207,16 @@ final class AppState: ObservableObject {
         } else {
             initial = AppData.seed()   // genuinely fresh install (no file, or empty file)
         }
+        // The Scratchpad module was retired; its buffer becomes a note once, so no text is
+        // stranded. Purely additive (a note is created) — the content also stays in backups.
+        if !UserDefaults.standard.bool(forKey: "scratchpadMerged") {
+            if !initial.scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                var n = Note(); n.title = "Scratchpad"; n.body = initial.scratchpad
+                initial.notes.append(n)
+                initial.scratchpad = ""
+            }
+            UserDefaults.standard.set(true, forKey: "scratchpadMerged")
+        }
         // Age out trashed items older than 30 days (before adopting, so no extra save).
         if let tr = initial.trash {
             let cutoff = Date().addingTimeInterval(-30 * 86400)
