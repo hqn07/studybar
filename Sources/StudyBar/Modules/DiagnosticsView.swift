@@ -27,19 +27,16 @@ struct DiagnosticsSections: View {
     }
 
     @ViewBuilder private var crashSection: some View {
-        if let crash = diag.lastCrash {
+        if diag.lastCrash != nil {
             Section {
-                // A plain Text in a Form row wraps to the pane width reliably (a ScrollView here
-                // does not, and overflowed). Cap the height with a line limit; the full log is in
-                // the exported report.
-                Text(crash)
-                    .font(.caption2.monospaced()).textSelection(.enabled)
-                    .lineLimit(12)
-                    .frame(maxWidth: 460, alignment: .leading)   // concrete cap → wraps, never pushes the pane
-                    .padding(8)
-                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
-                Text("Truncated here — the full details are in the report below. Copy or save it and send it so this can be fixed.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                // The raw multi-line log is NOT shown inline — its long monospace lines can't be
+                // width-bounded reliably inside a grouped Form and overflowed the pane. It's kept
+                // in full in the exported report instead.
+                HStack(alignment: .top, spacing: 0) {
+                    Text("The full log leading up to it is in the report below — Copy or Save it to send.")
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)     // absorbs width so the Text wraps within the pane
+                }
                 Button { diag.lastCrash = nil } label: { Label("Dismiss", systemImage: "xmark") }
             } header: {
                 Label("Previous session ended unexpectedly", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
