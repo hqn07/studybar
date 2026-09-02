@@ -58,11 +58,25 @@ final class VoiceService: ObservableObject {
     private var emptyStreak = 0
     private var recordingStart = Date()
     private var everGotResult = false
-    // Whisper (batch)
+    // Whisper (chunked streaming: transcribe short chunks in the background while recording)
     private var whisper: WhisperKit?
-    private var audioFile: AVAudioFile?
-    private var recordURL: URL?
     private var whisperMode = false
+    private let chunkLock = NSLock()
+    private var chunkFile: AVAudioFile?
+    private var chunkURL: URL?
+    private var chunkFrames: AVAudioFramePosition = 0
+    private var totalFrames: AVAudioFramePosition = 0
+    private var chunkStart = Date()
+    private var chunkSettings: [String: Any] = [:]
+    private var sampleRate: Double = 48_000
+    private var lastLoudAt = Date()
+    private var chunkTimer: Timer?
+    private var transcribeChain: Task<Void, Never>?
+    private var whisperCommitted = ""
+    private let minChunkSec = 15.0        // don't cut smaller — Whisper needs context
+    private let maxChunkSec = 40.0        // hard cut, so text never lags too far behind
+    private let pauseGapSec = 0.5         // prefer cutting at a natural pause
+    private let silenceRMS: Float = 0.02
     // Autosave draft — crash-safe raw transcript.
     private var lastDraftSave = Date.distantPast
     static var draftURL: URL { AppState.localDir.appendingPathComponent("voice-draft.txt") }
@@ -105,7 +119,7 @@ final class VoiceService: ObservableObject {
         whisperMode = useWhisper
         Task { @MainActor in
             guard await AVCaptureDevice.requestAccess(for: .audio) else { status = .denied; return }
-            if whisperMode { beginWhisperRecording() } else { startAppleSpeech() }
+            if whisperMode { await beginWhisperRecording() } else { startAppleSpeech() }
         }
     }
 
@@ -139,7 +153,7 @@ final class VoiceService: ObservableObject {
         guard let recognizer, recognizer.isAvailable else {
             status = .unavailable("Speech recognition isn't available for this language yet."); return
         }
-        guard installTap(write: false) else { return }
+        guard installTap() else { return }
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
         emptyStreak = 0; everGotResult = false; recordingStart = Date()
@@ -221,39 +235,138 @@ final class VoiceService: ObservableObject {
         saveDraft()
     }
 
-    // MARK: - Whisper (record whole take → transcribe with progressive text)
+    // MARK: - Whisper (chunked streaming)
+    //
+    // Instead of recording the whole take and transcribing once at the end (a multi-GB temp
+    // file and a long wait for a lecture), the audio is cut into short chunks — at a natural
+    // pause when possible, with a hard cap — and each is transcribed on a background serial
+    // queue while recording continues. Text appears live, only one small chunk is ever on disk,
+    // and stopping just drains the last chunk.
 
-    private func beginWhisperRecording() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).caf")
-        let format = engine.inputNode.outputFormat(forBus: 0)
+    private func beginWhisperRecording() async {
+        do { try await ensureWhisper() }
+        catch { status = .unavailable("Couldn't prepare Whisper: \(error.localizedDescription)"); return }
+        guard wantsRecording else { finish(); return }   // user stopped during model load
+        startChunkedMic()
+    }
+
+    private func startChunkedMic() {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return }
-        do { audioFile = try AVAudioFile(forWriting: url, settings: format.settings) }
-        catch { status = .unavailable(error.localizedDescription); return }
-        recordURL = url
-        guard installTap(write: true) else { return }
+        chunkSettings = format.settings; sampleRate = format.sampleRate
+        whisperCommitted = ""; transcript = ""; totalFrames = 0; lastLoudAt = Date()
+        guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
+            guard let self else { return }
+            self.chunkLock.lock()
+            try? self.chunkFile?.write(from: buf)
+            self.chunkFrames += AVAudioFramePosition(buf.frameLength)
+            self.totalFrames += AVAudioFramePosition(buf.frameLength)
+            self.chunkLock.unlock()
+            self.meter(buf)
+            self.trackLoud(buf)
+        }
+        engine.prepare()
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
+        chunkTimer?.invalidate()
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.maybeCutChunk() }
+        }
+    }
+
+    @discardableResult private func openNewChunk() -> Bool {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vchunk-\(UUID().uuidString).caf")
+        guard let f = try? AVAudioFile(forWriting: url, settings: chunkSettings) else { return false }
+        chunkLock.lock(); chunkFile = f; chunkURL = url; chunkFrames = 0; chunkStart = Date(); chunkLock.unlock()
+        return true
+    }
+
+    /// Note the last time the mic heard real sound, so a chunk can be cut at a pause.
+    nonisolated private func trackLoud(_ buf: AVAudioPCMBuffer) {
+        guard let ch = buf.floatChannelData?[0] else { return }
+        let n = Int(buf.frameLength); guard n > 0 else { return }
+        var sum: Float = 0; for i in 0..<n { let s = ch[i]; sum += s * s }
+        if (sum / Float(n)).squareRoot() > silenceRMS {
+            let now = Date(); Task { @MainActor in self.lastLoudAt = now }
+        }
+    }
+
+    private func maybeCutChunk() {
+        guard status == .recording, wantsRecording else { return }
+        let dur = Date().timeIntervalSince(chunkStart)
+        let paused = Date().timeIntervalSince(lastLoudAt) >= pauseGapSec
+        if dur >= maxChunkSec || (dur >= minChunkSec && paused) { cutChunk(final: false) }
+    }
+
+    /// Close the current chunk (flushing it to disk) and enqueue it, then open the next.
+    private func cutChunk(final: Bool) {
+        chunkLock.lock()
+        let url = chunkURL; let frames = chunkFrames
+        chunkFile = nil; chunkURL = nil          // dropping the ref flushes + closes the file
+        chunkLock.unlock()
+        if let url {
+            if frames > AVAudioFramePosition(sampleRate * 0.4) { enqueueTranscribe(url) }
+            else { try? FileManager.default.removeItem(at: url) }   // < 0.4s of audio — skip
+        }
+        if !final { openNewChunk() }
+    }
+
+    /// Serial background transcription: chunk N is appended before N+1 is transcribed.
+    private func enqueueTranscribe(_ url: URL) {
+        let prev = transcribeChain
+        transcribeChain = Task { @MainActor in
+            _ = await prev?.value
+            let text = await transcribeChunk(url)
+            try? FileManager.default.removeItem(at: url)
+            if let text, !text.isEmpty {
+                whisperCommitted = join(whisperCommitted, text)
+                transcript = whisperCommitted
+                saveDraft()
+            }
+        }
+    }
+
+    private func transcribeChunk(_ url: URL) async -> String? {
+        guard let whisper else { return nil }
+        // Prompt the model with the vocab hint plus the tail of what's transcribed so far, so
+        // terminology stays consistent and word boundaries between chunks are handled better.
+        var promptText = vocabPrompt ?? ""
+        let tail = String(whisperCommitted.suffix(140))
+        if !tail.isEmpty { promptText = (promptText.isEmpty ? "" : promptText + " ") + tail }
+        var promptTokens: [Int]? = nil
+        if !promptText.isEmpty, let tok = whisper.tokenizer {
+            let toks = tok.encode(text: " " + promptText); if !toks.isEmpty { promptTokens = toks }
+        }
+        let opts = DecodingOptions(language: whisperLang == "auto" ? nil : whisperLang,
+                                   detectLanguage: whisperLang == "auto",
+                                   skipSpecialTokens: true, promptTokens: promptTokens)
+        guard let results = try? await whisper.transcribe(audioPath: url.path, decodeOptions: opts) else { return nil }
+        return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func finishWhisperAndTranscribe() {
+        chunkTimer?.invalidate(); chunkTimer = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
-        let frames = audioFile?.length ?? 0
-        audioFile = nil
-        guard let url = recordURL else { status = .idle; return }
-        recordURL = nil
-        // No frames written = the mic delivered silence (usually a reset/denied permission
-        // after an app rebuild). Say so plainly instead of "transcribing" an empty file.
-        guard frames > 4000 else {
-            status = .unavailable("Nothing was recorded — the mic didn't pick up any audio. Check Microphone access in System Settings ▸ Privacy & Security (ad-hoc builds reset it), then try again.")
-            try? FileManager.default.removeItem(at: url); return
-        }
+        let recorded = totalFrames
+        cutChunk(final: true)             // flush + enqueue the final chunk
+        status = .transcribing
         Task { @MainActor in
-            let text = await runWhisper(url)
-            if case .unavailable = status {} else { status = .idle }
-            transcript = text ?? transcript
+            _ = await transcribeChain?.value   // let the queue drain
+            if case .unavailable = status { return }
+            if recorded < 4000 {
+                status = .unavailable("Nothing was recorded — the mic didn't pick up any audio. Check Microphone access in System Settings ▸ Privacy & Security (ad-hoc builds reset it), then try again.")
+                return
+            }
+            if whisperCommitted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                status = .unavailable("No speech detected in the recording. Speak a little closer to the mic and try again.")
+            } else {
+                lastEngine = "Whisper (\(loadedModel ?? whisperModel))"
+                status = .idle
+            }
             saveDraft()
-            try? FileManager.default.removeItem(at: url)
         }
     }
 
@@ -330,13 +443,15 @@ final class VoiceService: ObservableObject {
 
     // MARK: - Shared
 
-    private func installTap(write: Bool) -> Bool {
+    /// Mic tap for Apple Speech — appends buffers to the live recognition request. (Whisper
+    /// installs its own tap that writes to chunk files.)
+    private func installTap() -> Bool {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return false }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
-            if write { try? self.audioFile?.write(from: buf) } else { self.request?.append(buf) }
+            self.request?.append(buf)
             self.meter(buf)
         }
         engine.prepare()
@@ -372,9 +487,11 @@ final class VoiceService: ObservableObject {
 
     private func finish() {
         rotateTimer?.invalidate(); rotateTimer = nil
+        chunkTimer?.invalidate(); chunkTimer = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil; request = nil
+        chunkLock.lock(); chunkFile = nil; chunkURL = nil; chunkLock.unlock()
         if status == .recording { status = .idle }
     }
 
