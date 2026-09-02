@@ -2,6 +2,10 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// One turn in the "Ask the book" thread — a question, its grounded answer, and the pages
+/// the answer was drawn from.
+struct BookQA: Identifiable { let id = UUID(); let question: String; var answer: String; var pages: [Int] }
+
 enum ReadingSort: String, CaseIterable, Identifiable {
     case recent = "Recently read", progress = "Progress", title = "Title", rating = "Rating"
     var id: String { rawValue }
@@ -311,12 +315,10 @@ struct ReadingDetailView: View {
     @State private var pdfError: String?
     @State private var bookQuery = ""
     @State private var bookHits: [BookText.Hit] = []
-    // Ask-the-book (grounded AI Q&A over retrieved pages)
+    // Ask-the-book (grounded AI Q&A over retrieved pages) — a persistent thread w/ follow-ups
     @State private var askQuery = ""
-    @State private var askAnswer = ""
+    @State private var askThread: [BookQA] = []
     @State private var askLoading = false
-    @State private var askDone = false
-    @State private var askPages: [Int] = []
     @State private var askTask: Task<Void, Never>?
     // OCR (scanned PDFs)
     @State private var ocrURL: URL?
@@ -593,13 +595,22 @@ struct ReadingDetailView: View {
                 }
                 if AIConfig.isReady {
                     Divider().padding(.vertical, 2)
+                    ForEach(askThread) { qa in qaCard(qa) }
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").foregroundStyle(.tint)
-                        TextField("Ask about the book…", text: $askQuery)
-                            .textFieldStyle(.plain).onSubmit { askBook() }
+                        TextField(askThread.isEmpty ? "Ask about the book…" : "Ask a follow-up…", text: $askQuery)
+                            .textFieldStyle(.plain).onSubmit { askBook() }.disabled(askLoading)
+                        if askLoading { ProgressView().controlSize(.small) }
                     }
                     .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-                    if askLoading || askDone { askCard }
+                    if !askThread.isEmpty {
+                        HStack {
+                            Button { saveThread() } label: { Label("Save Q&A to notes", systemImage: "text.append") }
+                                .buttonStyle(.borderless).controlSize(.small)
+                            Spacer()
+                            Button("Clear") { clearAsk() }.buttonStyle(.borderless).controlSize(.small)
+                        }.font(.caption)
+                    }
                 }
             } else if let url = ocrURL {
                 Label("No text layer — this PDF looks scanned.", systemImage: "doc.viewfinder")
@@ -622,35 +633,24 @@ struct ReadingDetailView: View {
         }
     }
 
-    private var askCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func qaCard(_ qa: BookQA) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkles").foregroundStyle(.tint)
-                Text(askLoading ? "Reading the relevant pages…" : "Answer").font(.caption.weight(.semibold))
-                if askLoading { ProgressView().controlSize(.small) }
+                Image(systemName: "sparkles").foregroundStyle(.tint).font(.caption)
+                Text(qa.question).font(.callout.weight(.semibold))
                 Spacer()
-                if !askPages.isEmpty {
-                    Text("from " + askPages.map { "p\($0)" }.joined(separator: ", "))
+                if !qa.pages.isEmpty {
+                    Text("from " + qa.pages.map { "p\($0)" }.joined(separator: ", "))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            ScrollView {
-                Text(askAnswer.isEmpty ? "Thinking…" : askAnswer).font(.callout).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(askAnswer.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-            }.frame(maxHeight: 220)
-            if askDone && !askAnswer.isEmpty {
-                HStack(spacing: 8) {
-                    Button { saveAnswer() } label: { Label("Save to notes", systemImage: "text.append") }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
-                    Spacer()
-                    Button("Clear") { clearAsk() }.buttonStyle(.bordered).controlSize(.small)
-                }
-            }
+            Text(qa.answer.isEmpty ? "Thinking…" : qa.answer).font(.callout).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(qa.answer.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
         }
         .padding(10)
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25)))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.22)))
     }
 
     private func attachPDF() {
@@ -693,44 +693,58 @@ struct ReadingDetailView: View {
     }
 
     private func askBook() {
-        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard AIConfig.isReady, let provider = AIService.makeProvider(), !askLoading else { return }
         let q = askQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= 3 else { return }
+        askQuery = ""
         let chunks = BookText.topChunks(itemID, query: q, k: 5)
-        askPages = chunks.map(\.page)
         guard !chunks.isEmpty else {
-            askAnswer = "No relevant pages turned up for that — try different wording."
-            askDone = true; askLoading = false; return
+            askThread.append(BookQA(question: q, answer: "Not found in the book — try different wording.", pages: []))
+            return
         }
-        askLoading = true; askDone = false; askAnswer = ""
+        // Prior turns give the follow-up its context; only the NEW question carries fresh
+        // excerpts, so history stays compact and within the model's window.
+        var msgs: [AIMessage] = []
+        for prior in askThread {
+            msgs.append(AIMessage(role: .user, text: "Question: \(prior.question)"))
+            msgs.append(AIMessage(role: .assistant, text: prior.answer))
+        }
         let excerpts = chunks.map { "[p\($0.page)] \($0.text.prefix(1500))" }.joined(separator: "\n\n")
-        let sys = "You answer a student's question using ONLY the book excerpts provided below. Cite the page(s) you used inline like (p42). If the answer is not in the excerpts, reply exactly: Not found in the retrieved pages — try rephrasing. Do not use outside knowledge. Be concise and clear."
+        msgs.append(AIMessage(role: .user, text: "Question: \(q)\n\nExcerpts:\n\(excerpts)"))
+
+        askThread.append(BookQA(question: q, answer: "", pages: chunks.map(\.page)))
+        let turnIdx = askThread.count - 1
+        askLoading = true
+        let sys = "You answer a student's question about their book using ONLY the excerpts provided in the latest turn (earlier turns are conversation context). Cite the page(s) you used inline like (p42). If the answer is not in the excerpts, reply exactly: Not found in the retrieved pages — try rephrasing. Do not use outside knowledge. Be concise; you may build on earlier answers for follow-ups."
         askTask?.cancel()
         askTask = Task {
-            let msgs = [AIMessage(role: .user, text: "Question: \(q)\n\nExcerpts:\n\(excerpts)")]
             let out: String?
             if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in askAnswer = p }
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in
+                    if askThread.indices.contains(turnIdx) { askThread[turnIdx].answer = p }
+                }
             } else {
                 out = try? await provider.completePlain(system: sys, messages: msgs)
             }
             await MainActor.run {
-                askLoading = false; askDone = true
-                askAnswer = (out ?? askAnswer).trimmingCharacters(in: .whitespacesAndNewlines)
+                askLoading = false
+                if askThread.indices.contains(turnIdx) {
+                    let final = (out ?? askThread[turnIdx].answer).trimmingCharacters(in: .whitespacesAndNewlines)
+                    askThread[turnIdx].answer = final.isEmpty ? "No answer — try rephrasing, or a stronger engine." : final
+                }
             }
         }
     }
 
-    private func saveAnswer() {
-        guard let i = idx, !askAnswer.isEmpty else { return }
-        let entry = "Q: \(askQuery)\n\(askAnswer)"
+    private func saveThread() {
+        guard let i = idx, !askThread.isEmpty else { return }
+        let text = askThread.map { "Q: \($0.question)\n\($0.answer)" }.joined(separator: "\n\n")
         let existing = state.data.reading[i].notes
-        state.data.reading[i].notes = existing.isEmpty ? entry : existing + "\n\n" + entry
-        clearAsk()
+        state.data.reading[i].notes = existing.isEmpty ? text : existing + "\n\n" + text
     }
     private func clearAsk() {
         askTask?.cancel(); askTask = nil
-        askQuery = ""; askAnswer = ""; askLoading = false; askDone = false; askPages = []
+        askQuery = ""; askThread = []; askLoading = false
     }
 
     private func removePDF() {
