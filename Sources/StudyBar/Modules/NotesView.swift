@@ -462,9 +462,6 @@ struct NoteEditor: View {
     private var formatBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 11) {
-                fmtBtn("arrow.uturn.backward", "Undo (⌘Z)") { editor.undo() }
-                fmtBtn("arrow.uturn.forward", "Redo (⌘⇧Z)") { editor.redo() }
-                sep
                 fmtBtn("bold", "Bold") { editor.toggleTrait(.boldFontMask) }
                 fmtBtn("italic", "Italic") { editor.toggleTrait(.italicFontMask) }
                 fmtBtn("underline", "Underline") { editor.toggleAttribute(.underlineStyle) }
@@ -475,30 +472,34 @@ struct NoteEditor: View {
                     Button("Heading 1") { editor.setHeading(.h1) }
                     Button("Heading 2") { editor.setHeading(.h2) }
                     Button("Heading 3") { editor.setHeading(.h3) }
-                } label: { Image(systemName: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Label("Style", systemImage: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
                     .help("Text style — Body / Heading 1–3")
                     .onHover { setHint("Text style — Body / Heading 1–3", $0) }
                 fmtBtn("list.bullet", "Bullet list — Tab to indent, Return to continue") { editor.toggleBullet() }
                 fmtBtn("list.number", "Numbered list — Tab to indent, Return to continue") { editor.toggleNumbered() }
                 fmtBtn("checklist", "Checklist — tap a box to check it off") { editor.toggleChecklist() }
-                fmtBtn("text.quote", "Block quote") { editor.toggleQuote() }
-                fmtBtn("chevron.left.forwardslash.chevron.right", "Code block") { editor.toggleCodeBlock() }
-                fmtBtn("minus", "Divider") { editor.insertDivider() }
-                fmtBtn("rectangle.compress.vertical", "Collapse selection into a section") {
-                    if editor.hasSelection { foldTitle = ""; foldPrompt = true }
-                }
                 sep
-                Button { colorMode = (colorMode == .highlight ? nil : .highlight) } label: { Image(systemName: "highlighter") }
-                    .buttonStyle(.borderless).foregroundStyle(colorMode == .highlight ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                    .help("Highlight color").onHover { setHint("Highlight color", $0) }
-                Button { colorMode = (colorMode == .foreground ? nil : .foreground) } label: { Image(systemName: "paintpalette") }
-                    .buttonStyle(.borderless).foregroundStyle(colorMode == .foreground ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                    .help("Text color").onHover { setHint("Text color", $0) }
-                sep
-                fmtBtn("function", "Insert equation") { showEquation = true }
-                fmtBtn("tablecells", "Insert table — right-click it to add/remove rows & columns, or Tab to add a row") { editor.insertTable() }
-                fmtBtn("photo", "Insert image — or drag / paste a screenshot straight in") { editor.insertImage() }
-                fmtBtn("character.book.closed", "Define the selected word") { define() }
+                Menu {
+                    Button { editor.insertTable() } label: { Label("Table", systemImage: "tablecells") }
+                    Button { editor.insertImage() } label: { Label("Image", systemImage: "photo") }
+                    Button { showEquation = true } label: { Label("Equation", systemImage: "function") }
+                    Button { editor.toggleCodeBlock() } label: { Label("Code block", systemImage: "chevron.left.forwardslash.chevron.right") }
+                    Button { editor.toggleQuote() } label: { Label("Block quote", systemImage: "text.quote") }
+                    Button { editor.insertDivider() } label: { Label("Divider", systemImage: "minus") }
+                    Button { if editor.hasSelection { foldTitle = ""; foldPrompt = true } } label: { Label("Collapse selection", systemImage: "rectangle.compress.vertical") }
+                    Divider()
+                    Button { define() } label: { Label("Define selected word", systemImage: "character.book.closed") }
+                } label: { Label("Insert", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
+                    .help("Insert — table, image, equation, code, quote, divider, collapse")
+                    .onHover { setHint("Insert — table, image, equation, code, quote…", $0) }
+                Menu {
+                    Button { colorMode = .highlight } label: { Label("Highlight", systemImage: "highlighter") }
+                    Button { colorMode = .foreground } label: { Label("Text color", systemImage: "paintpalette") }
+                    if colorMode != nil { Divider(); Button("Hide color picker") { colorMode = nil } }
+                } label: { Image(systemName: "highlighter") }.menuStyle(.borderlessButton).fixedSize()
+                    .foregroundStyle(colorMode != nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .help("Text & highlight color")
+                    .onHover { setHint("Text & highlight color", $0) }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
     }
