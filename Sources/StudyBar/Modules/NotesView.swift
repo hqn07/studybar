@@ -332,7 +332,10 @@ struct NoteEditor: View {
                 Divider()
             }
             if !showPreview && !focusMode {
-                formatBar
+                HStack(spacing: 0) {
+                    formatBar
+                    aiToolbarButton
+                }
                 if toolHint != nil || autocompleteOn {
                     HStack(spacing: 4) {
                         if let toolHint {
@@ -493,23 +496,39 @@ struct NoteEditor: View {
                 fmtBtn("tablecells", "Insert table — right-click it to add/remove rows & columns, or Tab to add a row") { editor.insertTable() }
                 fmtBtn("photo", "Insert image — or drag / paste a screenshot straight in") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
-                sep
-                Menu {
-                    if AIConfig.isReady {
-                        Section("Selection, or the whole note") {
-                            ForEach(NoteAI.allCases) { a in
-                                Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
-                            }
-                        }
-                    } else {
-                        Text("Turn on AI in Settings ▸ Intelligence")
-                    }
-                } label: { Image(systemName: "sparkles") }
-                    .menuStyle(.borderlessButton).fixedSize()
-                    .help("AI — summarize, rewrite, proofread the selection or note")
-                    .onHover { setHint("AI — summarize / rewrite / proofread", $0) }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
+    }
+
+    /// Pinned to the trailing edge of the toolbar (never scrolls off), so the AI actions are
+    /// always visible. Acts on the selection, or the whole note when nothing is selected.
+    private var aiToolbarButton: some View {
+        HStack(spacing: 8) {
+            Divider().frame(height: 18)
+            Menu {
+                if AIConfig.isReady {
+                    Section("Selection, or the whole note") {
+                        ForEach(NoteAI.allCases) { a in
+                            Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
+                        }
+                    }
+                } else {
+                    Button("Turn on AI in Settings ▸ Intelligence") {}.disabled(true)
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                    Text("AI").font(.callout.weight(.medium))
+                }
+                .foregroundStyle(.tint)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(.tint.opacity(0.13), in: Capsule())
+            }
+            .menuStyle(.borderlessButton).fixedSize().menuIndicator(.hidden)
+            .help("AI — summarize, rewrite, proofread the selection or note")
+        }
+        .padding(.trailing, 10)
+        .background(.bar)
     }
 
     // Inline AI review card — streams the result, then Accept (replace/insert) or Discard.

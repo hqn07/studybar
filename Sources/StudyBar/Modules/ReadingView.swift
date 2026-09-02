@@ -805,6 +805,7 @@ struct ReadingEditor: View {
                     }
                     field("Notes") {
                         TextEditor(text: $draft.notes).frame(height: 70).font(.callout)
+                            .overlay(alignment: .topTrailing) { AITextMenu(text: $draft.notes, context: draft.title).padding(6) }
                             .scrollContentBackground(.hidden)
                             .background(.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                     }

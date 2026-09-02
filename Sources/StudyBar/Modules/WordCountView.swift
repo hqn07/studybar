@@ -52,6 +52,7 @@ struct WordCountView: View {
                             Text("Paste or type text here…").foregroundStyle(.tertiary).padding(14).allowsHitTesting(false)
                         }
                     }
+                    .overlay(alignment: .topTrailing) { AITextMenu(text: $text).padding(10) }
                 Divider()
                 ScrollView {
                     VStack(spacing: 12) {

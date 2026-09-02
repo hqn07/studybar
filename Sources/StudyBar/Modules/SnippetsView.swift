@@ -263,6 +263,7 @@ struct SnippetEditor: View {
                     CategoryPicker(suggestions: categories, selection: $draft.category)
                 }
                 TextEditor(text: $draft.body).frame(height: 140)
+                    .overlay(alignment: .topTrailing) { AITextMenu(text: $draft.body).padding(6) }
                     .font(.body).scrollContentBackground(.hidden)
                     .background(.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                 Text("Type the keyword in the Notes editor (then space) to expand inline — start it with a symbol like “;” for that to fire. Placeholders resolve on expand or copy: {date} · {time} · {datetime} · {clipboard}")

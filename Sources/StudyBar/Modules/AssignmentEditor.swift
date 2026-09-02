@@ -50,6 +50,7 @@ struct AssignmentEditor: View {
                     checklistSection
                     field("Notes") {
                         TextEditor(text: $draft.notes).frame(height: 70)
+                            .overlay(alignment: .topTrailing) { AITextMenu(text: $draft.notes, context: draft.title).padding(6) }
                             .font(.callout).scrollContentBackground(.hidden)
                             .background(.sbSurface, in: RoundedRectangle(cornerRadius: 6))
                     }

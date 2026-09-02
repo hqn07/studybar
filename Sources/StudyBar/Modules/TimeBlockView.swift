@@ -482,7 +482,11 @@ struct TimeBlockEditor: View {
                     }
                     Toggle("Done", isOn: $draft.done)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Notes").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Text("Notes").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            if AIConfig.isReady { AITextMenu(text: $draft.notes, showsLabel: false) }
+                        }
                         TextEditor(text: $draft.notes)
                             .font(.callout).frame(minHeight: 70)
                             .padding(4)

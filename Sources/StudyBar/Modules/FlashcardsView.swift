@@ -437,6 +437,7 @@ struct FlipCardComposer: View {
                         Text(placeholder).foregroundStyle(.tertiary).font(.title3).padding(.top, 3).padding(.leading, 5)
                     }
                     TextEditor(text: text).scrollContentBackground(.hidden).font(.title3)
+                        .overlay(alignment: .topTrailing) { AITextMenu(text: text, showsLabel: false).padding(4) }
                 }
             }
             .padding(14)
