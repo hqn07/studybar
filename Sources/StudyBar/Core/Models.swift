@@ -406,6 +406,12 @@ struct ClassSession: Identifiable, Codable, Hashable {
     var endMinutes: Int = 10 * 60
     var room: String = ""
     var link: String = ""            // zoom/meet link for the class
+    var online: Bool? = nil          // virtual class (Zoom/Meet). Optional → old data decodes.
+
+    var isOnline: Bool { online ?? false }
+    /// An online class with no set weekly meeting time — listed off the time grid rather
+    /// than placed at an hour. (An online class that DOES meet at a time stays on the grid.)
+    var isAsync: Bool { isOnline && (days?.isEmpty ?? true) }
 
     /// The weekdays this class meets — the multi-day `days`, or the legacy single
     /// `weekday` for data written before multi-day support. Always sorted.

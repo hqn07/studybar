@@ -52,13 +52,17 @@ struct WeekGridView: View {
     /// Mon–Fri always; Sat / Sun appended only when a class actually meets then.
     private var visibleDays: [Int] {
         var days = [2, 3, 4, 5, 6]
-        let used = Set(state.data.classes.flatMap { $0.weekdays })
+        let used = Set(state.data.classes.filter { !$0.isAsync }.flatMap { $0.weekdays })
         if used.contains(7) { days.append(7) }
         if used.contains(1) { days.append(1) }
         return days
     }
     private func classes(on wd: Int) -> [ClassSession] {
-        state.data.classes.filter { $0.meets(on: wd) }
+        state.data.classes.filter { !$0.isAsync && $0.meets(on: wd) }
+    }
+    /// Online classes with no set meeting time — shown in a strip, not on the grid.
+    private var asyncClasses: [ClassSession] {
+        state.data.classes.filter { $0.isAsync }
     }
     private var range: (lo: Int, hi: Int) {
         let mins = state.data.classes.flatMap { [$0.startMinutes, $0.endMinutes] }
@@ -68,7 +72,7 @@ struct WeekGridView: View {
     }
 
     private var nextClass: (session: ClassSession, day: Int)? {
-        let occ = state.data.classes.flatMap { c in c.weekdays.map { (c, $0) } }
+        let occ = state.data.classes.filter { !$0.isAsync }.flatMap { c in c.weekdays.map { (c, $0) } }
         if let n = occ.filter({ $0.1 == today && $0.0.endMinutes >= nowMinutes })
             .sorted(by: { $0.0.startMinutes < $1.0.startMinutes }).first { return (n.0, n.1) }
         return nil
@@ -98,7 +102,13 @@ struct WeekGridView: View {
                 } else {
                     VStack(spacing: 0) {
                         if let n = nextClass { nextBanner(n.session); Divider() }
-                        grid
+                        if !asyncClasses.isEmpty { onlineStrip; Divider() }
+                        if state.data.classes.contains(where: { !$0.isAsync }) {
+                            grid
+                        } else {
+                            EmptyState(symbol: "video", title: "Online classes only",
+                                       subtitle: "Your classes have no set meeting time — they're listed above. Add a class with days to see the weekly grid.")
+                        }
                     }
                 }
             }
@@ -122,6 +132,32 @@ struct WeekGridView: View {
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
+    }
+
+    /// Off-grid strip for async online classes — tap to edit, or open the meeting link.
+    private var onlineStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.s) {
+                Label("ONLINE", systemImage: "video").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                ForEach(asyncClasses) { c in
+                    HStack(spacing: 6) {
+                        if let col = state.course(c.courseID)?.color { Circle().fill(col).frame(width: 6, height: 6) }
+                        Text(state.course(c.courseID)?.code.nonEmpty ?? (c.title.isEmpty ? "Class" : c.title))
+                            .font(.caption.weight(.medium)).lineLimit(1)
+                        if !c.link.isEmpty {
+                            Button { open(c.link) } label: { Image(systemName: "arrow.up.forward.app") }
+                                .buttonStyle(.borderless).help("Open meeting link")
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.sbSurface, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
+                    .contentShape(Capsule())
+                    .onTapGesture { editing = c }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, DS.Space.s)
+        }
     }
 
     // MARK: Grid
@@ -280,6 +316,11 @@ struct WeekGridView: View {
             .frame(width: laneW, height: h, alignment: .topLeading)
             .background(color.opacity(0.22), in: RoundedRectangle(cornerRadius: DS.Radius.control))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(color.opacity(0.5), lineWidth: 0.5))
+            .overlay(alignment: .topTrailing) {
+                if c.isOnline && !c.link.isEmpty {
+                    Image(systemName: "video.fill").font(.system(size: 8)).foregroundStyle(color).padding(3)
+                }
+            }
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -429,6 +470,13 @@ struct ClassEditor: View {
                     }
                     TextField("Label (Lecture, Lab, Discussion…)", text: $draft.title).textFieldStyle(.roundedBorder)
 
+                    Toggle(isOn: Binding(get: { draft.online ?? false }, set: { draft.online = $0 })) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Online class")
+                            Text("Zoom / Meet — add the link below").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Days").font(.caption).foregroundStyle(.secondary)
                         HStack(spacing: 6) {
@@ -444,7 +492,8 @@ struct ClassEditor: View {
                                 }.buttonStyle(.plain)
                             }
                         }
-                        Text("Pick every day this class meets — MWF is one class.")
+                        Text(draft.isOnline ? "Pick the days it meets — or leave empty for async (no set time)."
+                                            : "Pick every day this class meets — MWF is one class.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
 
@@ -462,7 +511,7 @@ struct ClassEditor: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") { save() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
-                    .disabled(selectedDays.isEmpty)
+                    .disabled(selectedDays.isEmpty && !draft.isOnline)
             }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -506,10 +555,10 @@ struct ClassEditor: View {
     }
 
     private func save() {
-        guard !selectedDays.isEmpty else { return }
+        guard !selectedDays.isEmpty || draft.isOnline else { return }   // async online may have no days
         if draft.endMinutes <= draft.startMinutes { draft.endMinutes = min(24 * 60, draft.startMinutes + 50) }
         let days = selectedDays.sorted()
-        draft.days = days
+        draft.days = days                    // empty for an async online class → off the grid
         draft.weekday = days.first ?? 2      // keep the legacy field in sync
         if let i = state.data.classes.firstIndex(where: { $0.id == draft.id }) {
             state.data.classes[i] = draft
