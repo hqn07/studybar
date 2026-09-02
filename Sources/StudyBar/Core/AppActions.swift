@@ -41,13 +41,11 @@ enum AppActions {
     }
 
     /// Route a plain-English prompt to the Assistant module (used by ✨ entry points and ⌘K).
+    /// Open the assistant as a summoned floating panel (no longer a sidebar module) and,
+    /// if configured, send it a starting prompt. Cross-object work lives here; inline edits
+    /// stay on the object (the ✨ menus).
     static func assistant(_ prompt: String) {
-        guard let s = AppState.current else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        s.selectedModuleID = "assistant"
-        s.globalSearch = ""
-        guard AIConfig.isReady else { return }   // empty state prompts to configure
-        Task { await s.aiChat.send(prompt, state: s) }
+        AssistantPanel.shared.show(prompt: prompt)
     }
 
     static func open(module id: String) {

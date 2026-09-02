@@ -33,8 +33,9 @@ enum ModuleRegistry {
               category: .overview) { AnyView(TodayView()) },
         .init(id: "insights", title: "Insights", symbol: "chart.bar.xaxis",
               category: .overview, wide: true) { AnyView(InsightsView()) },
-        .init(id: "assistant", title: "Assistant", symbol: "sparkles",
-              category: .overview) { AnyView(AssistantView()) },
+        // NOTE: the Assistant is no longer a sidebar module — it's a summoned floating panel
+        // (AssistantPanel, opened via ⌘K / AppActions.assistant). Cross-object AI jobs live
+        // there; inline edits stay on the object (the ✨ menus). AssistantView/Chat is reused.
 
         // Assignments
         .init(id: "assignments", title: "Assignments", symbol: "checklist",

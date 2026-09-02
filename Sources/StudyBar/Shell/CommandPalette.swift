@@ -30,6 +30,11 @@ struct CommandPalette: View {
         out.append(.init(title: "Open in Window", subtitle: "View", symbol: "macwindow") {
             WindowOpener.open?("main"); isPresented = false
         })
+        if AIConfig.isReady {
+            out.append(.init(title: "Assistant", subtitle: "Ask · plan · cross-note jobs", symbol: "sparkles") {
+                isPresented = false; AssistantPanel.shared.show()
+            })
+        }
         out.append(.init(title: "Quit StudyBar", subtitle: "App", symbol: "power") { NSApp.terminate(nil) })
         // Module jumps
         for m in ModuleRegistry.all {
@@ -44,9 +49,8 @@ struct CommandPalette: View {
         var out = actions.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.subtitle.localizedCaseInsensitiveContains(q) }
         if AIConfig.isReady {
             out.append(.init(title: "Ask Assistant: “\(q)”", subtitle: "Intelligence", symbol: "sparkles") {
-                if standalone { WindowOpener.open?("main") }
-                AppActions.assistant(q)
                 isPresented = false
+                AppActions.assistant(q)   // opens the summoned assistant panel
             })
         }
         return out

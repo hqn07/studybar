@@ -80,7 +80,7 @@ struct ContextPill: View {
     }
 }
 
-private struct AssistantChat: View {
+struct AssistantChat: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var chat: AIChat
     @State private var input = ""
