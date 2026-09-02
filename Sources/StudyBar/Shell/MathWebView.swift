@@ -212,7 +212,8 @@ enum MathMarkdown {
             {left:'$$',right:'$$',display:true},
             {left:'\\\\[',right:'\\\\]',display:true},
             {left:'$',right:'$',display:false},
-            {left:'\\\\(',right:'\\\\)',display:false}],throwOnError:false});}catch(e){}
+            {left:'\\\\(',right:'\\\\)',display:false}],
+            throwOnError:false,errorColor:'\(fg)80'});}catch(e){}
           post(); window.addEventListener('load',post);
           if(window.ResizeObserver){new ResizeObserver(post).observe(document.body);}
           if(document.fonts&&document.fonts.ready){document.fonts.ready.then(post);}
@@ -250,9 +251,27 @@ enum MathMarkdown {
         return html
     }
 
+    /// Balance a line's `\(…\)` so a common typo (a bare `)` meant as `\)`, or a stray extra
+    /// `\)`) still renders instead of showing as raw error text.
+    private static func repairDelims(_ line: String) -> String {
+        let opens = line.components(separatedBy: "\\(").count - 1
+        let closes = line.components(separatedBy: "\\)").count - 1
+        guard opens != closes else { return line }
+        var out = line
+        if opens > closes {
+            // Dangling open: a trailing bare `)` was almost certainly meant to be `\)`.
+            if out.hasSuffix(")") && !out.hasSuffix("\\)") { out = String(out.dropLast()) + "\\)" }
+            else { out += String(repeating: "\\)", count: opens - closes) }
+        } else {
+            var extra = closes - opens                       // strip stray trailing closers
+            while extra > 0, out.hasSuffix("\\)") { out = String(out.dropLast(2)); extra -= 1 }
+        }
+        return out
+    }
+
     /// Protect math spans, HTML-escape the rest, apply inline Markdown, restore math.
     private static func inlineHTML(_ s: String) -> String {
-        var work = s
+        var work = repairDelims(s)
         var math: [String] = []
         let mathPatterns = [#"\$\$[\s\S]+?\$\$"#, #"\\\[[\s\S]+?\\\]"#,
                             #"(?<!\\)\$[^$\n]+?\$"#, #"\\\([\s\S]+?\\\)"#]
