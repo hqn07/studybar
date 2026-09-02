@@ -742,10 +742,26 @@ struct ReadingDetailView: View {
                 askLoading = false
                 if askThread.indices.contains(turnIdx) {
                     let final = (out ?? askThread[turnIdx].answer).trimmingCharacters(in: .whitespacesAndNewlines)
-                    askThread[turnIdx].answer = final.isEmpty ? "No answer — try rephrasing, or a stronger engine." : final
+                    askThread[turnIdx].answer = final.isEmpty ? "No answer — try rephrasing, or a stronger engine." : mathify(final)
                 }
             }
         }
+    }
+
+    /// Weak local models ignore the "use LaTeX" instruction and write equations as plain text.
+    /// If the answer has no math delimiters, wrap standalone equation-looking lines in $$…$$ so
+    /// SwiftMath (or the KaTeX fallback) typesets them. Conservative: prose lines — many words
+    /// or ending in sentence punctuation — are left untouched.
+    private func mathify(_ text: String) -> String {
+        guard !text.contains("$") else { return text }
+        return text.components(separatedBy: "\n").map { line -> String in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.contains("="), !t.hasSuffix("."), !t.hasSuffix(":"), !t.hasSuffix(",") else { return line }
+            let words = t.split(separator: " ").count
+            let mathish = t.contains { "+-/*^_(){}".contains($0) }
+            guard words <= 10, mathish else { return line }
+            return "$$\(t)$$"
+        }.joined(separator: "\n")
     }
 
     private func saveThread() {
