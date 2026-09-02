@@ -118,6 +118,7 @@ struct DeckView: View {
     @State private var testing = false
     @State private var editingCard: Flashcard?
     @State private var importing = false
+    @State private var generating = false
 
     private var cards: [Flashcard] { state.data.flashcards.filter { $0.deckID == deck.id } }
     private var due: [Flashcard] { cards.filter { $0.isDue } }
@@ -159,6 +160,7 @@ struct DeckView: View {
         .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id) }
         .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
         .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id) }
+        .navigationDestination(isPresented: $generating) { GenerateCardsView(deckID: deck.id) }
     }
 
     private var header: some View {
@@ -174,6 +176,10 @@ struct DeckView: View {
                         Button { matching = true } label: { Label("Match game", systemImage: "square.grid.2x2") }
                         Button { testing = true } label: { Label("Test yourself", systemImage: "checklist") }
                     }
+                    Divider()
+                }
+                if AIConfig.isReady {
+                    Button { generating = true } label: { Label("Generate with AI…", systemImage: "sparkles") }
                     Divider()
                 }
                 Button { importing = true } label: { Label("Import from Anki / CSV…", systemImage: "square.and.arrow.down") }
@@ -642,6 +648,142 @@ struct CSVImportView: View {
     private func doImport() {
         for c in newCards {
             state.data.flashcards.append(Flashcard(deckID: deckID, front: c.front, back: c.back, tags: c.tags))
+        }
+        dismiss()
+    }
+}
+
+// MARK: - AI card generation (on-object, propose → accept)
+
+/// Turn a student's own material (pasted, or pulled from a note) into flashcards. The AI
+/// only ever proposes — every card is shown for review, editable, with a per-card toggle;
+/// nothing lands in the deck until the user taps Add. Duplicates of existing fronts are skipped.
+struct GenerateCardsView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let deckID: UUID
+
+    struct PropCard: Identifiable { let id = UUID(); var front: String; var back: String; var include = true }
+
+    @State private var source = ""
+    @State private var loading = false
+    @State private var raw = ""
+    @State private var proposed: [PropCard] = []
+    @State private var task: Task<Void, Never>?
+
+    private var includedCount: Int { proposed.filter(\.include).count }
+    private var canGenerate: Bool {
+        AIConfig.isReady && !loading && source.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubHeader("Generate Cards") {
+                if !state.data.notes.isEmpty {
+                    Menu {
+                        ForEach(state.data.notes.prefix(60)) { n in
+                            Button(n.title.isEmpty ? "Untitled note" : n.title) { source = n.body }
+                        }
+                    } label: { Label("From a note…", systemImage: "note.text") }.buttonStyle(.borderless)
+                }
+            }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.m) {
+                    Text("Paste your material (or pull a note), then let AI draft flashcards. You pick and edit which to keep — nothing is added until you tap Add.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $source).font(.callout)
+                        .frame(minHeight: 120).scrollContentBackground(.hidden)
+                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    Button { generate() } label: {
+                        Label(loading ? "Generating…" : "Generate cards", systemImage: "sparkles")
+                    }.buttonStyle(.borderedProminent).disabled(!canGenerate)
+                    if !AIConfig.isReady {
+                        Text("Turn on an engine in Settings ▸ Intelligence first.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    if loading {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Drafting from your material…").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !raw.isEmpty {
+                            Text(raw).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else if !proposed.isEmpty {
+                        HStack {
+                            Text("\(includedCount) card\(includedCount == 1 ? "" : "s") selected").font(.caption.weight(.medium))
+                            Spacer()
+                            Text("Edit any card before adding").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        ForEach($proposed) { $c in
+                            HStack(alignment: .top, spacing: 8) {
+                                Button { c.include.toggle() } label: {
+                                    Image(systemName: c.include ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(c.include ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                }.buttonStyle(.plain).padding(.top, 3)
+                                VStack(spacing: 4) {
+                                    TextField("Front", text: $c.front).textFieldStyle(.roundedBorder)
+                                    TextField("Back", text: $c.back).textFieldStyle(.roundedBorder)
+                                }
+                            }.opacity(c.include ? 1 : 0.5)
+                        }
+                    }
+                }.padding(14)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { task?.cancel(); dismiss() }
+                Button("Add \(includedCount)") { add() }.buttonStyle(.borderedProminent).disabled(includedCount == 0)
+            }.padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+    }
+
+    private func generate() {
+        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count >= 20 else { return }
+        loading = true; raw = ""; proposed = []
+        let sys = "You create study flashcards from a student's own material. Output concise question/answer cards, one per line, EXACTLY as `front :: back`. Front = a question or term; back = a short answer or definition. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
+        task?.cancel()
+        task = Task {
+            let msgs = [AIMessage(role: .user, text: text)]
+            let out: String?
+            if let ollama = provider as? OllamaProvider {
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in raw = p }
+            } else {
+                out = try? await provider.completePlain(system: sys, messages: msgs)
+            }
+            await MainActor.run { loading = false; proposed = parseCards(out ?? raw) }
+        }
+    }
+
+    /// One card per line as `front :: back`; strip any numbering the model added.
+    private func parseCards(_ s: String) -> [PropCard] {
+        s.split(whereSeparator: \.isNewline).compactMap { line -> PropCard? in
+            let parts = line.components(separatedBy: "::")
+            guard parts.count >= 2 else { return nil }
+            let front = parts[0].trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: #"^\s*(\d+[.)]|[-•*])\s*"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            let back = parts[1...].joined(separator: "::").trimmingCharacters(in: .whitespaces)
+            guard !front.isEmpty, !back.isEmpty else { return nil }
+            return PropCard(front: front, back: back)
+        }
+    }
+
+    private func add() {
+        var seen = Set(state.data.flashcards.filter { $0.deckID == deckID }
+            .map { $0.front.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        for c in proposed where c.include {
+            let key = c.front.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            state.data.flashcards.append(Flashcard(deckID: deckID, front: c.front, back: c.back))
         }
         dismiss()
     }

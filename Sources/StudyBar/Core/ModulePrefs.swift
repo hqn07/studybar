@@ -25,7 +25,7 @@ final class ModulePrefs: ObservableObject {
     /// tap away in Settings ▸ Modules (philosophy: calm default, breadth opt-in).
     static let starterVisible: Set<String> = [
         "today", "assignments", "notes", "calendar",
-        "courses", "flashcards", "timefocus", "settings",
+        "courses", "flashcards", "voice", "timefocus", "settings",
     ]
     /// The modules a new install starts with hidden. Pure — safe to call anytime.
     static func starterHidden() -> Set<String> {
