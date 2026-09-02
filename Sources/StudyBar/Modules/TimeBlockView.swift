@@ -108,7 +108,9 @@ struct DayPlannerView: View {
     private var timeline: some View {
         let (lo, hi) = range
         let totalHeight = CGFloat(hi - lo) * pxPerMin
-        return ScrollView {
+        let nowM = { let c = cal.dateComponents([.hour, .minute], from: .now); return (c.hour ?? 0) * 60 + (c.minute ?? 0) }()
+        return ScrollViewReader { proxy in
+          ScrollView {
             GeometryReader { geo in
                 let contentWidth = max(0, geo.size.width - gutter - 12)
                 ZStack(alignment: .topLeading) {
@@ -128,6 +130,8 @@ struct DayPlannerView: View {
                     }
                     if let m = dropHint { dropIndicator(m, lo: lo, width: geo.size.width).allowsHitTesting(false) }
                     if isToday { nowLine(lo: lo, hi: hi, width: geo.size.width).allowsHitTesting(false) }
+                    Color.clear.frame(width: 1, height: 1)
+                        .offset(y: y(min(hi, max(lo, nowM)), lo: lo)).id("now")
                 }
                 .frame(width: geo.size.width, height: totalHeight, alignment: .topLeading)
                 .contentShape(Rectangle())
@@ -140,6 +144,11 @@ struct DayPlannerView: View {
                 }
             }
             .frame(height: totalHeight)
+          }
+          .onAppear {
+              guard isToday, nowM >= lo && nowM <= hi else { return }
+              DispatchQueue.main.async { proxy.scrollTo("now", anchor: .center) }
+          }
         }
     }
 

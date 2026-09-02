@@ -171,24 +171,33 @@ struct WeekGridView: View {
             VStack(spacing: 0) {
                 headerRow(days: days, dayWidth: dayWidth)
                 Divider()
-                ScrollView {
-                    ZStack(alignment: .topLeading) {
-                        hourLines(lo: lo, hi: hi, width: gutter + dayWidth * CGFloat(days.count))
-                        // Today column highlight.
-                        if let ti = days.firstIndex(of: today) {
-                            Rectangle().fill(.tint.opacity(0.05))
-                                .frame(width: dayWidth, height: totalHeight)
-                                .offset(x: gutter + CGFloat(ti) * dayWidth)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        ZStack(alignment: .topLeading) {
+                            hourLines(lo: lo, hi: hi, width: gutter + dayWidth * CGFloat(days.count))
+                            // Today column highlight.
+                            if let ti = days.firstIndex(of: today) {
+                                Rectangle().fill(.tint.opacity(0.05))
+                                    .frame(width: dayWidth, height: totalHeight)
+                                    .offset(x: gutter + CGFloat(ti) * dayWidth)
+                            }
+                            // Column separators + tap-to-add background.
+                            ForEach(Array(days.enumerated()), id: \.element) { i, wd in
+                                columnLayer(wd: wd, index: i, lo: lo, dayWidth: dayWidth, totalHeight: totalHeight)
+                            }
+                            if let ti = days.firstIndex(of: today) {
+                                nowLine(lo: lo, hi: hi, x: gutter + CGFloat(ti) * dayWidth, width: dayWidth)
+                            }
+                            // Anchor for auto-scrolling to the current time on open.
+                            Color.clear.frame(width: 1, height: 1)
+                                .offset(y: y(min(hi, max(lo, nowMinutes)), lo: lo)).id("now")
                         }
-                        // Column separators + tap-to-add background.
-                        ForEach(Array(days.enumerated()), id: \.element) { i, wd in
-                            columnLayer(wd: wd, index: i, lo: lo, dayWidth: dayWidth, totalHeight: totalHeight)
-                        }
-                        if let ti = days.firstIndex(of: today) {
-                            nowLine(lo: lo, hi: hi, x: gutter + CGFloat(ti) * dayWidth, width: dayWidth)
-                        }
+                        .frame(width: gutter + dayWidth * CGFloat(days.count), height: totalHeight, alignment: .topLeading)
                     }
-                    .frame(width: gutter + dayWidth * CGFloat(days.count), height: totalHeight, alignment: .topLeading)
+                    .onAppear {
+                        guard nowMinutes >= lo && nowMinutes <= hi else { return }
+                        DispatchQueue.main.async { proxy.scrollTo("now", anchor: .center) }
+                    }
                 }
             }
         }
@@ -328,7 +337,18 @@ struct WeekGridView: View {
             Button("Edit") { editing = c }
             Button("Delete", role: .destructive) { state.withUndo("Delete class") { state.data.classes.removeAll { $0.id == c.id } } }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(a11yLabel(c))
+        .accessibilityHint("Edit class")
         .offset(x: 2 + CGFloat(lane) * (laneW + 2), y: y(c.startMinutes, lo: lo))
+    }
+
+    private func a11yLabel(_ c: ClassSession) -> String {
+        let name = state.course(c.courseID)?.code.nonEmpty ?? (c.title.isEmpty ? "Class" : c.title)
+        var s = "\(name), \(c.startString) to \(c.endString)"
+        if !c.room.isEmpty { s += ", room \(c.room)" }
+        if c.isOnline { s += ", online" }
+        return s
     }
 
     private func nowLine(lo: Int, hi: Int, x: CGFloat, width: CGFloat) -> some View {
