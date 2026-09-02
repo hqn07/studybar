@@ -88,7 +88,9 @@ enum TodayFocus {
         My wider week for context:
         \(DailyPlan.brief(data))
         """
-        let text = try? await provider.complete(system: system, messages: [AIMessage(role: .user, text: user)])
+        // completePlain, not complete: Ollama's complete forces format:json and would return a
+        // `{}` blob instead of a sentence.
+        let text = try? await provider.completePlain(system: system, messages: [AIMessage(role: .user, text: user)])
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
