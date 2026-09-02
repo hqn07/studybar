@@ -651,14 +651,16 @@ struct SettingsView: View {
             LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
             Text("Free & open source. A menu bar study companion.")
                 .font(.caption).foregroundStyle(.secondary)
+            Link(destination: feedbackMailURL) {
+                Label("Send feedback by email", systemImage: "envelope")
+            }
+            Text("Email gets the fastest reply — GitHub is checked less often.")
+                .font(.caption2).foregroundStyle(.secondary)
             Link(destination: URL(string: "https://github.com/hqn07/studybar/issues/new/choose")!) {
-                Label("Send feedback / report a bug", systemImage: "exclamationmark.bubble")
+                Label("Report a bug (GitHub)", systemImage: "ladybug")
             }
             Link(destination: URL(string: "https://github.com/hqn07/studybar/discussions")!) {
                 Label("Ideas & questions (Discussions)", systemImage: "bubble.left.and.bubble.right")
-            }
-            Link(destination: URL(string: "https://github.com/hqn07/studybar")!) {
-                Label("StudyBar on GitHub", systemImage: "arrow.up.right.square")
             }
         }
         releaseNotesSection
@@ -691,6 +693,20 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// A mailto: to the maintainer, pre-filled with a subject and the version/OS footer.
+    private var feedbackMailURL: URL {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        var c = URLComponents()
+        c.scheme = "mailto"
+        c.path = "unrest.green_6d@icloud.com"
+        c.queryItems = [
+            URLQueryItem(name: "subject", value: "StudyBar feedback (v\(v))"),
+            URLQueryItem(name: "body", value: "\n\n\n———\nStudyBar \(v) · \(os)"),
+        ]
+        return c.url ?? URL(string: "mailto:unrest.green_6d@icloud.com")!
     }
 
     /// Render a changelog bullet's inline markdown (**bold**, `code`, *italic*).

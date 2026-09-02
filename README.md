@@ -134,13 +134,12 @@ editors push inline and confirmations are in-popover overlay cards.
 
 StudyBar is built in the open — feedback shapes it.
 
-- **🐞 Bug?** [Open an issue](https://github.com/hqn07/studybar/issues/new/choose) — there's a template. Include your macOS version and steps to reproduce.
-- **💡 Idea or feature request?** Also [an issue](https://github.com/hqn07/studybar/issues/new/choose), or start a thread in [Discussions](https://github.com/hqn07/studybar/discussions) if you'd rather talk it through.
-- **🙋 Question / show & tell?** [Discussions](https://github.com/hqn07/studybar/discussions).
-- **You can also send feedback from inside the app:** Settings ▸ About ▸ *Send feedback*.
+- **✉️ Feedback? Email is best: [unrest.green_6d@icloud.com](mailto:unrest.green_6d@icloud.com)** — it gets the fastest reply. (Heads-up: I don't check GitHub often, so email beats an issue for anything you want a response to.) There's also a one-click **Send feedback by email** in Settings ▸ About.
+- **🐞 Bug?** Email works, or [open an issue](https://github.com/hqn07/studybar/issues/new/choose) (there's a template) — include your macOS version and steps to reproduce.
+- **💡 Ideas / questions / show & tell?** [Discussions](https://github.com/hqn07/studybar/discussions).
 
 Pull requests are welcome — a module is just a view plus a line in `Core/ModuleRegistry.swift`.
-For anything large, open an issue first so we can align.
+For anything large, email first so we can align (GitHub is checked infrequently).
 
 ---
 
