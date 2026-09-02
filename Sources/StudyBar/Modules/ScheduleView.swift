@@ -1,6 +1,11 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 let weekdaySymbols = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+/// A parsed batch of draft classes awaiting review (drives the import sheet).
+struct ClassImportBatch: Identifiable, Hashable { let id = UUID(); var drafts: [ClassSession] }
 private let weekdayLetters = ["", "S", "M", "T", "W", "T", "F", "S"]
 
 /// Which face of the unified Schedule is showing: the recurring weekly class grid, or
@@ -37,6 +42,8 @@ struct ScheduleModePicker: View {
 struct WeekGridView: View {
     @EnvironmentObject var state: AppState
     @State private var editing: ClassSession?
+    @State private var importBatch: ClassImportBatch?
+    @State private var importError: String?
     @AppStorage("useClassPeriods") private var useClassPeriods = false
 
     private let hourHeight: CGFloat = 52
@@ -85,6 +92,8 @@ struct WeekGridView: View {
                     ScheduleModePicker()
                     Menu {
                         Toggle("Class periods (UF)", isOn: $useClassPeriods)
+                        Divider()
+                        Button { runImport() } label: { Label("Import from .ics…", systemImage: "square.and.arrow.down") }
                         if mergeableCount > 0 {
                             Divider()
                             Button {
@@ -97,8 +106,14 @@ struct WeekGridView: View {
                 }
             } content: {
                 if state.data.classes.isEmpty {
-                    EmptyState(symbol: "calendar.badge.clock", title: "No classes yet",
-                               subtitle: "Add your weekly classes — pick the days it meets (MWF is one class) and its time.")
+                    VStack(spacing: DS.Space.m) {
+                        EmptyState(symbol: "calendar.badge.clock", title: "No classes yet",
+                                   subtitle: "Add your weekly classes — pick the days it meets (MWF is one class) and its time.")
+                        HStack(spacing: DS.Space.s) {
+                            Button { addClass(day: today, at: nil) } label: { Label("Add a class", systemImage: "plus") }
+                            Button { runImport() } label: { Label("Import .ics", systemImage: "square.and.arrow.down") }
+                        }.buttonStyle(.bordered).controlSize(.small)
+                    }
                 } else {
                     VStack(spacing: 0) {
                         if let n = nextClass { nextBanner(n.session); Divider() }
@@ -113,7 +128,26 @@ struct WeekGridView: View {
                 }
             }
             .navigationDestination(item: $editing) { ClassEditor(session: $0) }
+            .navigationDestination(item: $importBatch) { ClassImportView(drafts: $0.drafts) }
+            .alert("Couldn't import", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+                Button("OK", role: .cancel) { importError = nil }
+            } message: { Text(importError ?? "") }
         }
+    }
+
+    /// Pick an .ics file, parse it into draft classes, and open the review sheet.
+    private func runImport() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if let t = UTType(filenameExtension: "ics") { panel.allowedContentTypes = [t] }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            importError = "Couldn't read that file."; return
+        }
+        let drafts = ClassImport.fromICS(text)
+        if drafts.isEmpty { importError = "No class events found in that calendar." }
+        else { importBatch = ClassImportBatch(drafts: drafts) }
     }
 
     // MARK: Next-up banner
@@ -584,6 +618,76 @@ struct ClassEditor: View {
             state.data.classes[i] = draft
         } else {
             state.data.classes.append(draft)
+        }
+        dismiss()
+    }
+}
+
+// MARK: - Import review (.ics → classes)
+
+struct ClassImportView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    struct Row: Identifiable { let id = UUID(); var c: ClassSession; var include: Bool; var courseID: UUID? }
+    @State private var rows: [Row]
+
+    init(drafts: [ClassSession]) {
+        _rows = State(initialValue: drafts.map { Row(c: $0, include: true, courseID: $0.courseID) })
+    }
+
+    private var selectedCount: Int { rows.filter { $0.include }.count }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubHeader("Import Classes") { }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.s) {
+                    Text("\(rows.count) class\(rows.count == 1 ? "" : "es") found. Uncheck any you don't want and assign a course.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach($rows) { $row in importRow($row) }
+                }.padding(14)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Add \(selectedCount) class\(selectedCount == 1 ? "" : "es")") { add() }
+                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .disabled(selectedCount == 0)
+            }.padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+    }
+
+    private func importRow(_ row: Binding<Row>) -> some View {
+        let c = row.wrappedValue.c
+        let meta = "\(c.isAsync ? "async" : c.daysShort) · \(c.isAsync ? "no set time" : "\(c.startString)–\(c.endString)")"
+            + (c.room.isEmpty ? "" : " · \(c.room)") + (c.isOnline ? " · online" : "")
+        return HStack(spacing: DS.Space.m) {
+            Toggle("", isOn: row.include).labelsHidden()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(c.title.isEmpty ? "Class" : c.title).fontWeight(.medium).lineLimit(1)
+                Text(meta).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: DS.Space.s)
+            CoursePicker(courseID: row.courseID)
+        }
+        .padding(10)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .opacity(row.wrappedValue.include ? 1 : 0.5)
+    }
+
+    private func add() {
+        state.withUndo("Import classes") {
+            for r in rows where r.include {
+                var c = r.c
+                c.id = UUID()
+                c.courseID = r.courseID
+                state.data.classes.append(c)
+            }
         }
         dismiss()
     }

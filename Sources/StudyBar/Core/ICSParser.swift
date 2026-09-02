@@ -8,6 +8,7 @@ struct ICSEvent: Identifiable, Hashable {
     var url: String
     var location: String
     var uid: String = ""     // RFC 5545 UID — stable per source item, used to dedup imports
+    var rrule: String = ""   // raw RRULE (e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR) — for class import
 }
 
 /// Minimal iCalendar (RFC 5545) parser — enough for Canvas / Google / school feeds.
@@ -28,7 +29,8 @@ enum ICSParser {
                     end: date(cur["DTEND"]),
                     url: cur["URL"] ?? "",
                     location: decode(cur["LOCATION"] ?? ""),
-                    uid: cur["UID"] ?? ""))
+                    uid: cur["UID"] ?? "",
+                    rrule: cur["RRULE"] ?? ""))
                 continue
             }
             guard inEvent, let colon = l.firstIndex(of: ":") else { continue }
