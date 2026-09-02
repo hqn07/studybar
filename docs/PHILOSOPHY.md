@@ -65,6 +65,42 @@ content.**
 
 ---
 
+## AI is a material, not a place
+
+StudyBar's AI **meets you on the object and proposes** — you stay in flow, in control,
+on-device. It is never a chatbot you visit and copy-paste out of. Chat is the fallback,
+not the home. (Apple's Writing Tools work because they appear *on the thing*, propose,
+and let you accept — zero navigation, zero copy-paste, reversible.)
+
+**Three layers of presence:**
+
+1. **Inline (on-object)** — the workhorse, ~90% of use. The `✨` menu on anything with
+   text transforms what's in front of you (summarize, rewrite, proofread, key points,
+   continue; per-module actions like an assignment's *break into steps*). Result streams
+   into a review card; you **accept or discard**. Non-destructive, single undo. One
+   affordance everywhere text lives — learn it once (`Shell/AITextMenu.swift`).
+2. **Command bar** — cross-object jobs ("plan my week", "flashcards from these notes").
+   A **summoned floating panel** (`Core/AssistantPanel.swift`, opened via ⌘K), not a
+   sidebar destination. It proposes **confirm-cards** you apply. Floats over your work,
+   closes when done.
+3. **Ambient suggestions** — **off by default** (user-invoke wins). A Settings ▸
+   Intelligence toggle turns on gentle, **dismissible** chips ("Summarize?" on a long
+   note). Never modal, never auto-acts.
+
+**Two invariants under all of it:**
+
+- **AI never mutates the store directly.** Inline → review card. Cross-object → confirm-
+  cards. You commit. Always undoable. (Same spine as *never lose user data*.)
+- **Local-first.** Apple on-device model is the default when available (free, private,
+  fast enough for these bounded tasks); Ollama / cloud are user-chosen upgrades.
+
+**The test for any AI feature:** *can the user do it without leaving what they're looking
+at, and is the result a proposal they accept?* If no → redesign or don't ship. We do **not**
+build: a chat transcript as the primary surface, auto-apply, anything that makes you leave
+the object, or proactive nagging.
+
+---
+
 ## Breadth vs. calm
 
 StudyBar does a lot (dozens of modules). A "quiet desk" with dozens of drawers isn't

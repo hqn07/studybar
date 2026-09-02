@@ -79,6 +79,23 @@ workspace" coexists with rule #1 ("compose, don't restyle").
 Rule: customization operates on **layout and theme tokens**, never on radii, spacing, type
 scale, or component internals. The system stays fixed so every arrangement stays coherent.
 
+## AI surfaces
+
+AI follows PHILOSOPHY.md's *"material, not a place."* Its UI rules:
+
+- **`✨` affordance** — a tinted "AI" pill, identical everywhere text lives
+  ([`AITextMenu`](../Sources/StudyBar/Shell/AITextMenu.swift)). Pinned to the Notes toolbar's
+  trailing edge (never inside a scrolling strip that can hide it); a top-trailing overlay on
+  other text editors.
+- **Review card** — every inline result renders in a `.tint`-tinted card: streams while
+  working, then Accept (**Replace** in place / **Insert** below, per action) + **Discard**.
+  The original is untouched until Accept; it's a single undo.
+- **Command bar** — the assistant is a summoned floating panel
+  ([`AssistantPanel`](../Sources/StudyBar/Core/AssistantPanel.swift)), not a sidebar module.
+  Cross-object results are confirm-cards.
+- **Chips** — opt-in proactive suggestions are dismissible capsules with one action, never
+  modal, gated behind Settings ▸ Intelligence ▸ *Suggest actions as I work*.
+
 ## Rollout
 
 Kit-first (done): `DesignSystem.swift` added, no module changes yet. Then migrate
