@@ -113,7 +113,7 @@ struct SettingsView: View {
                 navSeparator
                 navGroup([.modules, .integrations, .intelligence])
                 navSeparator
-                navGroup([.data, .about])
+                navGroup([.data, .openSource, .about])
             }
             .padding(10)
         }
@@ -157,6 +157,7 @@ struct SettingsView: View {
         case .data:         dataSections
         case .integrations: integrationsSections
         case .intelligence: intelligenceSections
+        case .openSource:   openSourceSections
         case .about:        aboutSections
         }
     }
@@ -592,6 +593,55 @@ struct SettingsView: View {
         if !k.isEmpty { Keychain.set(k, account: acct); aiKey = ""; aiHasKey = true; aiStatus = "Saved." }
     }
 
+    @ViewBuilder private var openSourceSections: some View {
+        Section {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "shippingbox").font(.title3).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("StudyBar is built on free, open-source software.").font(.callout.weight(.medium))
+                    Text("\(Dependencies.all.count) components, all under permissive licenses (\(Dependencies.licenses.joined(separator: ", "))). Everything runs on-device — nothing here phones home.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        Section("Direct dependencies") {
+            ForEach(Dependencies.direct) { depRow($0) }
+        }
+        Section("Also included") {
+            Text("Pulled in automatically by the libraries above.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(Dependencies.transitive) { depRow($0) }
+        }
+        Section("Updates") {
+            Label("Libraries are compiled into StudyBar and update with each app release — there's nothing to update separately here.",
+                  systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+            Link(destination: URL(string: "https://github.com/hqn07/studybar")!) {
+                Label("StudyBar source & release notes", systemImage: "arrow.up.right.square")
+            }.font(.caption)
+        }
+    }
+
+    private func depRow(_ d: Dependency) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(d.name).font(.callout.weight(.semibold))
+                Text("v\(d.version)").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(d.license).font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(.tint.opacity(0.14), in: Capsule())
+                    .foregroundStyle(.tint)
+                Spacer(minLength: 6)
+                Link(destination: URL(string: d.url)!) {
+                    Image(systemName: "arrow.up.right.square")
+                }.help("Open \(d.name) on GitHub").font(.callout)
+            }
+            Text(d.purpose).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(d.name), version \(d.version), \(d.license) license. \(d.purpose)")
+    }
+
     @ViewBuilder private var aboutSections: some View {
         Section("About") {
             LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
@@ -659,7 +709,7 @@ struct SettingsView: View {
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General", appearance = "Appearance", shortcuts = "Shortcuts"
     case modules = "Modules", data = "Data", integrations = "Integrations"
-    case intelligence = "Intelligence", about = "About"
+    case intelligence = "Intelligence", openSource = "Open Source", about = "About"
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -670,6 +720,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .data: return "externaldrive"
         case .integrations: return "puzzlepiece.extension"
         case .intelligence: return "sparkles"
+        case .openSource: return "shippingbox"
         case .about: return "info.circle"
         }
     }
