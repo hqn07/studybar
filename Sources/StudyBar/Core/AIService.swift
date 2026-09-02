@@ -75,7 +75,7 @@ enum AIConfig {
         set { UserDefaults.standard.set(newValue, forKey: "aiOpenAIModel") }
     }
     static var ollamaModel: String {
-        get { UserDefaults.standard.string(forKey: "aiOllamaModel").flatMap { $0.isEmpty ? nil : $0 } ?? "llama3.1" }
+        get { UserDefaults.standard.string(forKey: "aiOllamaModel").flatMap { $0.isEmpty ? nil : $0 } ?? "qwen2.5:7b" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOllamaModel") }
     }
     static var ollamaHost: String {

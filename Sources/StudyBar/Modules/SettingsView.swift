@@ -518,7 +518,7 @@ struct SettingsView: View {
             }
         } else if aiMode == .ollama {
             Section("Ollama (local)") {
-                TextField("Model (e.g. llama3.1)", text: $aiModel).onSubmit { saveAIModel() }
+                TextField("Model (e.g. qwen2.5:7b)", text: $aiModel).onSubmit { saveAIModel() }
                 TextField("Server URL", text: $aiHost).onSubmit { AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces) }
                 Button("Test connection") {
                     saveAIModel(); AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces)
@@ -529,7 +529,7 @@ struct SettingsView: View {
                     Text(aiStatus).font(.caption)
                         .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
                 }
-                Text("Install Ollama from ollama.com, then run `ollama pull \(aiModel.isEmpty ? "llama3.1" : aiModel)` in Terminal. Runs fully on your Mac — no key, no cloud.")
+                Text("Install Ollama from ollama.com, then run `ollama pull \(aiModel.isEmpty ? "qwen2.5:7b" : aiModel)` in Terminal. qwen2.5 follows formatting and math far better than llama3.1. Runs fully on your Mac — no key, no cloud.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Smart typing") {
