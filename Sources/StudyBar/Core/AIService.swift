@@ -323,7 +323,7 @@ struct OllamaProvider: AIProvider {
 
     /// Streaming free-form variant (no `format:json`): feeds the growing text to `onReply`
     /// as tokens arrive, so the UI can show notes forming instead of a blind spinner.
-    func completePlainStreaming(system: String, messages: [AIMessage],
+    func completePlainStreaming(system: String, messages: [AIMessage], numCtx: Int = 8192,
                                 onReply: @MainActor @escaping (String) -> Void) async throws -> String {
         let base = host.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         guard let url = URL(string: "\(base)/api/chat") else { throw AIError.badResponse }
@@ -336,7 +336,7 @@ struct OllamaProvider: AIProvider {
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": true,
             "keep_alive": AIConfig.ollamaKeepAlive,
-            "options": ["temperature": 0.3, "num_ctx": 8192],
+            "options": ["temperature": 0.3, "num_ctx": numCtx],
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 

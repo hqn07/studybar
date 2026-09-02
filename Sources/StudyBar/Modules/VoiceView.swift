@@ -284,11 +284,12 @@ struct VoiceView: View {
         Task {
             let sys = """
             You are a study assistant. Reorganize the student's own lecture transcript into \
-            clean, structured study notes: a short title line, section headings, and concise \
-            bullet points capturing the key facts, terms, definitions, dates, and numbers. Be \
-            faithful — do NOT add information that isn't in the transcript, don't answer \
-            questions or editorialize. Output ONLY the notes as plain markdown — no JSON, no \
-            code fences, no preamble.
+            clean, structured study notes. Use rich markdown: a `#` title, `##` section \
+            headings, **bold** for key terms, bullet lists, and a table when the material \
+            compares things. Capture the key facts, terms, definitions, dates, and numbers; \
+            write any math as LaTeX in $…$. Be faithful — do NOT add information that isn't in \
+            the transcript, don't answer questions or editorialize. Output ONLY the notes as \
+            markdown — no JSON, no code fences, no preamble.
             """
             let msgs = [AIMessage(role: .user, text: raw)]
             // completePlain drops Ollama's format:json (which would force a JSON blob).

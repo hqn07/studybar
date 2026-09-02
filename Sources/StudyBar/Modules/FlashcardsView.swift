@@ -761,7 +761,7 @@ struct GenerateCardsView: View {
         let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 20 else { return }
         loading = true; raw = ""; proposed = []; genError = false
-        let sys = "You create study flashcards from a student's own material. Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` Front = a question or term; back = a short answer or definition. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
+        let sys = "You create study flashcards from a student's own material. Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` Vary the cards: mix plain definitions, key-concept questions, and one or two 'why' or application questions. Keep each back to 1–2 sentences. Write any math as LaTeX in $…$. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
         task?.cancel()
         task = Task {
             let msgs = [AIMessage(role: .user, text: text)]

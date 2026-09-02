@@ -169,7 +169,7 @@ struct AssignmentEditor: View {
         stepsLoading = true; stepsRaw = ""; stepsProposed = nil; stepsInclude = []
         let due = draft.due.map { " Due \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
         let ctx = "Assignment: \(title).\(due)" + (draft.notes.isEmpty ? "" : " Notes: \(draft.notes)")
-        let sys = "You are a study planner. Break the assignment into 3–7 concrete, actionable steps a student can check off, in the order they should be done. One step per line — imperative and short. No numbering, no bullets, no preamble, no other text."
+        let sys = "You are a study planner. Break the assignment into 3–7 concrete, actionable steps a student can check off, in the order they should be done. One step per line — imperative and short, and end each step with a rough time estimate in parentheses, e.g. \"Draft the introduction (~30 min)\". No numbering, no bullets, no preamble, no other text."
         stepsTask?.cancel()
         stepsTask = Task {
             let msgs = [AIMessage(role: .user, text: ctx)]

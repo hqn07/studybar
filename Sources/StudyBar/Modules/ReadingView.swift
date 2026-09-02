@@ -709,7 +709,8 @@ struct ReadingDetailView: View {
         let q = askQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= 3 else { return }
         askQuery = ""
-        let chunks = BookText.topChunks(itemID, query: q, k: 5)
+        // qwen reasons well over more context, so retrieve deeper than a weak model could take.
+        let chunks = BookText.topChunks(itemID, query: q, k: 8)
         guard !chunks.isEmpty else {
             askThread.append(BookQA(question: q, answer: "Not found in the book — try different wording.", pages: []))
             return
@@ -721,7 +722,7 @@ struct ReadingDetailView: View {
             msgs.append(AIMessage(role: .user, text: "Question: \(prior.question)"))
             msgs.append(AIMessage(role: .assistant, text: prior.answer))
         }
-        let excerpts = chunks.map { "[p\($0.page)] \($0.text.prefix(1500))" }.joined(separator: "\n\n")
+        let excerpts = chunks.map { "[p\($0.page)] \($0.text.prefix(2000))" }.joined(separator: "\n\n")
         msgs.append(AIMessage(role: .user, text: "Question: \(q)\n\nExcerpts:\n\(excerpts)"))
 
         askThread.append(BookQA(question: q, answer: "", pages: chunks.map(\.page)))
@@ -732,7 +733,7 @@ struct ReadingDetailView: View {
         askTask = Task {
             let out: String?
             if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs, numCtx: 16384) { p in
                     if askThread.indices.contains(turnIdx) { askThread[turnIdx].answer = p }
                 }
             } else {
