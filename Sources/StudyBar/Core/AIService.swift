@@ -55,7 +55,14 @@ enum AIConfig {
     nonisolated static let openaiKeyAccount = "openaiKey"
 
     static var mode: AIMode {
-        get { AIMode(rawValue: UserDefaults.standard.string(forKey: "aiMode") ?? "") ?? .off }
+        // When the user hasn't chosen yet, default to Apple's on-device model on Macs that
+        // have it (same engine as Writing Tools / Siri — free, private, and far better than a
+        // small Ollama model for these tasks). Falls back to Off elsewhere. An explicit choice
+        // (including Off) is always honored.
+        get {
+            if let raw = UserDefaults.standard.string(forKey: "aiMode"), let m = AIMode(rawValue: raw) { return m }
+            return onDeviceAvailable ? .onDevice : .off
+        }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "aiMode") }
     }
     /// Model switcher (user-overridable). Sonnet default per user preference; any valid id works.

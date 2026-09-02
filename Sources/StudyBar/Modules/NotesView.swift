@@ -284,6 +284,13 @@ struct NoteEditor: View {
     @State private var focusMode = false
     @State private var outlineHeadings: [(title: String, location: Int)] = []
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
+    // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
+    @State private var aiAction: NoteAI?
+    @State private var aiText = ""
+    @State private var aiDone = false
+    @State private var aiStart: Date?
+    @State private var aiRange = NSRange(location: 0, length: 0)
+    @State private var aiTask: Task<Void, Never>?
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
@@ -343,6 +350,7 @@ struct NoteEditor: View {
                 Divider()
             }
             if let defineResult { defineCard(defineResult) }
+            if aiAction != nil { aiCard }
             editorOrPreview
             if editor.slashQuery != nil { Divider(); slashBar }
             else if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
@@ -485,9 +493,104 @@ struct NoteEditor: View {
                 fmtBtn("tablecells", "Insert table — right-click it to add/remove rows & columns, or Tab to add a row") { editor.insertTable() }
                 fmtBtn("photo", "Insert image — or drag / paste a screenshot straight in") { editor.insertImage() }
                 fmtBtn("character.book.closed", "Define the selected word") { define() }
+                sep
+                Menu {
+                    if AIConfig.isReady {
+                        Section("Selection, or the whole note") {
+                            ForEach(NoteAI.allCases) { a in
+                                Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
+                            }
+                        }
+                    } else {
+                        Text("Turn on AI in Settings ▸ Intelligence")
+                    }
+                } label: { Image(systemName: "sparkles") }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .help("AI — summarize, rewrite, proofread the selection or note")
+                    .onHover { setHint("AI — summarize / rewrite / proofread", $0) }
             }.padding(.horizontal, 10).padding(.vertical, 5)
         }
     }
+
+    // Inline AI review card — streams the result, then Accept (replace/insert) or Discard.
+    private var aiCard: some View {
+        let action = aiAction ?? .summarize
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: action.icon).foregroundStyle(.tint)
+                Text(action.label).font(.caption.weight(.semibold))
+                if !aiDone {
+                    ProgressView().controlSize(.small)
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        Text("\(max(0, Int(Date().timeIntervalSince(aiStart ?? Date()))))s")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
+                Button { closeAI() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Discard")
+            }
+            ScrollView {
+                Text(aiText.isEmpty ? "Thinking…" : aiText)
+                    .font(.callout).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(aiText.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            }.frame(maxHeight: 170)
+            if aiDone && !aiText.isEmpty {
+                HStack(spacing: 8) {
+                    let insert = Button { aiInsert() } label: { Label(action.mode == .insert ? "Insert" : "Insert below", systemImage: "text.insert") }
+                    let replace = Button { aiReplace() } label: { Label(action.mode == .replace ? "Replace" : "Replace selection", systemImage: "arrow.triangle.2.circlepath") }
+                    if action.mode == .insert {
+                        insert.buttonStyle(.borderedProminent).controlSize(.small)
+                        replace.buttonStyle(.bordered).controlSize(.small)
+                    } else {
+                        replace.buttonStyle(.borderedProminent).controlSize(.small)
+                        insert.buttonStyle(.bordered).controlSize(.small)
+                    }
+                    Spacer()
+                    Button("Discard") { closeAI() }.buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+        }
+        .padding(10)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
+        .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    private func runAI(_ action: NoteAI) {
+        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        let scope = editor.aiScope()
+        guard !scope.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        aiAction = action; aiText = ""; aiDone = false; aiStart = Date(); aiRange = scope.range
+        aiTask?.cancel()
+        aiTask = Task {
+            let sys = action.system()
+            let msgs = [AIMessage(role: .user, text: scope.text)]
+            let out: String?
+            if let ollama = provider as? OllamaProvider {
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in aiText = p }
+            } else {
+                out = try? await provider.completePlain(system: sys, messages: msgs)
+            }
+            await MainActor.run {
+                aiText = (out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines)
+                aiDone = true
+                if aiText.isEmpty { aiAction = nil }   // failed — close quietly; note untouched
+            }
+        }
+    }
+
+    private func aiReplace() {
+        guard !aiText.isEmpty else { return }
+        editor.replaceRange(aiRange, withPlain: aiText); scheduleAutosave(); closeAI()
+    }
+    private func aiInsert() {
+        guard !aiText.isEmpty else { return }
+        editor.insertPlain("\n\n" + aiText + "\n", at: aiRange.upperBound); scheduleAutosave(); closeAI()
+    }
+    private func closeAI() { aiTask?.cancel(); aiTask = nil; aiAction = nil; aiText = ""; aiDone = false; aiStart = nil }
 
     /// Inline swatch panel — a real color grid (NSColorPanel would dismiss the popover).
     private func swatchPanel(_ mode: ColorMode) -> some View {

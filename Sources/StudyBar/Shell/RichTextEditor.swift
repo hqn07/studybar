@@ -145,6 +145,52 @@ final class RichTextController: ObservableObject {
     }
     var hasSelection: Bool { (textView?.selectedRange().length ?? 0) > 0 }
 
+    // MARK: AI-assist scope & edits (Writing-Tools-style, all undoable)
+
+    /// What the AI acts on: the selection if there is one, else the whole note.
+    func aiScope() -> (range: NSRange, text: String) {
+        let len = (textView?.string as NSString?)?.length ?? 0
+        let full = NSRange(location: 0, length: len)
+        let sel = textView?.selectedRange() ?? full
+        let r = sel.length > 0 ? sel : full
+        let text = (textView?.string as NSString?)?.substring(with: clamp(r, in: len)) ?? ""
+        return (r, text)
+    }
+
+    private func styledPlain(_ s: String) -> NSAttributedString {
+        NSAttributedString(string: s, attributes: [
+            .font: Self.baseFont, .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: Self.bodyParagraph,
+        ])
+    }
+    private func clamp(_ r: NSRange, in len: Int) -> NSRange {
+        let loc = max(0, min(r.location, len))
+        return NSRange(location: loc, length: max(0, min(r.length, len - loc)))
+    }
+
+    /// Replace a range with plain text in the note's body style (undoable).
+    func replaceRange(_ range: NSRange, withPlain s: String) {
+        guard let tv = textView, let store = tv.textStorage else { return }
+        let r = clamp(range, in: store.length)
+        guard tv.shouldChangeText(in: r, replacementString: s) else { return }
+        store.replaceCharacters(in: r, with: styledPlain(s))
+        tv.didChangeText()
+        tv.setSelectedRange(NSRange(location: r.location + (s as NSString).length, length: 0))
+        onEdit()
+    }
+
+    /// Insert plain text at a location in the note's body style (undoable).
+    func insertPlain(_ s: String, at loc: Int) {
+        guard let tv = textView, let store = tv.textStorage else { return }
+        let l = max(0, min(loc, store.length))
+        let r = NSRange(location: l, length: 0)
+        guard tv.shouldChangeText(in: r, replacementString: s) else { return }
+        store.replaceCharacters(in: r, with: styledPlain(s))
+        tv.didChangeText()
+        tv.setSelectedRange(NSRange(location: l + (s as NSString).length, length: 0))
+        onEdit()
+    }
+
     // MARK: Traits (bold / italic)
 
     func toggleTrait(_ trait: NSFontTraitMask) {

@@ -49,8 +49,12 @@ final class VoiceService: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var committed = ""
     private var currentPartial = ""
-    private var emptyRestarts = 0
     private var wantsRecording = false
+    private var segmentStart = Date()
+    private var lastLoudAt = Date()
+    private var segmentID = 0
+    private var rotating = false
+    private var rotateTimer: Timer?
     // Whisper (batch)
     private var whisper: WhisperKit?
     private var audioFile: AVAudioFile?
@@ -71,7 +75,7 @@ final class VoiceService: ObservableObject {
     }
 
     func start() {
-        transcript = ""; committed = ""; currentPartial = ""; emptyRestarts = 0; wantsRecording = true
+        transcript = ""; committed = ""; currentPartial = ""; wantsRecording = true
         waveform = Array(repeating: 0, count: 48)
         whisperMode = useWhisper
         Task { @MainActor in
@@ -86,7 +90,13 @@ final class VoiceService: ObservableObject {
         else if task != nil { request?.endAudio() } else { finish() }
     }
 
-    // MARK: - Apple Speech (live, chained segments)
+    // MARK: - Apple Speech (live, gap-free chained segments)
+    //
+    // SFSpeechRecognizer finalizes on-device recognition after ~1 minute and can truncate
+    // the tail when it slams into that wall. We never let it hit the wall: a 0.25s timer
+    // rotates to a FRESH request proactively — preferring a natural pause (from the live mic
+    // level) in a 40–55s window, with a 58s hard cap. Committed text only ever grows; a stale
+    // callback from a rotated-out task is ignored via a monotonically-increasing segment id.
 
     private func startAppleSpeech() {
         lastEngine = "Apple Speech"
@@ -108,35 +118,61 @@ final class VoiceService: ObservableObject {
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
         startSegment()
+        rotateTimer?.invalidate()
+        rotateTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.maybeRotate() }
+        }
     }
 
     private func startSegment() {
         guard let recognizer, wantsRecording else { finish(); return }
+        segmentID &+= 1
+        let myID = segmentID
+        segmentStart = Date(); lastLoudAt = Date(); rotating = false
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.segmentID == myID else { return }   // ignore a rotated-out task
                 if let result {
                     self.currentPartial = result.bestTranscription.formattedString
                     self.transcript = self.join(self.committed, self.currentPartial)
-                    if result.isFinal { self.commitAndContinue() }
+                    if result.isFinal { self.endSegment(restart: self.wantsRecording) }
                 } else if error != nil {
-                    self.commitAndContinue()   // segment error = a boundary, not a stop
+                    self.endSegment(restart: self.wantsRecording)   // hit the limit/ended: commit + continue
                 }
             }
         }
     }
 
-    private func commitAndContinue() {
-        if !currentPartial.isEmpty {
-            committed = join(committed, currentPartial); transcript = committed; emptyRestarts = 0; saveDraft()
-        } else { emptyRestarts += 1 }
-        currentPartial = ""; task = nil; request = nil
-        guard wantsRecording, engine.isRunning, emptyRestarts < 6 else { finish(); return }
+    /// Rotate to a fresh request before SFSpeech's ~1-min wall — at a pause when we can find one.
+    private func maybeRotate() {
+        guard status == .recording, wantsRecording, !rotating, task != nil else { return }
+        let age = Date().timeIntervalSince(segmentStart)
+        let quietFor = Date().timeIntervalSince(lastLoudAt)
+        guard age > 55 || (age > 40 && quietFor > 0.35) else { return }
+        rotating = true
+        commitCurrent()                 // during a pause the partial is complete → no tail lost
+        let old = task; task = nil; request = nil
+        segmentID &+= 1                 // pre-bump so the cancel's late callback is ignored
+        old?.cancel()
         startSegment()
+    }
+
+    private func endSegment(restart: Bool) {
+        commitCurrent()
+        task = nil; request = nil
+        if restart, engine.isRunning { startSegment() } else { finish() }
+    }
+
+    private func commitCurrent() {
+        guard !currentPartial.isEmpty else { return }
+        committed = join(committed, currentPartial)
+        transcript = committed
+        currentPartial = ""
+        saveDraft()
     }
 
     // MARK: - Whisper (record whole take → transcribe with progressive text)
@@ -249,6 +285,7 @@ final class VoiceService: ObservableObject {
         let rms = (sum / Float(n)).squareRoot()
         let level = max(0, min(1, (20 * log10(max(rms, 1e-7)) + 50) / 50))
         Task { @MainActor in
+            if level > 0.08 { self.lastLoudAt = Date() }   // pause detection for segment rotation
             guard Date().timeIntervalSince(self.lastMeter) > 0.033 else { return }
             self.lastMeter = Date()
             var w = self.waveform; w.removeFirst(); w.append(level); self.waveform = w
@@ -269,6 +306,7 @@ final class VoiceService: ObservableObject {
     static func clearDraft() { try? FileManager.default.removeItem(at: draftURL) }
 
     private func finish() {
+        rotateTimer?.invalidate(); rotateTimer = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil; request = nil
