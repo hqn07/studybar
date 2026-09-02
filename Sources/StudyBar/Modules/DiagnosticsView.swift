@@ -29,11 +29,15 @@ struct DiagnosticsSections: View {
     @ViewBuilder private var crashSection: some View {
         if let crash = diag.lastCrash {
             Section {
-                ScrollView([.horizontal, .vertical]) {
-                    Text(crash).font(.caption.monospaced()).textSelection(.enabled).padding(8)
+                ScrollView(.vertical) {
+                    Text(crash)
+                        .font(.caption.monospaced()).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)   // wrap long lines, don't push width
+                        .padding(8)
                 }
+                .frame(maxWidth: .infinity)
                 .frame(height: 150)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5))
                 Text("Included in the report below. Send it so this can be fixed.").font(.caption2).foregroundStyle(.secondary)
@@ -72,9 +76,10 @@ struct DiagnosticsSections: View {
         Section {
             ForEach(Diagnostics.environment(state.data), id: \.0) { row in
                 HStack(alignment: .top) {
-                    Text(row.0).foregroundStyle(.secondary)
+                    Text(row.0).foregroundStyle(.secondary).fixedSize()
                     Spacer(minLength: 12)
                     Text(row.1).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)   // wrap, don't push width
                 }.font(.callout)
             }
         } header: { Text("Environment") }

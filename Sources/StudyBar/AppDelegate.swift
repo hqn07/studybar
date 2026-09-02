@@ -325,11 +325,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.center()
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("StudyBarMain")
-            w.contentViewController = NSHostingController(rootView: RootView(surface: .window).environmentObject(state))
+            let host = NSHostingController(rootView: RootView(surface: .window).environmentObject(state))
+            // Don't let SwiftUI content resize the window to fit its intrinsic width — a wide
+            // view (e.g. the Diagnostics log) could otherwise grow the window past the screen.
+            // The content fills the window instead; wide content wraps or scrolls inside it.
+            if #available(macOS 13.0, *) { host.sizingOptions = [] }
+            w.contentViewController = host
             window = w
         }
+        clampToScreen()          // self-heal a saved frame that ended up oversized/off-screen
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Keep the window within the visible screen: shrink it if it's larger than the screen and
+    /// nudge it back on if it drifted off (an autosaved frame from before the size fix).
+    private func clampToScreen() {
+        guard let w = window, let vis = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var f = w.frame
+        f.size.width = min(f.size.width, vis.size.width)
+        f.size.height = min(f.size.height, vis.size.height)
+        f.origin.x = max(vis.minX, min(f.origin.x, vis.maxX - f.size.width))
+        f.origin.y = max(vis.minY, min(f.origin.y, vis.maxY - f.size.height))
+        if f != w.frame { w.setFrame(f, display: true) }
     }
 }
 
