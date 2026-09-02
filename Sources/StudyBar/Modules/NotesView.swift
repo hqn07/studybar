@@ -709,20 +709,6 @@ struct NoteEditor: View {
                 TextField("tags, comma separated", text: $tagText).textFieldStyle(.plain).font(.caption)
                 Spacer()
                 Menu {
-                    Button { askAI { "Make flashcards from this note titled \"\($0.title)\":\n\n\($0.body)" } } label: {
-                        Label("Make flashcards", systemImage: "rectangle.on.rectangle.angled")
-                    }
-                    Button { askAI { "Summarize this note into a few bullet points and save it as a new note titled \"\($0.title) — summary\":\n\n\($0.body)" } } label: {
-                        Label("Summarize → note", systemImage: "text.append")
-                    }
-                    Button { askAI { "Suggest tags and a course link for this note titled \"\($0.title)\":\n\n\($0.body)" } } label: {
-                        Label("Tag & link", systemImage: "tag")
-                    }
-                } label: { Image(systemName: "sparkles") }
-                .menuStyle(.borderlessButton).fixedSize()
-                .disabled(!AIConfig.isReady)
-                .help(AIConfig.isReady ? "Organize with the assistant" : "Enable the assistant in Settings ▸ Intelligence")
-                Menu {
                     Button { duplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
                     Button { editor.printNote() } label: { Label("Print…", systemImage: "printer") }
                     Divider()
@@ -941,10 +927,6 @@ struct NoteEditor: View {
         } else {
             state.data.notes.append(draft)
         }
-    }
-    private func askAI(_ make: (Note) -> String) {
-        persist()
-        AppActions.assistant(make(draft))
     }
     private func delete() {
         deleted = true
