@@ -100,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.regular)
         }
         applyAppearanceSetting()
+        if let crash = CrashReporter.checkPreviousSession() {
+            Diagnostics.shared.lastCrash = crash
+            Diagnostics.warn(.app, "Recovered from an unexpected quit in the previous session")
+        }
+        CrashReporter.markActive()
+        Diagnostics.info(.app, "Launched StudyBar \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         Notifier.requestAuthorization()
         Notifier.rescheduleAll(state.data)   // class + assignment reminders from current data
 
@@ -141,6 +147,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Diagnostics.info(.app, "Clean shutdown")
+        CrashReporter.markCleanShutdown()
     }
 
     // MARK: Status item

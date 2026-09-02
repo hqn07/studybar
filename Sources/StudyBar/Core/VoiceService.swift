@@ -106,6 +106,13 @@ final class VoiceService: ObservableObject {
         return false
     }
     var whisperDownloaded: Bool { isModelDownloaded(whisperModel) }
+    /// Which Whisper variants have files on disk — for the diagnostics report.
+    nonisolated static func downloadedModels() -> [String] {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return [] }
+        return whisperModels.map(\.id).filter {
+            FileManager.default.fileExists(atPath: docs.appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\($0)").path)
+        }
+    }
     var isRecording: Bool { status == .recording }
     func toggle() {
         switch status {
@@ -273,6 +280,7 @@ final class VoiceService: ObservableObject {
         engine.prepare()
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
+        Diagnostics.info(.voice, "Whisper recording started · model \(whisperModel) · sr \(Int(sampleRate))")
         chunkTimer?.invalidate()
         chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.maybeCutChunk() }
@@ -362,9 +370,11 @@ final class VoiceService: ObservableObject {
             }
             if whisperCommitted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 status = .unavailable("No speech detected in the recording. Speak a little closer to the mic and try again.")
+                Diagnostics.warn(.voice, "Recording finished but transcript was empty (\(recorded) frames)")
             } else {
                 lastEngine = "Whisper (\(loadedModel ?? whisperModel))"
                 status = .idle
+                Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s")
             }
             saveDraft()
         }
@@ -432,7 +442,9 @@ final class VoiceService: ObservableObject {
             if let saved = UserDefaults.standard.string(forKey: self.modelFolderKey(model)),
                FileManager.default.fileExists(atPath: saved),
                let w = try? await WhisperKit(WhisperKitConfig(modelFolder: saved, load: true, download: false)) {
-                self.whisper = w; self.loadedModel = model; return
+                self.whisper = w; self.loadedModel = model
+                Diagnostics.info(.voice, "Whisper model loaded from disk: \(model)")
+                return
             }
             do {
                 let folder = try await WhisperKit.download(variant: "openai_whisper-\(model)") { [weak self] p in

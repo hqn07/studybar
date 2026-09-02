@@ -194,6 +194,7 @@ final class AppState: ObservableObject {
         let existingRaw = try? Data(contentsOf: fileURL)
         if let raw = existingRaw, let decoded = try? JSONDecoder.studybar.decode(AppData.self, from: raw) {
             initial = decoded
+            Diagnostics.info(.data, "Loaded store: \(decoded.courses.count) courses, \(decoded.assignments.count) assignments, \(decoded.notes.count) notes (\(raw.count) bytes)")
         } else if let raw = existingRaw, raw.count > 2 {
             // The file EXISTS and has content but would not decode (a schema break, or
             // corruption). Seeding an empty store here and then autosaving it is exactly
@@ -204,8 +205,10 @@ final class AppState: ObservableObject {
             AppState.quarantineUnreadable(fileURL, raw: raw)
             initial = AppData.seed()
             saveBlocked = true
+            Diagnostics.error(.data, "Data file (\(raw.count) bytes) did not decode — quarantined a copy and blocked saves (read-only)")
         } else {
             initial = AppData.seed()   // genuinely fresh install (no file, or empty file)
+            Diagnostics.info(.data, "Fresh store — no existing data file")
         }
         // The Scratchpad module was retired; its buffer becomes a note once, so no text is
         // stranded. Purely additive (a note is created) — the content also stays in backups.

@@ -159,6 +159,7 @@ struct SettingsView: View {
         case .integrations: integrationsSections
         case .intelligence: intelligenceSections
         case .openSource:   openSourceSections
+        case .diagnostics:  DiagnosticsSections()
         case .about:        aboutSections
         }
     }
@@ -774,7 +775,8 @@ struct SettingsView: View {
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General", appearance = "Appearance", shortcuts = "Shortcuts"
     case modules = "Modules", data = "Data", integrations = "Integrations"
-    case intelligence = "Intelligence", openSource = "Open Source", about = "About"
+    case intelligence = "Intelligence", openSource = "Open Source"
+    case diagnostics = "Diagnostics", about = "About"
     var id: String { rawValue }
     var icon: String {
         switch self {
@@ -786,6 +788,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .integrations: return "puzzlepiece.extension"
         case .intelligence: return "sparkles"
         case .openSource: return "shippingbox"
+        case .diagnostics: return "stethoscope"
         case .about: return "info.circle"
         }
     }
