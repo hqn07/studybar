@@ -504,7 +504,7 @@ struct ReadingDetailView: View {
     }
     private func deleteUnit(_ u: ReadingUnit) {
         guard let i = idx else { return }
-        state.data.reading[i].units.removeAll { $0.id == u.id }
+        state.withUndo("Deleted chapter") { state.data.reading[i].units.removeAll { $0.id == u.id } }
     }
 
     private func finishedBlock(_ item: ReadingItem) -> some View {
@@ -807,7 +807,7 @@ struct ReadingDetailView: View {
     }
     private func deleteHighlight(_ h: Highlight) {
         guard let i = idx else { return }
-        state.data.reading[i].highlights.removeAll { $0.id == h.id }
+        state.withUndo("Deleted highlight") { state.data.reading[i].highlights.removeAll { $0.id == h.id } }
     }
     private func open(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"

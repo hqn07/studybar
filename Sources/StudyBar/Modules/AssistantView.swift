@@ -1,55 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The AI Assistant module: a chat pane that turns plain-English intent into
-/// proposed StudyBar actions. Every action is confirmed inline (no sheets/alerts —
-/// the popover would dismiss). Organizes your data; never tutors.
-struct AssistantView: View {
-    @EnvironmentObject var state: AppState
-
-    var body: some View {
-        NavigationStack {
-            ModulePane(title: "Assistant") {
-                HStack(spacing: 8) {
-                    if !state.aiChat.isEmpty {
-                        ContextPill(tokens: state.aiChat.approxTokens)
-                        Button { state.aiChat.clear() } label: {
-                            Label("New chat", systemImage: "square.and.pencil")
-                        }
-                        .labelStyle(.iconOnly)
-                        .help("New chat — clears this conversation")
-                    }
-                    Menu {
-                        Label("Engine: \(AIConfig.mode.title)", systemImage: "sparkles")
-                        if !state.aiChat.isEmpty {
-                            Text("Context: ~\(ContextPill.format(state.aiChat.approxTokens)) tokens")
-                            Button("New chat (clear conversation)") { state.aiChat.clear() }
-                        }
-                        Button("Intelligence settings…") { state.selectedModuleID = "settings" }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                }
-            } content: {
-                if AIConfig.isReady {
-                    AssistantChat(chat: state.aiChat)
-                } else {
-                    notConfigured
-                }
-            }
-        }
-    }
-
-    private var notConfigured: some View {
-        VStack(spacing: 14) {
-            EmptyState(symbol: "sparkles",
-                       title: "Turn on the assistant",
-                       subtitle: "Pick an engine in Settings ▸ Intelligence — free on-device, or your own Claude / ChatGPT key. It organizes your studies; it won't do your homework.")
-            Button("Open Intelligence settings") { state.selectedModuleID = "settings" }
-                .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-    }
-}
+// The Assistant is no longer a sidebar module — it's a summoned floating panel
+// (AssistantPanel), which reuses AssistantChat + ContextPill below. The old
+// AssistantView wrapper was removed in the v1.8.0 cleanup.
 
 /// Compact indicator of how much conversation context is being sent to the model.
 /// Grows as the chat gets longer; nudges the user toward "New chat" when large.

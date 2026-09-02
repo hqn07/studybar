@@ -15,7 +15,7 @@ struct ReferenceEditor: View {
         VStack(spacing: 0) {
             SubHeader("Reference") {
                 Button("Delete", role: .destructive) {
-                    state.data.references.removeAll { $0.id == draft.id }; dismiss()
+                    state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == draft.id } }; dismiss()
                 }
             }
             Divider()

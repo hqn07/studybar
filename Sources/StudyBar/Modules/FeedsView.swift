@@ -69,10 +69,12 @@ struct FeedEditor: View {
     }
 
     private func deleteFeed() {
-        if alsoRemoveImports {
-            state.data.assignments.removeAll { $0.sourceFeedID == draft.id }
+        state.withUndo("Deleted feed") {
+            if alsoRemoveImports {
+                state.data.assignments.removeAll { $0.sourceFeedID == draft.id }
+            }
+            state.data.icsFeeds.removeAll { $0.id == draft.id }
         }
-        state.data.icsFeeds.removeAll { $0.id == draft.id }
         confirmingDelete = false
         dismiss()
     }

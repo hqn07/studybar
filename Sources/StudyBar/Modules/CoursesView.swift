@@ -581,7 +581,7 @@ struct CourseDetailView: View {
         return VStack(spacing: 6) {
             HStack(spacing: DS.Space.s) {
                 TextField("Component (e.g. Midterm)", text: b.name).textFieldStyle(.plain).fontWeight(.medium)
-                Button(role: .destructive) { state.gradeItems.removeAll { $0.id == item.id } } label: {
+                Button(role: .destructive) { state.withUndo("Deleted grade component") { state.gradeItems.removeAll { $0.id == item.id } } } label: {
                     Image(systemName: "trash")
                 }.buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
@@ -688,13 +688,15 @@ struct CourseEditor: View {
         dismiss()
     }
     private func delete() {
-        state.data.courses.removeAll { $0.id == draft.id }
-        // Detach references
-        for i in state.data.assignments.indices where state.data.assignments[i].courseID == draft.id {
-            state.data.assignments[i].courseID = nil
-        }
-        for i in state.data.notes.indices where state.data.notes[i].courseID == draft.id {
-            state.data.notes[i].courseID = nil
+        state.withUndo("Deleted course") {
+            state.data.courses.removeAll { $0.id == draft.id }
+            // Detach references
+            for i in state.data.assignments.indices where state.data.assignments[i].courseID == draft.id {
+                state.data.assignments[i].courseID = nil
+            }
+            for i in state.data.notes.indices where state.data.notes[i].courseID == draft.id {
+                state.data.notes[i].courseID = nil
+            }
         }
         dismiss()
     }
