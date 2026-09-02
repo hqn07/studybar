@@ -17,11 +17,22 @@ Native SwiftUI · macOS 14+ · single `.app` · MIT licensed
 
 ## Screenshots
 
-<!-- Drop images/GIFs into docs/ and reference them here, e.g.:
-     ![Today](docs/today.png) ![Focus](docs/focus.gif)
-     A short GIF of the Today dashboard + a Focus session does the most for the repo. -->
+<div align="center">
 
-_Add screenshots and a short demo GIF here — the fastest way to grow stars (and reach Homebrew Cask's notability bar)._
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/today.png" alt="Today — a proactive glance: the one thing worth a head start, an overdue flag, this week's load, and Plan my day"><br><em>Today — what deserves a head start, right now</em></td>
+<td width="50%"><img src="docs/screenshots/assignments.png" alt="Assignments sorted by what's due, with color-coded due chips and points"><br><em>Assignments — due-sorted, color-coded</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/schedule.png" alt="Weekly schedule grid with class blocks and a live now-line"><br><em>Schedule — your week at a glance</em></td>
+<td width="50%"><img src="docs/screenshots/courses.png" alt="Courses for the term with GPA, credits, term progress, and per-course cards"><br><em>Courses — the whole term in one place</em></td>
+</tr>
+</table>
+
+<sub>Sample data shown.</sub>
+
+</div>
 
 ---
 
