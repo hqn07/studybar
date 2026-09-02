@@ -752,8 +752,13 @@ struct ReadingDetailView: View {
     /// If the answer has no math delimiters, wrap standalone equation-looking lines in $$…$$ so
     /// SwiftMath (or the KaTeX fallback) typesets them. Conservative: prose lines — many words
     /// or ending in sentence punctuation — are left untouched.
-    private func mathify(_ text: String) -> String {
-        guard !text.contains("$") else { return text }
+    private func mathify(_ raw: String) -> String {
+        // Normalize the \[ \] and \( \) delimiters many models emit (qwen does) to StudyBar's
+        // $$ / $, which SwiftMath understands.
+        let text = raw
+            .replacingOccurrences(of: "\\[", with: "$$").replacingOccurrences(of: "\\]", with: "$$")
+            .replacingOccurrences(of: "\\(", with: "$").replacingOccurrences(of: "\\)", with: "$")
+        if text.contains("$") { return text }
         return text.components(separatedBy: "\n").map { line -> String in
             let t = line.trimmingCharacters(in: .whitespaces)
             guard t.contains("="), !t.hasSuffix("."), !t.hasSuffix(":"), !t.hasSuffix(",") else { return line }
