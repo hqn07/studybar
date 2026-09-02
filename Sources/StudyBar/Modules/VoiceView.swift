@@ -11,6 +11,8 @@ struct VoiceView: View {
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
     @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
     @State private var organizing = false
+    @State private var organizeStream = ""
+    @State private var organizeStart: Date?
     @State private var rawBeforeOrganize: String?
     @State private var organizeError: String?
     @State private var draftAvailable = false
@@ -103,9 +105,22 @@ struct VoiceView: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text("Transcribing with Whisper (\(voiceWhisperModel))…").font(.callout.weight(.medium))
-            Text("Running on-device. Larger models are more accurate but take longer.")
-                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if voice.transcript.isEmpty {
+                Text("Running on-device. Larger models are more accurate but take longer.")
+                    .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            } else {
+                // The decode callback streams text as it goes — show it so it never looks stuck.
+                ScrollView {
+                    Text(voice.transcript)
+                        .font(.callout).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+                }
+                .frame(maxHeight: 260)
+                Text("Text appears as it decodes — the whole take is transcribed for accuracy.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(16)
     }
 
     private var modelName: String {
@@ -191,10 +206,27 @@ struct VoiceView: View {
                         .multilineTextAlignment(.center)
                 }
                 if organizing {
-                    HStack(spacing: DS.Space.s) {
-                        ProgressView().controlSize(.small)
-                        Text("Organizing into notes… your raw transcript is kept.").font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: DS.Space.s) {
+                        HStack(spacing: DS.Space.s) {
+                            ProgressView().controlSize(.small)
+                            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                                let secs = max(0, Int(Date().timeIntervalSince(organizeStart ?? Date())))
+                                Text("Organizing into notes… \(secs)s · your raw transcript is kept")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        if !organizeStream.isEmpty {
+                            ScrollView {
+                                Text(organizeStream)
+                                    .font(.callout).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                                    .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                            }
+                            .frame(maxHeight: 200)
+                            .transition(.opacity)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else if idle {
                     HStack(spacing: DS.Space.m) {
                         Button { saveNote() } label: { Label("Save as note", systemImage: "note.text.badge.plus") }
@@ -234,7 +266,7 @@ struct VoiceView: View {
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
-        organizeError = nil
+        organizeError = nil; organizeStream = ""; organizeStart = Date()
         organizing = true
         Task {
             let sys = """
@@ -245,9 +277,19 @@ struct VoiceView: View {
             questions or editorialize. Output ONLY the notes as plain markdown — no JSON, no \
             code fences, no preamble.
             """
-            let text = try? await provider.complete(system: sys, messages: [AIMessage(role: .user, text: raw)])
+            let msgs = [AIMessage(role: .user, text: raw)]
+            // completePlain drops Ollama's format:json (which would force a JSON blob).
+            // On Ollama, stream tokens so the user watches the notes form.
+            let text: String?
+            if let ollama = provider as? OllamaProvider {
+                text = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { partial in
+                    organizeStream = partial
+                }
+            } else {
+                text = try? await provider.completePlain(system: sys, messages: msgs)
+            }
             await MainActor.run {
-                organizing = false
+                organizing = false; organizeStream = ""
                 let cleaned = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if isPlausibleNotes(cleaned) {
                     rawBeforeOrganize = raw            // keep the original — never lost, revertible

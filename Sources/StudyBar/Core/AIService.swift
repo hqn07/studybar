@@ -135,6 +135,16 @@ protocol AIProvider {
     func complete(system: String, messages: [AIMessage]) async throws -> String
 }
 
+extension AIProvider {
+    /// Free-form prose completion (NOT the JSON tool-protocol). Defaults to `complete` —
+    /// cloud providers already return prose. Ollama overrides it to drop the `format:json`
+    /// grammar constraint, which would otherwise force a JSON blob (e.g. reshaping a
+    /// transcript into markdown notes came back as `{…}` garbage and destroyed the note).
+    func completePlain(system: String, messages: [AIMessage]) async throws -> String {
+        try await complete(system: system, messages: messages)
+    }
+}
+
 struct AnthropicProvider: AIProvider {
     let apiKey: String
     let model: String
@@ -287,6 +297,48 @@ struct OllamaProvider: AIProvider {
                   let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
             if let chunk = (obj["message"] as? [String: Any])?["content"] as? String { raw += chunk }
             if let r = AIProtocol.replySoFar(raw), r != lastSent { lastSent = r; await onReply(r) }
+            if (obj["done"] as? Bool) == true { break }
+        }
+        guard !raw.isEmpty else { throw AIError.badResponse }
+        return raw
+    }
+
+    /// Free-form completion — same request WITHOUT `format:json`, so the model returns
+    /// prose/markdown instead of a JSON object. Used for organizing a transcript into notes.
+    func completePlain(system: String, messages: [AIMessage]) async throws -> String {
+        try await completePlainStreaming(system: system, messages: messages) { _ in }
+    }
+
+    /// Streaming free-form variant (no `format:json`): feeds the growing text to `onReply`
+    /// as tokens arrive, so the UI can show notes forming instead of a blind spinner.
+    func completePlainStreaming(system: String, messages: [AIMessage],
+                                onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        let base = host.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let url = URL(string: "\(base)/api/chat") else { throw AIError.badResponse }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 120
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
+        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        let body: [String: Any] = [
+            "model": model, "messages": msgs, "stream": true,
+            "options": ["temperature": 0.3, "num_ctx": 8192],
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.")
+        }
+        var raw = ""
+        for try await line in bytes.lines {
+            guard let d = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+            if let chunk = (obj["message"] as? [String: Any])?["content"] as? String {
+                raw += chunk; await onReply(raw)
+            }
             if (obj["done"] as? Bool) == true { break }
         }
         guard !raw.isEmpty else { throw AIError.badResponse }
