@@ -2,95 +2,394 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// (D1) Unified **Time & Focus** module — Pomodoro, Stopwatch, Focus and session
-/// History in one place, with an always-available ambient-noise bar.
-///
-/// The three timers share one clock hero — `TickDial` (bold task headline, big
-/// rounded-mono digits, phase line, a row of depleting segment ticks) — so the
-/// module reads as one system.
+/// **Time & Focus** — one place to run a study session. A single composer starts one of three
+/// session kinds (Pomodoro cycles · a single Timer block · a count-up Stopwatch); one running
+/// hero (`TickDial`) shows whichever is live; an ambient-noise bar is always available; and
+/// session History lives behind a toggle. Pomodoro and Timer share the one `PomodoroEngine`
+/// — the old separate Timer/Focus tabs collapsed into a single session with shared options
+/// (hide other apps, strict mode).
 struct TimeFocusView: View {
     @EnvironmentObject var state: AppState
-    @AppStorage("timeFocusTab") private var tabRaw = TimeTab.timer.rawValue
+    @AppStorage("sessionMode") private var modeRaw = SessionMode.pomodoro.rawValue
     @AppStorage("dailyGoal") private var dailyGoal = 8
-    @StateObject private var stopwatch = StopwatchModel()   // hoisted so tab switches don't reset it
+    // Pomodoro cycle config
+    @AppStorage("pomoFocus") private var focusMin = 25
+    @AppStorage("pomoShort") private var shortMin = 5
+    @AppStorage("pomoLong") private var longMin = 15
+    @AppStorage("pomoCycles") private var cycles = 4
+    @AppStorage("pomoAutostart") private var autostart = true
+    // Single-block timer length
+    @AppStorage("focusMinutes") private var timerMin = 50
+    // Shared focus options (Pomodoro + Timer)
+    @AppStorage("focusHideOthers") private var hideOthers = true
+    @AppStorage("focusStrict") private var strict = false
+
+    @StateObject private var stopwatch = StopwatchModel()
+    @State private var task = ""
+    @State private var courseID: UUID? = nil
+    @State private var assignmentID: UUID? = nil
+    @State private var showPomoSettings = false
+    @State private var showHistory = false
+    @State private var confirmEnd = false
+    @State private var customTimer = false
     @State private var showComplete = false
     @State private var completeDone = 0
 
-    private var tab: TimeTab { TimeTab(rawValue: tabRaw) ?? .timer }
+    private var mode: SessionMode { SessionMode(rawValue: modeRaw) ?? .pomodoro }
     private var p: PomodoroEngine { state.pomodoro }
-    private var phaseTint: Color {
-        switch p.phase { case .shortBreak, .longBreak: return .dsDone; default: return .accentColor }
-    }
+    private var countdownActive: Bool { p.phase != .idle }
+    private var stopwatchActive: Bool { stopwatch.running || stopwatch.elapsed >= 1 }
+    private let timerPresets = [25, 50, 90]
 
     var body: some View {
         ModulePane(title: "Time & Focus") {
-            AmbientButton()
+            HStack(spacing: DS.Space.s) {
+                Button { withAnimation { showHistory.toggle() } } label: {
+                    Image(systemName: showHistory ? "chevron.left" : "clock.arrow.circlepath")
+                }.help(showHistory ? "Back to timer" : "Session history")
+                AmbientButton()
+            }
         } content: {
-            VStack(spacing: 0) {
-                Picker("", selection: $tabRaw) {
-                    ForEach(TimeTab.allCases) { t in
-                        Label(t.title, systemImage: t.symbol).tag(t.rawValue)
+            if showHistory {
+                SessionsSection()
+            } else {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: DS.Space.l) {
+                            if countdownActive { runningCountdown }
+                            else if stopwatchActive { runningStopwatch }
+                            else { composer }
+                            todayFooter
+                        }
+                        .frame(maxWidth: .infinity).padding(DS.Space.l)
                     }
+                    Divider()
+                    AmbientBar()
                 }
-                .pickerStyle(.segmented).labelStyle(.iconOnly)
-                .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
-                Divider()
-
-                liveBanner
-
-                Group {
-                    switch tab {
-                    case .timer:     PomodoroSection()
-                    case .stopwatch: StopwatchSection(model: stopwatch)
-                    case .focus:     FocusSection()
-                    case .history:   SessionsSection()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                Divider()
-                AmbientBar()
             }
         }
+        .onAppear { customTimer = !timerPresets.contains(timerMin); applyPomoConfig() }
         .onChange(of: p.completedFocus) { old, new in
             guard new > old else { return }
             completeDone = StudyStats.pomodorosToday(state.data)
             withAnimation(.spring(response: 0.4)) { showComplete = true }
+            // A single Timer block ends cleanly instead of rolling into a break.
+            if mode == .timer { p.reset() }
             Task {
                 try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation { showComplete = false }
             }
         }
         .overlay(alignment: .bottom) { if showComplete { completeToast } }
+        .overlay {
+            if confirmEnd {
+                ConfirmCard(title: "End this session?", message: "Strict mode is on — you asked to see this.",
+                            confirmLabel: "End session",
+                            onConfirm: { confirmEnd = false; p.reset() },
+                            onCancel: { confirmEnd = false })
+            }
+        }
     }
 
-    /// Slim running-session strip shown on tabs that don't already display the live timer.
-    @ViewBuilder private var liveBanner: some View {
-        let busy = p.running || p.phase != .idle
-        let showsTimer = tab == .timer || (tab == .focus && p.phase == .focus)
-        if busy && !showsTimer {
+    // MARK: - Composer (idle)
+
+    @ViewBuilder private var composer: some View {
+        Picker("", selection: $modeRaw) {
+            ForEach(SessionMode.allCases) { Text($0.title).tag($0.rawValue) }
+        }
+        .pickerStyle(.segmented).frame(maxWidth: 320)
+
+        if mode == .stopwatch {
+            Image(systemName: "stopwatch").font(.system(size: 30)).foregroundStyle(.tint).padding(.top, DS.Space.s)
+        } else {
+            Image(systemName: mode == .pomodoro ? "timer" : "hourglass")
+                .font(.system(size: 30)).foregroundStyle(.tint).padding(.top, DS.Space.s)
+        }
+
+        VStack(spacing: DS.Space.s) {
+            TextField(mode == .stopwatch ? "Label (optional)" : "What are you working on?", text: $task)
+                .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
             HStack(spacing: DS.Space.m) {
-                Image(systemName: p.phase == .focus ? "timer" : "cup.and.saucer.fill")
-                    .font(.caption).foregroundStyle(phaseTint).frame(width: 16)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(p.label.isEmpty ? p.phase.rawValue : p.label)
-                        .font(.caption.weight(.medium)).lineLimit(1)
-                    if !p.label.isEmpty {
-                        Text(p.phase.rawValue).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: DS.Space.s)
-                Text(p.mmss).font(.callout.monospacedDigit().weight(.medium))
-                Button { p.toggle() } label: { Image(systemName: p.running ? "pause.fill" : "play.fill") }
-                    .buttonStyle(.borderless).help(p.running ? "Pause" : "Resume")
-                Button { p.reset() } label: { Image(systemName: "stop.fill") }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("End")
+                CoursePicker(courseID: $courseID)
+                Divider().frame(height: 14)
+                AssignmentPicker(assignmentID: $assignmentID)
             }
-            .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
-            .background(phaseTint.opacity(0.10))
-            .contentShape(Rectangle())
-            .onTapGesture { tabRaw = TimeTab.timer.rawValue }
+        }
+
+        switch mode {
+        case .pomodoro:
+            pomodoroConfig
+            focusOptionsCard
+        case .timer:
+            timerConfig
+            focusOptionsCard
+        case .stopwatch:
+            stopwatchRecents
+        }
+
+        Button { start() } label: {
+            Label(startLabel, systemImage: "play.fill").frame(maxWidth: 200)
+        }
+        .buttonStyle(.borderedProminent).controlSize(.large).padding(.top, DS.Space.xs)
+
+        if mode != .stopwatch {
+            Text("Tip: pair with a macOS Focus to silence notifications.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .padding(.horizontal, DS.Space.xl)
+        }
+    }
+
+    private var startLabel: String {
+        switch mode { case .pomodoro: "Start Pomodoro"; case .timer: "Start timer"; case .stopwatch: "Start stopwatch" }
+    }
+
+    private var pomodoroConfig: some View {
+        VStack(spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.s) {
+                Text("\(focusMin)m focus · \(shortMin)/\(longMin)m breaks · goal \(dailyGoal)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button { withAnimation { showPomoSettings.toggle() } } label: {
+                    Image(systemName: "gearshape").font(.caption)
+                }.buttonStyle(.borderless).help("Timer settings")
+            }
+            if showPomoSettings {
+                VStack(spacing: DS.Space.s) {
+                    Stepper("Focus: \(focusMin) min", value: $focusMin, in: 5...90, step: 5).font(.caption)
+                    Stepper("Short break: \(shortMin) min", value: $shortMin, in: 1...30).font(.caption)
+                    Stepper("Long break: \(longMin) min", value: $longMin, in: 5...45, step: 5).font(.caption)
+                    Stepper("Long break every \(cycles) pomodoros", value: $cycles, in: 2...8).font(.caption)
+                    Stepper("Daily goal: \(dailyGoal) pomodoros", value: $dailyGoal, in: 1...20).font(.caption)
+                    Toggle("Auto-start next phase", isOn: $autostart).font(.caption)
+                }
+                .frame(maxWidth: 280).dsCard()
+                .onChange(of: focusMin) { _, _ in applyPomoConfig() }
+                .onChange(of: shortMin) { _, _ in applyPomoConfig() }
+                .onChange(of: longMin) { _, _ in applyPomoConfig() }
+                .onChange(of: cycles) { _, _ in applyPomoConfig() }
+                .onChange(of: autostart) { _, _ in applyPomoConfig() }
+            }
+        }
+    }
+
+    private var timerConfig: some View {
+        VStack(spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.s) {
+                ForEach(timerPresets, id: \.self) { m in
+                    Button { timerMin = m; customTimer = false } label: {
+                        Chip("\(m)m", .filter, selected: !customTimer && timerMin == m)
+                    }.buttonStyle(.plain)
+                }
+                Button { customTimer = true } label: {
+                    Chip("Custom", .filter, selected: customTimer)
+                }.buttonStyle(.plain)
+            }
+            if customTimer {
+                Stepper("\(timerMin) min", value: $timerMin, in: 5...180, step: 5).font(.caption).fixedSize()
+            }
+        }
+    }
+
+    private var focusOptionsCard: some View {
+        VStack(spacing: 0) {
+            optionRow("Hide other apps on start", isOn: $hideOthers)
             Divider()
+            optionRow("Strict mode", caption: "Confirm before ending", isOn: $strict)
+        }.frame(maxWidth: 280).dsCard(padding: 0)
+    }
+
+    private func optionRow(_ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: DS.Space.m) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout)
+                if let caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden()
+        }
+        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
+    }
+
+    // Recent stopwatch labels → one-tap presets.
+    private struct Preset: Hashable { let label: String; let courseID: UUID?; let assignmentID: UUID? }
+    private var recentPresets: [Preset] {
+        var seen = Set<String>(); var out: [Preset] = []
+        for e in state.data.timeEntries.filter({ $0.kind == "stopwatch" && !$0.label.isEmpty }).sorted(by: { $0.date > $1.date }) {
+            if seen.insert(e.label.lowercased()).inserted {
+                out.append(Preset(label: e.label, courseID: e.courseID, assignmentID: e.assignmentID))
+            }
+            if out.count >= 6 { break }
+        }
+        return out
+    }
+
+    @ViewBuilder private var stopwatchRecents: some View {
+        if !recentPresets.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DS.Space.s) {
+                    ForEach(recentPresets, id: \.self) { preset in
+                        Button {
+                            task = preset.label; courseID = preset.courseID; assignmentID = preset.assignmentID
+                        } label: {
+                            Chip(preset.label, .tag, systemImage: "arrow.counterclockwise")
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.horizontal, DS.Space.l)
+            }
+        }
+    }
+
+    // MARK: - Running: countdown (Pomodoro or Timer)
+
+    @ViewBuilder private var runningCountdown: some View {
+        TickDial(title: p.label, time: p.mmss, subtitle: phaseSub,
+                 progress: fractionRemaining, tint: phaseTint, digitSize: 54)
+            .padding(.top, DS.Space.m)
+        if p.phase == .focus {
+            Text("Stay on task. You've got this.").font(.callout).foregroundStyle(.secondary)
+        }
+        HStack(spacing: DS.Space.l) {
+            circleButton("stop.fill", help: "End") { endPressed() }
+            circleButton(p.running ? "pause.fill" : "play.fill", main: true, tint: phaseTint,
+                         help: p.running ? "Pause" : "Resume") { p.toggle() }
+            if mode == .pomodoro {
+                circleButton("forward.fill", help: "Skip") { p.skip() }
+            }
+        }
+    }
+
+    private var phaseSub: String {
+        switch p.phase {
+        case .idle: return "Ready"
+        case .focus: return mode == .pomodoro ? "focus · \((p.completedFocus % max(1, cycles)) + 1) of \(cycles)" : "focus"
+        case .shortBreak: return "short break"
+        case .longBreak: return "long break"
+        }
+    }
+    private var phaseTint: Color {
+        switch p.phase { case .shortBreak, .longBreak: return .dsDone; default: return .accentColor }
+    }
+    private var fractionRemaining: Double {
+        let total: Int
+        switch p.phase {
+        case .focus, .idle: total = p.focusMinutes * 60
+        case .shortBreak: total = p.shortBreakMinutes * 60
+        case .longBreak: total = p.longBreakMinutes * 60
+        }
+        guard total > 0 else { return 0 }
+        return Double(p.remaining) / Double(total)
+    }
+    private func endPressed() {
+        if strict && p.running && p.phase == .focus { confirmEnd = true } else { p.reset() }
+    }
+
+    // MARK: - Running: stopwatch (count-up)
+
+    @ViewBuilder private var runningStopwatch: some View {
+        TickDial(title: stopwatch.label, time: swFormat(stopwatch.elapsed),
+                 subtitle: stopwatch.running ? "recording" : "paused",
+                 progress: stopwatch.elapsed.truncatingRemainder(dividingBy: 60) / 60, tint: .accentColor, digitSize: 54)
+            .padding(.top, DS.Space.m)
+        HStack(spacing: DS.Space.l) {
+            Button { stopwatch.lap() } label: { Text("Lap").frame(width: 42) }
+                .controlSize(.large).disabled(!stopwatch.running)
+            circleButton(stopwatch.running ? "pause.fill" : "play.fill", main: true,
+                         help: stopwatch.running ? "Pause" : "Resume") { stopwatch.toggle() }
+            Button { saveStopwatch() } label: { Text("Save").frame(width: 42) }
+                .controlSize(.large).disabled(stopwatch.elapsed < 1)
+        }
+        if !stopwatch.laps.isEmpty {
+            VStack(spacing: 3) {
+                ForEach(Array(stopwatch.laps.enumerated().reversed()), id: \.offset) { i, t in
+                    HStack {
+                        Text("Lap \(i + 1)").foregroundStyle(.secondary)
+                        Spacer()
+                        Text(swFormat(t)).monospacedDigit()
+                    }.font(.caption).padding(.horizontal, DS.Space.l).padding(.vertical, 2)
+                }
+            }.frame(maxHeight: 120)
+        }
+    }
+
+    private func saveStopwatch() {
+        if stopwatch.elapsed >= 1 {
+            let cid = stopwatch.courseID ?? state.data.assignments.first { $0.id == stopwatch.assignmentID }?.courseID
+            state.data.timeEntries.append(
+                TimeEntry(courseID: cid, assignmentID: stopwatch.assignmentID, label: stopwatch.label,
+                          seconds: Int(stopwatch.elapsed), kind: "stopwatch"))
+        }
+        stopwatch.reset()
+        task = ""; courseID = nil; assignmentID = nil
+    }
+    private func swFormat(_ t: TimeInterval) -> String {
+        let total = Int(t)
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        let cs = Int((t - Double(total)) * 10)
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d.%d", m, s, cs)
+    }
+
+    // MARK: - Today summary (always visible)
+
+    private var todayFooter: some View {
+        let done = StudyStats.pomodorosToday(state.data)
+        let hit = done >= dailyGoal
+        let todaySeconds = state.data.timeEntries
+            .filter { Calendar.current.isDateInToday($0.date) }.reduce(0) { $0 + $1.seconds }
+        return VStack(spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.xl) {
+                stat("\(p.completedFocus)", "sessions")
+                stat(timeStr(todaySeconds), "focused")
+                Spacer()
+                HStack(spacing: DS.Space.xs) {
+                    Text("\(done)/\(dailyGoal)").font(.callout.bold().monospacedDigit())
+                        .foregroundStyle(hit ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.primary))
+                    if hit { Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Color.dsDone) }
+                    Text("goal").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            ProgressView(value: Double(min(done, dailyGoal)), total: Double(max(1, dailyGoal)))
+                .tint(hit ? Color.dsDone : .accentColor)
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: 340)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
+    }
+
+    private func stat(_ v: String, _ l: String) -> some View {
+        VStack(spacing: 1) {
+            Text(v).font(.title3.bold().monospacedDigit())
+            Text(l).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+    private func timeStr(_ s: Int) -> String { let h = s / 3600, m = (s % 3600) / 60; return h > 0 ? "\(h)h \(m)m" : "\(m)m" }
+
+    // MARK: - Actions
+
+    private func start() {
+        switch mode {
+        case .pomodoro:
+            applyPomoConfig()
+            p.focusMinutes = focusMin; p.autoStartNext = autostart
+            p.startFocus(label: task, courseID: courseID, assignmentID: assignmentID)
+            if hideOthers { NSApp.hideOtherApplications(nil) }
+        case .timer:
+            p.focusMinutes = timerMin; p.autoStartNext = false; p.cyclesBeforeLongBreak = 99
+            p.startFocus(label: task, courseID: courseID, assignmentID: assignmentID)
+            if hideOthers { NSApp.hideOtherApplications(nil) }
+        case .stopwatch:
+            stopwatch.label = task; stopwatch.courseID = courseID; stopwatch.assignmentID = assignmentID
+            stopwatch.toggle()
+        }
+    }
+
+    private func applyPomoConfig() {
+        p.shortBreakMinutes = shortMin
+        p.longBreakMinutes = longMin
+        p.cyclesBeforeLongBreak = cycles
+        p.autoStartNext = autostart
+        if p.phase == .idle {
+            p.focusMinutes = focusMin
+            if !p.running { p.remaining = focusMin * 60 }
         }
     }
 
@@ -98,9 +397,8 @@ struct TimeFocusView: View {
         HStack(spacing: DS.Space.m) {
             Image(systemName: "checkmark.seal.fill").font(.title3).foregroundStyle(Color.dsDone)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Focus session complete").font(.callout.weight(.semibold))
-                Text("+1 pomodoro · \(completeDone)/\(dailyGoal) today")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Session complete").font(.callout.weight(.semibold))
+                Text("+1 · \(completeDone)/\(dailyGoal) today").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: DS.Space.s)
         }
@@ -114,14 +412,11 @@ struct TimeFocusView: View {
     }
 }
 
-enum TimeTab: String, CaseIterable, Identifiable {
-    case timer, stopwatch, focus, history
+enum SessionMode: String, CaseIterable, Identifiable {
+    case pomodoro, timer, stopwatch
     var id: String { rawValue }
     var title: String {
-        switch self { case .timer: "Timer"; case .stopwatch: "Stopwatch"; case .focus: "Focus"; case .history: "History" }
-    }
-    var symbol: String {
-        switch self { case .timer: "timer"; case .stopwatch: "stopwatch"; case .focus: "moon.stars"; case .history: "clock.arrow.circlepath" }
+        switch self { case .pomodoro: "Pomodoro"; case .timer: "Timer"; case .stopwatch: "Stopwatch" }
     }
 }
 
@@ -196,7 +491,7 @@ private func circleButton(_ icon: String, main: Bool = false, tint: Color = .acc
     .help(help)
 }
 
-// MARK: - Ambient noise (shared across tabs; owns FocusSounds)
+// MARK: - Ambient noise (shared; owns FocusSounds)
 
 private struct AmbientBar: View {
     @AppStorage("focusSound") private var soundRaw = FocusSounds.Kind.none.rawValue
@@ -255,174 +550,7 @@ private struct AmbientButton: View {
     }
 }
 
-// MARK: - Pomodoro
-
-private struct PomodoroSection: View {
-    @EnvironmentObject var state: AppState
-    @State private var label = ""
-    @State private var courseID: UUID? = nil
-    @State private var assignmentID: UUID? = nil
-    @State private var showSettings = false
-    @State private var confirmReset = false
-
-    @AppStorage("pomoFocus") private var focusMin = 25
-    @AppStorage("pomoShort") private var shortMin = 5
-    @AppStorage("pomoLong") private var longMin = 15
-    @AppStorage("pomoCycles") private var cycles = 4
-    @AppStorage("pomoAutostart") private var autostart = true
-    @AppStorage("dailyGoal") private var dailyGoal = 8
-    @AppStorage("focusStrict") private var strict = false
-
-    private var p: PomodoroEngine { state.pomodoro }
-    private var idle: Bool { p.phase == .idle }
-    private var todaySeconds: Int {
-        state.data.timeEntries.filter { Calendar.current.isDateInToday($0.date) }.reduce(0) { $0 + $1.seconds }
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: DS.Space.l) {
-                HStack {
-                    Spacer()
-                    Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }
-                        .buttonStyle(.borderless).help("Timer settings")
-                }
-                if showSettings { settingsPanel }
-
-                TickDial(title: idle ? "" : p.label, time: p.mmss, subtitle: phaseSub,
-                         progress: fractionRemaining, tint: phaseTint, digitSize: idle ? 44 : 54)
-                    .padding(.horizontal, DS.Space.s)
-                    .animation(.spring(response: 0.35), value: idle)
-
-                if idle {
-                    VStack(spacing: DS.Space.s) {
-                        TextField("What are you working on?", text: $label)
-                            .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
-                        HStack(spacing: DS.Space.m) {
-                            CoursePicker(courseID: $courseID)
-                            Divider().frame(height: 14)
-                            AssignmentPicker(assignmentID: $assignmentID)
-                        }
-                    }
-                }
-
-                HStack(spacing: DS.Space.l) {
-                    circleButton("stop.fill", disabled: idle, help: "End") { resetPressed() }
-                    circleButton(p.running ? "pause.fill" : "play.fill", main: true, tint: phaseTint,
-                                 help: p.running ? "Pause" : (idle ? "Start" : "Resume")) { toggle() }
-                    circleButton("forward.fill", disabled: idle, help: "Skip") { p.skip() }
-                }
-
-                footer
-            }
-            .frame(maxWidth: .infinity).padding(DS.Space.l)
-        }
-        .onAppear(perform: applyConfig)
-        .overlay {
-            if confirmReset {
-                ConfirmCard(title: "End this focus session?", message: "Strict mode is on.",
-                            confirmLabel: "End session",
-                            onConfirm: { p.reset(); confirmReset = false },
-                            onCancel: { confirmReset = false })
-            }
-        }
-    }
-
-    private var phaseSub: String {
-        switch p.phase {
-        case .idle: return "Ready"
-        case .focus: return "focus · \((p.completedFocus % max(1, cycles)) + 1) of \(cycles)"
-        case .shortBreak: return "short break"
-        case .longBreak: return "long break"
-        }
-    }
-    private var phaseTint: Color {
-        switch p.phase { case .shortBreak, .longBreak: return .dsDone; default: return .accentColor }
-    }
-    private var fractionRemaining: Double {
-        let total: Int
-        switch p.phase {
-        case .focus, .idle: total = p.focusMinutes * 60
-        case .shortBreak: total = p.shortBreakMinutes * 60
-        case .longBreak: total = p.longBreakMinutes * 60
-        }
-        guard total > 0 else { return 0 }
-        return Double(p.remaining) / Double(total)
-    }
-
-    /// One carded footer — sessions · focused time · daily-goal progress — instead of a
-    /// separate goal bar and a detached stat row.
-    private var footer: some View {
-        let done = StudyStats.pomodorosToday(state.data)
-        let hit = done >= dailyGoal
-        return VStack(spacing: DS.Space.s) {
-            HStack(spacing: DS.Space.xl) {
-                stat("\(p.completedFocus)", "sessions")
-                stat(timeStr(todaySeconds), "focused")
-                Spacer()
-                HStack(spacing: DS.Space.xs) {
-                    Text("\(done)/\(dailyGoal)").font(.callout.bold().monospacedDigit())
-                        .foregroundStyle(hit ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.primary))
-                    if hit { Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Color.dsDone) }
-                    Text("goal").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            ProgressView(value: Double(min(done, dailyGoal)), total: Double(max(1, dailyGoal)))
-                .tint(hit ? Color.dsDone : .accentColor)
-        }
-        .padding(DS.Space.l)
-        .frame(maxWidth: 340)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
-    }
-
-    private func resetPressed() {
-        if strict && p.running && p.phase == .focus { confirmReset = true } else { p.reset() }
-    }
-
-    private var settingsPanel: some View {
-        VStack(spacing: DS.Space.m) {
-            Stepper("Focus: \(focusMin) min", value: $focusMin, in: 5...90, step: 5).font(.caption)
-            Stepper("Short break: \(shortMin) min", value: $shortMin, in: 1...30, step: 1).font(.caption)
-            Stepper("Long break: \(longMin) min", value: $longMin, in: 5...45, step: 5).font(.caption)
-            Stepper("Long break every \(cycles) pomodoros", value: $cycles, in: 2...8).font(.caption)
-            Stepper("Daily goal: \(dailyGoal) pomodoros", value: $dailyGoal, in: 1...20).font(.caption)
-            Toggle("Auto-start next phase", isOn: $autostart).font(.caption)
-            Toggle("Strict mode (confirm before ending)", isOn: $strict).font(.caption)
-        }
-        .padding(DS.Space.l)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .onChange(of: focusMin) { _, _ in applyConfig() }
-        .onChange(of: shortMin) { _, _ in applyConfig() }
-        .onChange(of: longMin) { _, _ in applyConfig() }
-        .onChange(of: cycles) { _, _ in applyConfig() }
-        .onChange(of: autostart) { _, _ in applyConfig() }
-    }
-
-    private func applyConfig() {
-        p.shortBreakMinutes = shortMin
-        p.longBreakMinutes = longMin
-        p.cyclesBeforeLongBreak = cycles
-        p.autoStartNext = autostart
-        if p.phase == .idle {
-            p.focusMinutes = focusMin
-            if !p.running { p.remaining = focusMin * 60 }
-        }
-    }
-    private func toggle() {
-        if idle { p.focusMinutes = focusMin; p.startFocus(label: label, courseID: courseID, assignmentID: assignmentID) }
-        else { p.toggle() }
-    }
-    private func stat(_ v: String, _ l: String) -> some View {
-        VStack(spacing: 1) {
-            Text(v).font(.title3.bold().monospacedDigit())
-            Text(l).font(.caption2).foregroundStyle(.secondary)
-        }
-    }
-    private func timeStr(_ s: Int) -> String { let h = s/3600, m = (s%3600)/60; return h > 0 ? "\(h)h \(m)m" : "\(m)m" }
-}
-
-// MARK: - Stopwatch (state hoisted to survive tab switches)
+// MARK: - Stopwatch model (hoisted so it survives view churn)
 
 final class StopwatchModel: ObservableObject {
     @Published var elapsed: TimeInterval = 0
@@ -440,203 +568,7 @@ final class StopwatchModel: ObservableObject {
         } else { timer?.cancel() }
     }
     func lap() { laps.append(elapsed) }
-    func reset() { timer?.cancel(); running = false; elapsed = 0; laps = []; label = "" }
-}
-
-private struct StopwatchSection: View {
-    @EnvironmentObject var state: AppState
-    @ObservedObject var model: StopwatchModel
-
-    private struct Preset: Hashable { let label: String; let courseID: UUID?; let assignmentID: UUID? }
-    private var recentPresets: [Preset] {
-        var seen = Set<String>(); var out: [Preset] = []
-        for e in state.data.timeEntries.filter({ $0.kind == "stopwatch" && !$0.label.isEmpty }).sorted(by: { $0.date > $1.date }) {
-            if seen.insert(e.label.lowercased()).inserted {
-                out.append(Preset(label: e.label, courseID: e.courseID, assignmentID: e.assignmentID))
-            }
-            if out.count >= 6 { break }
-        }
-        return out
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: DS.Space.l) {
-                TickDial(title: model.label, time: format(model.elapsed), subtitle: model.running ? "recording" : "",
-                         progress: model.elapsed.truncatingRemainder(dividingBy: 60) / 60, tint: .accentColor, digitSize: 42)
-                    .padding(.top, DS.Space.m)
-
-                TextField("Label (e.g. Chem problem set)", text: $model.label)
-                    .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-                HStack(spacing: DS.Space.m) {
-                    CoursePicker(courseID: $model.courseID)
-                    Divider().frame(height: 14)
-                    AssignmentPicker(assignmentID: $model.assignmentID)
-                }
-
-                if !recentPresets.isEmpty && model.elapsed < 1 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: DS.Space.s) {
-                            ForEach(recentPresets, id: \.self) { preset in
-                                Button {
-                                    model.label = preset.label; model.courseID = preset.courseID; model.assignmentID = preset.assignmentID
-                                } label: {
-                                    Chip(preset.label, .tag, systemImage: "arrow.counterclockwise")
-                                }.buttonStyle(.plain)
-                            }
-                        }.padding(.horizontal, DS.Space.l)
-                    }
-                }
-
-                HStack(spacing: DS.Space.l) {
-                    Button { model.lap() } label: { Text("Lap").frame(width: 42) }
-                        .controlSize(.large).disabled(!model.running)
-                    circleButton(model.running ? "pause.fill" : "play.fill", main: true,
-                                 help: model.running ? "Pause" : "Start") { model.toggle() }
-                    Button { saveAndReset() } label: { Text("Save").frame(width: 42) }
-                        .controlSize(.large).disabled(model.elapsed < 1)
-                }
-
-                if !model.laps.isEmpty {
-                    VStack(spacing: 3) {
-                        ForEach(Array(model.laps.enumerated().reversed()), id: \.offset) { i, t in
-                            HStack {
-                                Text("Lap \(i + 1)").foregroundStyle(.secondary)
-                                Spacer()
-                                Text(format(t)).monospacedDigit()
-                            }.font(.caption)
-                            .padding(.horizontal, DS.Space.l).padding(.vertical, 2)
-                        }
-                    }.frame(maxHeight: 120)
-                }
-            }
-            .frame(maxWidth: .infinity).padding(DS.Space.l)
-        }
-    }
-
-    private func saveAndReset() {
-        if model.elapsed >= 1 {
-            let cid = model.courseID ?? state.data.assignments.first { $0.id == model.assignmentID }?.courseID
-            state.data.timeEntries.append(
-                TimeEntry(courseID: cid, assignmentID: model.assignmentID, label: model.label,
-                          seconds: Int(model.elapsed), kind: "stopwatch"))
-        }
-        model.reset()
-    }
-    private func format(_ t: TimeInterval) -> String {
-        let total = Int(t)
-        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        let cs = Int((t - Double(total)) * 10)
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d.%d", m, s, cs)
-    }
-}
-
-// MARK: - Focus (timer + hide-others; ambient noise handled by the bar)
-
-private struct FocusSection: View {
-    @EnvironmentObject var state: AppState
-    @AppStorage("focusMinutes") private var minutes = 50
-    @AppStorage("focusHideOthers") private var hideOthers = true
-    @AppStorage("focusStrict") private var strict = false
-    @State private var task = ""
-    @State private var courseID: UUID? = nil
-    @State private var assignmentID: UUID? = nil
-    @State private var confirmEnd = false
-    @State private var customLength = false
-
-    private let presets = [25, 50, 90]
-    private var p: PomodoroEngine { state.pomodoro }
-    private var active: Bool { p.running && p.phase == .focus }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: DS.Space.l) {
-                if active {
-                    Spacer(minLength: DS.Space.l)
-                    TickDial(title: p.label.isEmpty ? "Focus" : p.label, time: p.mmss, subtitle: "focus",
-                             progress: Double(p.remaining) / Double(max(1, minutes * 60)), tint: .accentColor, digitSize: 54)
-                    Text("Stay on task. You've got this.").font(.callout).foregroundStyle(.secondary)
-                    Button(role: .destructive) { endPressed() } label: {
-                        Label("End focus", systemImage: "stop.fill")
-                    }.buttonStyle(.borderedProminent).controlSize(.large)
-                } else {
-                    VStack(spacing: DS.Space.xs) {
-                        Image(systemName: "moon.stars.fill").font(.system(size: 30)).foregroundStyle(.tint)
-                        Text("Focus Session").font(.title3.bold())
-                    }.padding(.top, DS.Space.s)
-
-                    TextField("What are you focusing on?", text: $task)
-                        .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-                    HStack(spacing: DS.Space.m) {
-                        CoursePicker(courseID: $courseID)
-                        Divider().frame(height: 14)
-                        AssignmentPicker(assignmentID: $assignmentID)
-                    }
-
-                    VStack(spacing: DS.Space.s) {
-                        HStack(spacing: DS.Space.s) {
-                            ForEach(presets, id: \.self) { m in
-                                Button { minutes = m; customLength = false } label: {
-                                    Chip("\(m)m", .filter, selected: !customLength && minutes == m)
-                                }.buttonStyle(.plain)
-                            }
-                            Button { customLength = true } label: {
-                                Chip("Custom", .filter, selected: customLength)
-                            }.buttonStyle(.plain)
-                        }
-                        if customLength {
-                            Stepper("\(minutes) min", value: $minutes, in: 5...180, step: 5)
-                                .font(.caption).fixedSize()
-                        }
-                    }
-
-                    VStack(spacing: 0) {
-                        optionRow("Hide other apps on start", isOn: $hideOthers)
-                        Divider()
-                        optionRow("Strict mode", caption: "Confirm before ending", isOn: $strict)
-                    }.frame(maxWidth: 280).dsCard(padding: 0)
-
-                    Button { start() } label: {
-                        Label("Start focusing", systemImage: "play.fill").frame(maxWidth: 200)
-                    }.buttonStyle(.borderedProminent).controlSize(.large).padding(.top, DS.Space.xs)
-
-                    Text("Tip: pair with a macOS Focus to silence notifications.")
-                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        .padding(.horizontal, DS.Space.xl)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity).padding(DS.Space.l)
-        }
-        .onAppear { customLength = !presets.contains(minutes) }
-        .overlay {
-            if confirmEnd {
-                ConfirmCard(title: "End focus early?", message: "Strict mode is on — you asked to see this.",
-                            confirmLabel: "End focus",
-                            onConfirm: { confirmEnd = false; p.reset() },
-                            onCancel: { confirmEnd = false })
-            }
-        }
-    }
-
-    private func optionRow(_ title: String, caption: String? = nil, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: DS.Space.m) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.callout)
-                if let caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
-            }
-            Spacer()
-            Toggle("", isOn: isOn).labelsHidden()
-        }
-        .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
-    }
-
-    private func endPressed() { if strict { confirmEnd = true } else { p.reset() } }
-    private func start() {
-        p.focusMinutes = minutes
-        p.startFocus(label: task, courseID: courseID, assignmentID: assignmentID)
-        if hideOthers { NSApp.hideOtherApplications(nil) }
-    }
+    func reset() { timer?.cancel(); running = false; elapsed = 0; laps = []; label = ""; courseID = nil; assignmentID = nil }
 }
 
 // MARK: - Session history
@@ -655,7 +587,7 @@ private struct SessionsSection: View {
         VStack(spacing: 0) {
             if state.data.timeEntries.isEmpty {
                 EmptyState(symbol: "clock.arrow.circlepath", title: "No sessions yet",
-                           subtitle: "Completed Pomodoro, Focus and Stopwatch sessions are logged here.")
+                           subtitle: "Completed Pomodoro, Timer and Stopwatch sessions are logged here.")
             } else {
                 HStack {
                     Spacer()
@@ -734,10 +666,10 @@ private struct SessionsSection: View {
         return d.formatted(.dateTime.weekday(.wide).month().day())
     }
     private func kindIcon(_ k: String) -> String {
-        switch k { case "stopwatch": return "stopwatch"; case "focus": return "moon.stars"; default: return "timer" }
+        switch k { case "stopwatch": return "stopwatch"; case "focus": return "hourglass"; default: return "timer" }
     }
     private func kindName(_ k: String) -> String {
-        switch k { case "stopwatch": return "Stopwatch"; case "focus": return "Focus"; default: return "Pomodoro" }
+        switch k { case "stopwatch": return "Stopwatch"; case "focus": return "Timer"; default: return "Pomodoro" }
     }
     private func timeStr(_ s: Int) -> String {
         let h = s / 3600, m = (s % 3600) / 60
