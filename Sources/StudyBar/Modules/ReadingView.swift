@@ -516,10 +516,10 @@ struct ReadingDetailView: View {
                     Button { summarizeHighlights(item) } label: {
                         HStack(spacing: 3) {
                             Image(systemName: "sparkles")
-                            Text("Summarize → notes").font(.caption.weight(.medium))
+                            Text("Notes from highlights").font(.caption.weight(.medium))
                         }.foregroundStyle(.tint)
                     }.buttonStyle(.borderless).disabled(hlSumLoading)
-                    .help("Summarize these highlights into the book's notes — you accept or discard")
+                    .help("Synthesize the highlights you saved into study notes — StudyBar reads only your highlights, never the book itself")
                 }
             }
             if hlSumLoading || hlSumDone { hlSummaryCard(item) }
@@ -546,11 +546,13 @@ struct ReadingDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles").foregroundStyle(.tint)
-                Text(hlSumLoading ? "Summarizing highlights" : "Proposed summary").font(.caption.weight(.semibold))
+                Text(hlSumLoading ? "Synthesizing your highlights" : "Study notes from your highlights").font(.caption.weight(.semibold))
                 if hlSumLoading { ProgressView().controlSize(.small) }
                 Spacer()
                 Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
             }
+            Text("Built only from the \(item.highlights.count) highlights you saved — not the book's text.")
+                .font(.caption2).foregroundStyle(.secondary)
             ScrollView {
                 Text(hlSum.isEmpty ? "Thinking…" : hlSum).font(.callout).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
