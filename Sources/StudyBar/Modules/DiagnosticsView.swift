@@ -29,18 +29,17 @@ struct DiagnosticsSections: View {
     @ViewBuilder private var crashSection: some View {
         if let crash = diag.lastCrash {
             Section {
-                ScrollView(.vertical) {
-                    Text(crash)
-                        .font(.caption.monospaced()).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)   // wrap long lines, don't push width
-                        .padding(8)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 150)
-                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5))
-                Text("Included in the report below. Send it so this can be fixed.").font(.caption2).foregroundStyle(.secondary)
+                // A plain Text in a Form row wraps to the pane width reliably (a ScrollView here
+                // does not, and overflowed). Cap the height with a line limit; the full log is in
+                // the exported report.
+                Text(crash)
+                    .font(.caption2.monospaced()).textSelection(.enabled)
+                    .lineLimit(12)
+                    .frame(maxWidth: 460, alignment: .leading)   // concrete cap → wraps, never pushes the pane
+                    .padding(8)
+                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
+                Text("Truncated here — the full details are in the report below. Copy or save it and send it so this can be fixed.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 Button { diag.lastCrash = nil } label: { Label("Dismiss", systemImage: "xmark") }
             } header: {
                 Label("Previous session ended unexpectedly", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)

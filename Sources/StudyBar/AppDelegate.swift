@@ -343,6 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func clampToScreen() {
         guard let w = window, let vis = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
         var f = w.frame
+        // Undo a runaway width saved by the autosave from a past content-driven blow-up.
+        if f.size.width > 1100 { f.size.width = 900 }
         f.size.width = min(f.size.width, vis.size.width)
         f.size.height = min(f.size.height, vis.size.height)
         f.origin.x = max(vis.minX, min(f.origin.x, vis.maxX - f.size.width))
