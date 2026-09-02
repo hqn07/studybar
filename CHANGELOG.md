@@ -5,6 +5,11 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-09-02
+
+- **Send feedback, right from the app** — Settings ▸ About now has a one-tap **Send feedback by email**, plus links to report a bug or start a discussion. Email is the fastest way to reach the maintainer.
+- **Removed the Density setting** — it only ever nudged the header and made no real difference in the app, so it's gone rather than pretending to do something.
+
 ## [1.8.1] — 2026-09-02
 
 - **Notes toolbar, decluttered** — the formatting bar is now one tidy row instead of a long strip that scrolled tools off-screen. Common actions stay inline (bold/italic/underline/strike, bullet/numbered/checklist); the rest live in **Style ▾**, **Insert ▾** (table, image, equation, code, quote, divider, collapse, define), and a single **colour** menu. Undo/redo dropped from the bar (⌘Z / ⌘⇧Z still work).
