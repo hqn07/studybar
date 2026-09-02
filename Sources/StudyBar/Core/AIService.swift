@@ -82,6 +82,9 @@ enum AIConfig {
         get { UserDefaults.standard.string(forKey: "aiOllamaHost").flatMap { $0.isEmpty ? nil : $0 } ?? "http://localhost:11434" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOllamaHost") }
     }
+    /// How long Ollama keeps the model in RAM after a request. Short ("30s") frees ~5 GB soon
+    /// after each answer — kinder on a full 16 GB Mac — while still surviving a quick follow-up.
+    static let ollamaKeepAlive = "30s"
 
     static func hasKey(_ mode: AIMode) -> Bool {
         guard let acct = mode.keyAccount else { return false }
@@ -256,6 +259,7 @@ struct OllamaProvider: AIProvider {
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": false,
             "format": "json",
+            "keep_alive": AIConfig.ollamaKeepAlive,
             // num_ctx 8192: the default 4096 truncates StudyBar's full system prompt
             // (tool catalogs + the student's course context), which makes weak models
             // lose the format rules and invent tools. 8192 fixed it (3/3 vs 2/3).
@@ -289,6 +293,7 @@ struct OllamaProvider: AIProvider {
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": true, "format": "json",
+            "keep_alive": AIConfig.ollamaKeepAlive,
             "options": ["temperature": 0.3, "num_ctx": 8192],
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -330,6 +335,7 @@ struct OllamaProvider: AIProvider {
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": true,
+            "keep_alive": AIConfig.ollamaKeepAlive,
             "options": ["temperature": 0.3, "num_ctx": 8192],
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
