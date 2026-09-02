@@ -5,6 +5,17 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.4] — 2026-09-02
+
+- **Schedule shows your deadlines** — the Week view now marks each day with dots for what's due that week (red for exams and quizzes), and the day planner draws a line at each assignment's due time, so you can plan around them instead of holding them in your head.
+- **A real, navigable week** — page through weeks with ‹ › (and a **This week** button); each column shows its date, and the deadline dots and planned-block count follow the week you're viewing.
+- **Online classes** — mark a class **Online**: if it meets at a set time it stays on the grid with a video badge, and if it's asynchronous (no set time) it moves to an **Online** strip above the grid with a one-tap link. The editor lets an online class be saved with no meeting days.
+- **Import your class schedule** — **Import from .ics…** turns a registrar or Canvas calendar export into your weekly classes (it understands recurring MWF-style meetings), with a review step to pick a course for each.
+- **Lands on the current time** — both Schedule views now scroll to *now* when you open them, and class blocks are readable with VoiceOver.
+- **Voice: transcribe as you record** — with Whisper, long recordings now transcribe in the background *while you talk*, so the text appears live and stopping finishes almost instantly — no more waiting for a whole lecture to process at the end.
+- **Voice: no more re-download nag** — a Whisper model you've already downloaded is remembered across launches, so it no longer asks you to download it again every time.
+- **Notes: tolerant math** — LaTeX with a small delimiter typo now renders instead of showing raw red source.
+
 ## [1.8.3] — 2026-09-02
 
 - **Turn book highlights into flashcards** — on a book's **Highlights** tab, one tap on **Make flashcards** drafts a study card from each highlight (a question and answer when an AI engine is set up, a fill-in-the-blank otherwise). Review and edit the drafts inline, then accept the ones you want — they land in a deck named after the book and start spaced repetition.
