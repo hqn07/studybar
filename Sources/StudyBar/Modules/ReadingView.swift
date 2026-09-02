@@ -311,6 +311,17 @@ struct ReadingDetailView: View {
     @State private var pdfError: String?
     @State private var bookQuery = ""
     @State private var bookHits: [BookText.Hit] = []
+    // Ask-the-book (grounded AI Q&A over retrieved pages)
+    @State private var askQuery = ""
+    @State private var askAnswer = ""
+    @State private var askLoading = false
+    @State private var askDone = false
+    @State private var askPages: [Int] = []
+    @State private var askTask: Task<Void, Never>?
+    // OCR (scanned PDFs)
+    @State private var ocrURL: URL?
+    @State private var ocrProgress: Double = 0
+    @State private var ocrBox: CancelBox?
 
     private var idx: Int? { state.data.reading.firstIndex { $0.id == itemID } }
     private var item: ReadingItem? { idx.map { state.data.reading[$0] } }
@@ -545,9 +556,17 @@ struct ReadingDetailView: View {
                 }
             }
             if pdfBusy {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Extracting text from the PDF…").font(.caption).foregroundStyle(.secondary)
+                if ocrBox != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Reading pages with OCR — \(Int(ocrProgress * 100))%").font(.caption.weight(.medium))
+                        ProgressView(value: ocrProgress).frame(maxWidth: 280)
+                        Button("Cancel") { ocrBox?.cancel() }.buttonStyle(.bordered).controlSize(.small)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Extracting text from the PDF…").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             } else if let pages = item.pdfPages {
                 Label("PDF attached · \(pages) pages · searchable, on-device", systemImage: "doc.text.magnifyingglass")
@@ -572,14 +591,66 @@ struct ReadingDetailView: View {
                 if !bookQuery.trimmingCharacters(in: .whitespaces).isEmpty && bookHits.isEmpty {
                     Text("No matches on any page.").font(.caption).foregroundStyle(.secondary)
                 }
+                if AIConfig.isReady {
+                    Divider().padding(.vertical, 2)
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").foregroundStyle(.tint)
+                        TextField("Ask about the book…", text: $askQuery)
+                            .textFieldStyle(.plain).onSubmit { askBook() }
+                    }
+                    .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    if askLoading || askDone { askCard }
+                }
+            } else if let url = ocrURL {
+                Label("No text layer — this PDF looks scanned.", systemImage: "doc.viewfinder")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button { runOCR(url) } label: { Label("Extract with OCR", systemImage: "text.viewfinder") }
+                        .buttonStyle(.borderedProminent)
+                    Button("Choose a different PDF") { attachPDF() }.buttonStyle(.bordered)
+                }
+                if let e = pdfError { Text(e).font(.caption).foregroundStyle(.orange) }
+                Text("OCR reads the page images on-device with the system text recognizer — accurate but slow on big books (you can cancel).")
+                    .font(.caption2).foregroundStyle(.tertiary)
             } else {
                 Button { attachPDF() } label: { Label("Attach PDF to search inside", systemImage: "doc.badge.plus") }
                     .buttonStyle(.bordered)
                 if let e = pdfError { Text(e).font(.caption).foregroundStyle(.orange) }
-                Text("Adds a private, on-device text layer so you can search the book — and, next, ask AI about it. Text PDFs only; scanned images have no text to extract.")
+                Text("Adds a private, on-device text layer so you can search the book — and ask AI about it. Scanned PDFs are handled with OCR.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    private var askCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").foregroundStyle(.tint)
+                Text(askLoading ? "Reading the relevant pages…" : "Answer").font(.caption.weight(.semibold))
+                if askLoading { ProgressView().controlSize(.small) }
+                Spacer()
+                if !askPages.isEmpty {
+                    Text("from " + askPages.map { "p\($0)" }.joined(separator: ", "))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            ScrollView {
+                Text(askAnswer.isEmpty ? "Thinking…" : askAnswer).font(.callout).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(askAnswer.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            }.frame(maxHeight: 220)
+            if askDone && !askAnswer.isEmpty {
+                HStack(spacing: 8) {
+                    Button { saveAnswer() } label: { Label("Save to notes", systemImage: "text.append") }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                    Spacer()
+                    Button("Clear") { clearAsk() }.buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+        }
+        .padding(10)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25)))
     }
 
     private func attachPDF() {
@@ -587,14 +658,31 @@ struct ReadingDetailView: View {
         panel.allowedContentTypes = [.pdf]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        pdfBusy = true; pdfError = nil
+        pdfBusy = true; pdfError = nil; ocrURL = nil
         let id = itemID
         Task {
             let pages = await Task.detached { BookText.attach(url, to: id) }.value
             await MainActor.run {
                 pdfBusy = false
                 if let pages, let i = idx { state.data.reading[i].pdfPages = pages }
-                else { pdfError = "No text found — this PDF is likely scanned images (no text layer to extract)." }
+                else { ocrURL = url; pdfError = nil }   // no text layer → offer OCR
+            }
+        }
+    }
+
+    private func runOCR(_ url: URL) {
+        let box = CancelBox()
+        ocrBox = box; pdfBusy = true; ocrProgress = 0; pdfError = nil
+        let id = itemID
+        Task {
+            let pages = await Task.detached {
+                BookText.ocr(url, to: id, cancel: box) { p in Task { @MainActor in ocrProgress = p } }
+            }.value
+            await MainActor.run {
+                pdfBusy = false; ocrBox = nil
+                if let pages, let i = idx { state.data.reading[i].pdfPages = pages; ocrURL = nil }
+                else if box.isCancelled { /* left as-is, user can retry */ }
+                else { pdfError = "OCR couldn't read any text from this PDF." }
             }
         }
     }
@@ -604,10 +692,51 @@ struct ReadingDetailView: View {
         bookHits = q.count >= 2 ? BookText.search(itemID, query: q) : []
     }
 
+    private func askBook() {
+        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        let q = askQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= 3 else { return }
+        let chunks = BookText.topChunks(itemID, query: q, k: 5)
+        askPages = chunks.map(\.page)
+        guard !chunks.isEmpty else {
+            askAnswer = "No relevant pages turned up for that — try different wording."
+            askDone = true; askLoading = false; return
+        }
+        askLoading = true; askDone = false; askAnswer = ""
+        let excerpts = chunks.map { "[p\($0.page)] \($0.text.prefix(1500))" }.joined(separator: "\n\n")
+        let sys = "You answer a student's question using ONLY the book excerpts provided below. Cite the page(s) you used inline like (p42). If the answer is not in the excerpts, reply exactly: Not found in the retrieved pages — try rephrasing. Do not use outside knowledge. Be concise and clear."
+        askTask?.cancel()
+        askTask = Task {
+            let msgs = [AIMessage(role: .user, text: "Question: \(q)\n\nExcerpts:\n\(excerpts)")]
+            let out: String?
+            if let ollama = provider as? OllamaProvider {
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in askAnswer = p }
+            } else {
+                out = try? await provider.completePlain(system: sys, messages: msgs)
+            }
+            await MainActor.run {
+                askLoading = false; askDone = true
+                askAnswer = (out ?? askAnswer).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+
+    private func saveAnswer() {
+        guard let i = idx, !askAnswer.isEmpty else { return }
+        let entry = "Q: \(askQuery)\n\(askAnswer)"
+        let existing = state.data.reading[i].notes
+        state.data.reading[i].notes = existing.isEmpty ? entry : existing + "\n\n" + entry
+        clearAsk()
+    }
+    private func clearAsk() {
+        askTask?.cancel(); askTask = nil
+        askQuery = ""; askAnswer = ""; askLoading = false; askDone = false; askPages = []
+    }
+
     private func removePDF() {
         BookText.remove(itemID)
         if let i = idx { state.data.reading[i].pdfPages = nil }
-        bookQuery = ""; bookHits = []; pdfError = nil
+        bookQuery = ""; bookHits = []; pdfError = nil; ocrURL = nil; clearAsk()
     }
 
     private func paceHint(_ item: ReadingItem) -> String? {

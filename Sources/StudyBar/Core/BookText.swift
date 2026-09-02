@@ -1,5 +1,15 @@
 import Foundation
 import PDFKit
+import Vision
+import CoreGraphics
+
+/// Shared, mutable cancel flag for the long OCR pass (safe: a single bool toggled from the UI,
+/// read from the worker).
+final class CancelBox: @unchecked Sendable {
+    private var flag = false
+    func cancel() { flag = true }
+    var isCancelled: Bool { flag }
+}
 
 /// On-device text layer for a book's PDF — the foundation for searching and (later) AI Q&A
 /// over the actual content. Extracts text per page with PDFKit, stores the chunks beside the
@@ -45,6 +55,52 @@ enum BookText {
         return c
     }
     static func hasText(_ id: UUID) -> Bool { FileManager.default.fileExists(atPath: chunksURL(id).path) }
+
+    /// OCR a scanned PDF (no text layer): render each page and recognize text on-device with
+    /// Vision. Slow — reports fractional progress and honors the cancel box. Returns the page
+    /// count on success, nil if cancelled or nothing recognized. Call from a detached task.
+    static func ocr(_ src: URL, to id: UUID, cancel: CancelBox,
+                    progress: @escaping @Sendable (Double) -> Void) -> Int? {
+        let scoped = src.startAccessingSecurityScopedResource()
+        defer { if scoped { src.stopAccessingSecurityScopedResource() } }
+        guard let doc = PDFDocument(url: src) else { return nil }
+        let total = doc.pageCount
+        guard total > 0 else { return nil }
+        var chunks: [Chunk] = []
+        for i in 0..<total {
+            if cancel.isCancelled { return nil }
+            if let page = doc.page(at: i), let cg = render(page) {
+                let req = VNRecognizeTextRequest()
+                req.recognitionLevel = .accurate
+                req.usesLanguageCorrection = true
+                try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([req])
+                let text = (req.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { chunks.append(Chunk(page: i + 1, text: text)) }
+            }
+            progress(Double(i + 1) / Double(total))
+        }
+        guard !chunks.isEmpty else { return nil }
+        try? FileManager.default.removeItem(at: pdfURL(id))
+        try? FileManager.default.copyItem(at: src, to: pdfURL(id))
+        if let data = try? JSONEncoder().encode(chunks) { try? data.write(to: chunksURL(id), options: .atomic) }
+        return total
+    }
+
+    /// Render a PDF page to a bitmap for OCR (off-main-safe: pure CoreGraphics, no NSImage).
+    private static func render(_ page: PDFPage, scale: CGFloat = 2) -> CGImage? {
+        let box = page.bounds(for: .mediaBox)
+        let w = Int(box.width * scale), h = Int(box.height * scale)
+        guard w > 0, h > 0,
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.scaleBy(x: scale, y: scale)
+        page.draw(with: .mediaBox, to: ctx)
+        return ctx.makeImage()
+    }
     static func remove(_ id: UUID) {
         try? FileManager.default.removeItem(at: chunksURL(id))
         try? FileManager.default.removeItem(at: pdfURL(id))
