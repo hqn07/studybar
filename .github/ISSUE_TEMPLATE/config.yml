@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions — ideas, questions, show & tell
+    url: https://github.com/hqn07/studybar/discussions
+    about: For open-ended ideas and questions. Issues are best for bugs and concrete requests.

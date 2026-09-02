@@ -651,6 +651,15 @@ struct SettingsView: View {
             LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
             Text("Free & open source. A menu bar study companion.")
                 .font(.caption).foregroundStyle(.secondary)
+            Link(destination: URL(string: "https://github.com/hqn07/studybar/issues/new/choose")!) {
+                Label("Send feedback / report a bug", systemImage: "exclamationmark.bubble")
+            }
+            Link(destination: URL(string: "https://github.com/hqn07/studybar/discussions")!) {
+                Label("Ideas & questions (Discussions)", systemImage: "bubble.left.and.bubble.right")
+            }
+            Link(destination: URL(string: "https://github.com/hqn07/studybar")!) {
+                Label("StudyBar on GitHub", systemImage: "arrow.up.right.square")
+            }
         }
         releaseNotesSection
     }
