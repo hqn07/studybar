@@ -305,6 +305,11 @@ struct ReadingDetailView: View {
     @State private var hlText = ""
     @State private var chapterText = ""
     @State private var bulkCount = ""
+    // Inline AI: summarize this book's highlights into its notes (propose → accept).
+    @State private var hlSumLoading = false
+    @State private var hlSum = ""
+    @State private var hlSumDone = false
+    @State private var hlSumTask: Task<Void, Never>?
 
     private var idx: Int? { state.data.reading.firstIndex { $0.id == itemID } }
     private var item: ReadingItem? { idx.map { state.data.reading[$0] } }
@@ -504,7 +509,20 @@ struct ReadingDetailView: View {
 
     private func highlightsBlock(_ item: ReadingItem) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("HIGHLIGHTS").font(.caption2.bold()).foregroundStyle(.secondary)
+            HStack {
+                Text("HIGHLIGHTS").font(.caption2.bold()).foregroundStyle(.secondary)
+                Spacer()
+                if AIConfig.isReady && item.highlights.count >= 2 {
+                    Button { summarizeHighlights(item) } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                            Text("Summarize → notes").font(.caption.weight(.medium))
+                        }.foregroundStyle(.tint)
+                    }.buttonStyle(.borderless).disabled(hlSumLoading)
+                    .help("Summarize these highlights into the book's notes — you accept or discard")
+                }
+            }
+            if hlSumLoading || hlSumDone { hlSummaryCard(item) }
             ForEach(item.highlights.sorted { $0.page < $1.page }) { h in
                 HStack(alignment: .top, spacing: 8) {
                     Text("p\(h.page)").font(.caption2.monospacedDigit()).foregroundStyle(.tint)
@@ -522,6 +540,68 @@ struct ReadingDetailView: View {
                 Button("Add", action: addHighlight).disabled(hlText.isEmpty)
             }
         }
+    }
+
+    private func hlSummaryCard(_ item: ReadingItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").foregroundStyle(.tint)
+                Text(hlSumLoading ? "Summarizing highlights" : "Proposed summary").font(.caption.weight(.semibold))
+                if hlSumLoading { ProgressView().controlSize(.small) }
+                Spacer()
+                Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                Text(hlSum.isEmpty ? "Thinking…" : hlSum).font(.callout).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(hlSum.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            }.frame(maxHeight: 160)
+            if hlSumDone && !hlSum.isEmpty {
+                HStack(spacing: 8) {
+                    Button { appendSummary() } label: { Label("Add to notes", systemImage: "text.append") }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                    Spacer()
+                    Button("Discard") { cancelSummary() }.buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+        }
+        .padding(10)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25)))
+    }
+
+    private func summarizeHighlights(_ item: ReadingItem) {
+        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        let body = item.highlights.sorted { $0.page < $1.page }
+            .map { "(p\($0.page)) \($0.text)" }.joined(separator: "\n")
+        guard !body.isEmpty else { return }
+        hlSumLoading = true; hlSumDone = false; hlSum = ""
+        let sys = "You summarize a reader's own highlights from a book into concise study notes: a few grouped bullet points capturing the key ideas, terms, and takeaways. Be faithful to the highlights — don't add outside information. Output plain markdown bullets only, no preamble."
+        hlSumTask?.cancel()
+        hlSumTask = Task {
+            let msgs = [AIMessage(role: .user, text: "Book: \(item.title)\n\nHighlights:\n\(body)")]
+            let out: String?
+            if let ollama = provider as? OllamaProvider {
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in hlSum = p }
+            } else {
+                out = try? await provider.completePlain(system: sys, messages: msgs)
+            }
+            await MainActor.run {
+                hlSumLoading = false; hlSumDone = true
+                hlSum = (out ?? hlSum).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+
+    private func appendSummary() {
+        guard let i = idx, !hlSum.isEmpty else { return }
+        let existing = state.data.reading[i].notes
+        state.data.reading[i].notes = existing.isEmpty ? hlSum : existing + "\n\n" + hlSum
+        cancelSummary()
+    }
+    private func cancelSummary() {
+        hlSumTask?.cancel(); hlSumTask = nil
+        hlSumLoading = false; hlSumDone = false; hlSum = ""
     }
 
     private func paceHint(_ item: ReadingItem) -> String? {
