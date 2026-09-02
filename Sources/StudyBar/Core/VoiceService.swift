@@ -60,6 +60,7 @@ final class VoiceService: ObservableObject {
     private var everGotResult = false
     // Whisper (chunked streaming: transcribe short chunks in the background while recording)
     private var whisper: WhisperKit?
+    private var whisperLoadTask: Task<Void, Error>?   // dedupes concurrent model loads
     private var whisperMode = false
     private let chunkLock = NSLock()
     private var chunkFile: AVAudioFile?
@@ -119,7 +120,7 @@ final class VoiceService: ObservableObject {
         whisperMode = useWhisper
         Task { @MainActor in
             guard await AVCaptureDevice.requestAccess(for: .audio) else { status = .denied; return }
-            if whisperMode { await beginWhisperRecording() } else { startAppleSpeech() }
+            if whisperMode { beginWhisperRecording() } else { startAppleSpeech() }
         }
     }
 
@@ -243,11 +244,12 @@ final class VoiceService: ObservableObject {
     // queue while recording continues. Text appears live, only one small chunk is ever on disk,
     // and stopping just drains the last chunk.
 
-    private func beginWhisperRecording() async {
-        do { try await ensureWhisper() }
-        catch { status = .unavailable("Couldn't prepare Whisper: \(error.localizedDescription)"); return }
-        guard wantsRecording else { finish(); return }   // user stopped during model load
+    private func beginWhisperRecording() {
+        // Capture from t=0 immediately; load the model in parallel. Otherwise the seconds spent
+        // loading a large model on the first record would drop the start of the recording. Each
+        // chunk's transcription waits for the model, so no audio is lost.
         startChunkedMic()
+        Task { @MainActor in try? await ensureWhisper() }
     }
 
     private func startChunkedMic() {
@@ -329,6 +331,7 @@ final class VoiceService: ObservableObject {
     }
 
     private func transcribeChunk(_ url: URL) async -> String? {
+        try? await ensureWhisper()      // first chunk waits for the model; the rest are instant
         guard let whisper else { return nil }
         // Prompt the model with the vocab hint plus the tail of what's transcribed so far, so
         // terminology stays consistent and word boundaries between chunks are handled better.
@@ -418,27 +421,36 @@ final class VoiceService: ObservableObject {
         }
     }
 
+    /// Load the model, deduping concurrent callers (the parallel prewarm and the first chunk's
+    /// transcription both call this) onto one in-flight load task.
     private func ensureWhisper() async throws {
         if whisperReady { return }
-        whisper = nil; loadedModel = nil
-        status = .preparing; prepProgress = 0
+        if let t = whisperLoadTask { try await t.value; return }
         let model = whisperModel
-        // Already downloaded? Load straight from the saved folder — no network, no re-download.
-        if let saved = UserDefaults.standard.string(forKey: modelFolderKey(model)),
-           FileManager.default.fileExists(atPath: saved),
-           let w = try? await WhisperKit(WhisperKitConfig(modelFolder: saved, load: true, download: false)) {
-            whisper = w; loadedModel = model; return
-        }
-        do {
-            let folder = try await WhisperKit.download(variant: "openai_whisper-\(model)") { [weak self] p in
-                Task { @MainActor in self?.prepProgress = p.fractionCompleted }
+        if status != .recording { status = .preparing; prepProgress = 0 }   // don't flip UI mid-record
+        let task = Task<Void, Error> { @MainActor [weak self] in
+            guard let self else { return }
+            self.whisper = nil; self.loadedModel = nil
+            // Already downloaded? Load straight from the saved folder — no network, no re-download.
+            if let saved = UserDefaults.standard.string(forKey: self.modelFolderKey(model)),
+               FileManager.default.fileExists(atPath: saved),
+               let w = try? await WhisperKit(WhisperKitConfig(modelFolder: saved, load: true, download: false)) {
+                self.whisper = w; self.loadedModel = model; return
             }
-            UserDefaults.standard.set(folder.path, forKey: modelFolderKey(model))   // remember it's on disk
-            whisper = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path, load: true, download: false))
-        } catch {
-            whisper = try await WhisperKit(WhisperKitConfig(model: model, load: true, download: true))
+            do {
+                let folder = try await WhisperKit.download(variant: "openai_whisper-\(model)") { [weak self] p in
+                    Task { @MainActor in self?.prepProgress = p.fractionCompleted }
+                }
+                UserDefaults.standard.set(folder.path, forKey: self.modelFolderKey(model))   // remember it's on disk
+                self.whisper = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path, load: true, download: false))
+            } catch {
+                self.whisper = try await WhisperKit(WhisperKitConfig(model: model, load: true, download: true))
+            }
+            self.loadedModel = model
         }
-        loadedModel = model
+        whisperLoadTask = task
+        do { try await task.value; whisperLoadTask = nil }
+        catch { whisperLoadTask = nil; throw error }
     }
 
     // MARK: - Shared
