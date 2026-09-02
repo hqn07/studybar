@@ -74,10 +74,11 @@ final class VoiceService: ObservableObject {
     private var chunkTimer: Timer?
     private var transcribeChain: Task<Void, Never>?
     private var whisperCommitted = ""
-    private let minChunkSec = 15.0        // don't cut smaller — Whisper needs context
-    private let maxChunkSec = 40.0        // hard cut, so text never lags too far behind
-    private let pauseGapSec = 0.5         // prefer cutting at a natural pause
-    private let silenceRMS: Float = 0.02
+    private var chunkLang: String?        // language detected on the first chunk, reused after
+    private let minChunkSec = 8.0         // small enough that each transcribes fast (text stays current)
+    private let maxChunkSec = 18.0        // hard cut, so text never lags too far behind live
+    private let pauseGapSec = 0.4         // prefer cutting at a natural pause
+    private let silenceRMS: Float = 0.035
     // Autosave draft — crash-safe raw transcript.
     private var lastDraftSave = Date.distantPast
     static var draftURL: URL { AppState.localDir.appendingPathComponent("voice-draft.txt") }
@@ -257,7 +258,7 @@ final class VoiceService: ObservableObject {
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return }
         chunkSettings = format.settings; sampleRate = format.sampleRate
-        whisperCommitted = ""; transcript = ""; totalFrames = 0; lastLoudAt = Date()
+        whisperCommitted = ""; transcript = ""; totalFrames = 0; lastLoudAt = Date(); chunkLang = nil
         guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
@@ -333,19 +334,15 @@ final class VoiceService: ObservableObject {
     private func transcribeChunk(_ url: URL) async -> String? {
         try? await ensureWhisper()      // first chunk waits for the model; the rest are instant
         guard let whisper else { return nil }
-        // Prompt the model with the vocab hint plus the tail of what's transcribed so far, so
-        // terminology stays consistent and word boundaries between chunks are handled better.
-        var promptText = vocabPrompt ?? ""
-        let tail = String(whisperCommitted.suffix(140))
-        if !tail.isEmpty { promptText = (promptText.isEmpty ? "" : promptText + " ") + tail }
-        var promptTokens: [Int]? = nil
-        if !promptText.isEmpty, let tok = whisper.tokenizer {
-            let toks = tok.encode(text: " " + promptText); if !toks.isEmpty { promptTokens = toks }
-        }
-        let opts = DecodingOptions(language: whisperLang == "auto" ? nil : whisperLang,
-                                   detectLanguage: whisperLang == "auto",
-                                   skipSpecialTokens: true, promptTokens: promptTokens)
+        // No promptTokens: seeding Whisper with the previous text makes it intermittently emit
+        // nothing for a chunk whose audio doesn't continue that prompt. Detect the language once
+        // (on auto) and reuse it, so later chunks don't re-detect and occasionally come back empty.
+        let fixedLang: String? = whisperLang == "auto" ? chunkLang : whisperLang
+        let opts = DecodingOptions(language: fixedLang,
+                                   detectLanguage: whisperLang == "auto" && chunkLang == nil,
+                                   skipSpecialTokens: true)
         guard let results = try? await whisper.transcribe(audioPath: url.path, decodeOptions: opts) else { return nil }
+        if whisperLang == "auto", chunkLang == nil { chunkLang = results.first?.language }
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
