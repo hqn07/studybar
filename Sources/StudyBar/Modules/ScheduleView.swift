@@ -159,19 +159,61 @@ struct WeekGridView: View {
     }
 
     private func headerRow(days: [Int], dayWidth: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: gutter, height: 34)
+        let due = weekDue
+        return HStack(spacing: 0) {
+            Color.clear.frame(width: gutter, height: 46)
             ForEach(days, id: \.self) { wd in
                 let isToday = wd == today
-                Text(weekdayLetters[wd])
-                    .font(.headline)
-                    .foregroundStyle(isToday ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                    .frame(width: 26, height: 26)
-                    .background { if isToday { Circle().fill(.tint) } }
-                    .frame(width: dayWidth, height: 34)
+                let items = due[wd] ?? []
+                VStack(spacing: 3) {
+                    Text(weekdayLetters[wd])
+                        .font(.headline)
+                        .foregroundStyle(isToday ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                        .frame(width: 26, height: 26)
+                        .background { if isToday { Circle().fill(.tint) } }
+                    dueDots(items)
+                }
+                .frame(width: dayWidth, height: 46)
             }
         }
-        .frame(height: 34)                 // don't let the flexible spacer stretch the header
+        .frame(height: 46)                 // don't let the flexible spacer stretch the header
+    }
+
+    /// A row of due-marker dots under a weekday: red for exams/quizzes, accent otherwise.
+    @ViewBuilder private func dueDots(_ items: [Assignment]) -> some View {
+        if items.isEmpty {
+            Color.clear.frame(height: 6)
+        } else {
+            HStack(spacing: 2) {
+                ForEach(items.prefix(4)) { a in
+                    Circle().fill(isExam(a) ? Color.red : Color.accentColor).frame(width: 5, height: 5)
+                }
+                if items.count > 4 { Text("+\(items.count - 4)").font(.system(size: 8)).foregroundStyle(.secondary) }
+            }
+            .frame(height: 6)
+            .help(dueHelp(items))
+        }
+    }
+    private func dueHelp(_ items: [Assignment]) -> String {
+        items.map { a in
+            let t = a.title.isEmpty ? "Untitled" : a.title
+            return a.due.map { "\(t) — due \($0.formatted(date: .omitted, time: .shortened))" } ?? t
+        }.joined(separator: "\n")
+    }
+    private func isExam(_ a: Assignment) -> Bool {
+        let t = a.title.lowercased()
+        return ["exam", "midterm", "final", "quiz", "test"].contains { t.contains($0) }
+    }
+    /// Open assignments due in the current calendar week, bucketed by weekday (1=Sun…7=Sat).
+    private var weekDue: [Int: [Assignment]] {
+        guard let wi = cal.dateInterval(of: .weekOfYear, for: .now) else { return [:] }
+        var out: [Int: [Assignment]] = [:]
+        for a in state.data.assignments where a.status != .done {
+            guard let d = a.due, wi.contains(d) else { continue }
+            out[cal.component(.weekday, from: d), default: []].append(a)
+        }
+        for k in out.keys { out[k]?.sort { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) } }
+        return out
     }
 
     @ViewBuilder private func hourLines(lo: Int, hi: Int, width: CGFloat) -> some View {

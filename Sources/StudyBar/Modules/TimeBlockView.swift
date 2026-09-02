@@ -119,6 +119,7 @@ struct DayPlannerView: View {
                     hourGrid(lo: lo, hi: hi, width: geo.size.width).allowsHitTesting(false)
                     ForEach(classes) { c in classBand(c, lo: lo, width: contentWidth) }
                         .allowsHitTesting(false)   // read-only context; let the create-drag pass through
+                    ForEach(dueToday) { a in dueMarker(a, lo: lo, width: contentWidth) }
                     if let r = createRange { createGhost(r, lo: lo, width: contentWidth).allowsHitTesting(false) }
                     ForEach(TimeBlock.layout(blocks), id: \.id) { p in
                         if let b = blocks.first(where: { $0.id == p.id }) {
@@ -201,6 +202,40 @@ struct DayPlannerView: View {
             }
             .offset(y: y(m, lo: lo))
         }
+    }
+
+    /// Open assignments due on the shown day — drawn as a marker line so you plan against them.
+    private var dueToday: [Assignment] {
+        state.data.assignments.filter { a in
+            a.status != .done && (a.due.map { cal.isDate($0, inSameDayAs: day) } ?? false)
+        }.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+    }
+    private func dueMinutes(_ a: Assignment) -> Int {
+        guard let d = a.due else { return 0 }
+        let c = cal.dateComponents([.hour, .minute], from: d)
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
+    private func isExam(_ a: Assignment) -> Bool {
+        let t = a.title.lowercased()
+        return ["exam", "midterm", "final", "quiz", "test"].contains { t.contains($0) }
+    }
+
+    /// A due-time line across the timeline with a trailing label pill.
+    private func dueMarker(_ a: Assignment, lo: Int, width: CGFloat) -> some View {
+        let color: Color = isExam(a) ? .red : .orange
+        return ZStack(alignment: .trailing) {
+            Rectangle().fill(color.opacity(0.5)).frame(width: width, height: 1)
+            HStack(spacing: 3) {
+                Image(systemName: isExam(a) ? "exclamationmark.triangle.fill" : "flag.fill").font(.system(size: 8))
+                Text(a.title.isEmpty ? "Due" : a.title).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(color, in: Capsule())
+        }
+        .frame(width: width)
+        .offset(x: gutter, y: y(dueMinutes(a), lo: lo) - 7)
+        .allowsHitTesting(false)
     }
 
     private func classBand(_ c: ClassSession, lo: Int, width: CGFloat) -> some View {
