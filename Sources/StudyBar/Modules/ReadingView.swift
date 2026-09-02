@@ -323,6 +323,11 @@ struct ReadingDetailView: View {
     @State private var askLoading = false
     @State private var askTask: Task<Void, Never>?
     @State private var tab = BookTab.overview
+
+    // Highlights → flashcards (propose→accept, nothing persists until Accept)
+    @State private var cardDrafts: [CardDraft] = []
+    @State private var cardsLoading = false
+    @State private var cardTask: Task<Void, Never>?
     // OCR (scanned PDFs)
     @State private var ocrURL: URL?
     @State private var ocrProgress: Double = 0
@@ -529,7 +534,17 @@ struct ReadingDetailView: View {
 
     private func highlightsBlock(_ item: ReadingItem) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("HIGHLIGHTS").font(.caption2.bold()).foregroundStyle(.secondary)
+            HStack {
+                Text("HIGHLIGHTS").font(.caption2.bold()).foregroundStyle(.secondary)
+                Spacer()
+                if !item.highlights.isEmpty {
+                    Button { generateCards(item) } label: {
+                        Label(cardsLoading ? "Thinking…" : "Make flashcards", systemImage: "sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless).disabled(cardsLoading)
+                }
+            }
             ForEach(item.highlights.sorted { $0.page < $1.page }) { h in
                 HStack(alignment: .top, spacing: 8) {
                     Text("p\(h.page)").font(.caption2.monospacedDigit()).foregroundStyle(.tint)
@@ -540,6 +555,7 @@ struct ReadingDetailView: View {
                 }
                 .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             }
+            if cardsLoading || !cardDrafts.isEmpty { draftsPanel(item) }
             HStack(spacing: 6) {
                 TextField("p#", text: $hlPage).textFieldStyle(.roundedBorder).frame(width: 44)
                 TextField("Add a quote or highlight…", text: $hlText).textFieldStyle(.roundedBorder)
@@ -547,6 +563,46 @@ struct ReadingDetailView: View {
                 Button("Add", action: addHighlight).disabled(hlText.isEmpty)
             }
         }
+    }
+
+    /// Proposed cards, editable inline, accepted onto a deck named after the book.
+    @ViewBuilder private func draftsPanel(_ item: ReadingItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(cardsLoading ? "GENERATING…" : "PROPOSED CARDS")
+                    .font(.caption2.bold()).foregroundStyle(.secondary)
+                Spacer()
+                if !cardDrafts.isEmpty && !cardsLoading {
+                    Button("Add all \(cardDrafts.count)") { commitCards(cardDrafts); cardDrafts = [] }
+                        .buttonStyle(.borderless).font(.caption.bold())
+                    Button("Discard") { cardDrafts = [] }
+                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if cardsLoading {
+                ProgressView().controlSize(.small)
+            }
+            ForEach($cardDrafts) { $d in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("p\(d.page)").font(.caption2.monospacedDigit()).foregroundStyle(.tint)
+                        Spacer()
+                        Button { commitCards([d]); cardDrafts.removeAll { $0.id == d.id } } label: {
+                            Image(systemName: "checkmark.circle.fill")
+                        }.buttonStyle(.borderless).foregroundStyle(.green).help("Add this card")
+                        Button { cardDrafts.removeAll { $0.id == d.id } } label: {
+                            Image(systemName: "xmark")
+                        }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Skip")
+                    }
+                    TextField("Front", text: $d.front, axis: .vertical).textFieldStyle(.roundedBorder)
+                    TextField("Back", text: $d.back, axis: .vertical).textFieldStyle(.roundedBorder)
+                }
+                .padding(8)
+                .background(.sbSurface2, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            }
+        }
+        .padding(10)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: PDF content layer (P1: attach → extract → search inside the book)
@@ -808,6 +864,45 @@ struct ReadingDetailView: View {
     private func deleteHighlight(_ h: Highlight) {
         guard let i = idx else { return }
         state.withUndo("Deleted highlight") { state.data.reading[i].highlights.removeAll { $0.id == h.id } }
+    }
+
+    private func generateCards(_ item: ReadingItem) {
+        guard !cardsLoading else { return }
+        cardsLoading = true
+        cardDrafts = []
+        cardTask?.cancel()
+        let provider = AIConfig.isReady ? AIService.makeProvider() : nil
+        cardTask = Task {
+            let drafts = await HighlightCards.drafts(for: item, provider: provider)
+            await MainActor.run {
+                cardsLoading = false
+                cardDrafts = drafts
+            }
+        }
+    }
+
+    /// Accept drafts onto a deck named after the book (reuse-or-create), then into SM-2.
+    private func commitCards(_ drafts: [CardDraft]) {
+        guard let i = idx else { return }
+        let valid = drafts.filter {
+            !$0.front.trimmingCharacters(in: .whitespaces).isEmpty &&
+            !$0.back.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        guard !valid.isEmpty else { return }
+        let name = state.data.reading[i].title.isEmpty ? "Highlights" : state.data.reading[i].title
+        let courseID = state.data.reading[i].courseID
+        state.withUndo("Made \(valid.count) flashcard\(valid.count == 1 ? "" : "s")") {
+            let deck: Deck
+            if let existing = state.data.decks.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+                deck = existing
+            } else {
+                deck = Deck(name: name, courseID: courseID)
+                state.data.decks.append(deck)
+            }
+            for d in valid {
+                state.data.flashcards.append(Flashcard(deckID: deck.id, front: d.front, back: d.back))
+            }
+        }
     }
     private func open(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"
