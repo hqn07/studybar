@@ -669,6 +669,7 @@ struct GenerateCardsView: View {
     @State private var loading = false
     @State private var raw = ""
     @State private var proposed: [PropCard] = []
+    @State private var genError = false
     @State private var task: Task<Void, Never>?
 
     private var includedCount: Int { proposed.filter(\.include).count }
@@ -730,6 +731,17 @@ struct GenerateCardsView: View {
                                 }
                             }.opacity(c.include ? 1 : 0.5)
                         }
+                    } else if genError {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Couldn't read cards from the reply — none added.", systemImage: "exclamationmark.triangle")
+                                .font(.caption).foregroundStyle(.orange)
+                            Text("Tap Generate again, or switch to a stronger engine in Settings ▸ Intelligence. Raw reply:")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if !raw.isEmpty {
+                                Text(raw).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                            }
+                        }
                     }
                 }.padding(14)
             }
@@ -748,7 +760,7 @@ struct GenerateCardsView: View {
         guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
         let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 20 else { return }
-        loading = true; raw = ""; proposed = []
+        loading = true; raw = ""; proposed = []; genError = false
         let sys = "You create study flashcards from a student's own material. Output concise question/answer cards, one per line, EXACTLY as `front :: back`. Front = a question or term; back = a short answer or definition. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
         task?.cancel()
         task = Task {
@@ -759,22 +771,71 @@ struct GenerateCardsView: View {
             } else {
                 out = try? await provider.completePlain(system: sys, messages: msgs)
             }
-            await MainActor.run { loading = false; proposed = parseCards(out ?? raw) }
+            await MainActor.run {
+                loading = false
+                let cards = parseCards(out ?? raw)
+                proposed = cards
+                genError = cards.isEmpty
+            }
         }
     }
 
-    /// One card per line as `front :: back`; strip any numbering the model added.
+    /// Tolerant of however the model actually formatted the cards — weak local models rarely
+    /// obey the `::` instruction. Tries, in order: a `::`/`|`/tab delimiter per line; then
+    /// blank-line-separated blocks (first line = front, rest = back — the common Q?/A layout);
+    /// then consecutive line pairs. Strips numbering and Q:/A:/Front:/Back: prefixes.
     private func parseCards(_ s: String) -> [PropCard] {
-        s.split(whereSeparator: \.isNewline).compactMap { line -> PropCard? in
-            let parts = line.components(separatedBy: "::")
-            guard parts.count >= 2 else { return nil }
-            let front = parts[0].trimmingCharacters(in: .whitespaces)
+        let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
+
+        func clean(_ t: String) -> String {
+            t.trimmingCharacters(in: .whitespaces)
                 .replacingOccurrences(of: #"^\s*(\d+[.)]|[-•*])\s*"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)^\s*(front|back|q(?:uestion)?|a(?:nswer)?)\s*[:.)\-]\s*"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
-            let back = parts[1...].joined(separator: "::").trimmingCharacters(in: .whitespaces)
-            guard !front.isEmpty, !back.isEmpty else { return nil }
-            return PropCard(front: front, back: back)
         }
+
+        // 1) Delimiter per line.
+        for d in ["::", "|", "\t"] {
+            let cards: [PropCard] = text.split(whereSeparator: \.isNewline).compactMap { line in
+                let raw = String(line)
+                guard raw.contains(d) else { return nil }
+                let parts = raw.components(separatedBy: d)
+                guard parts.count >= 2 else { return nil }
+                let f = clean(parts[0]); let b = clean(parts[1...].joined(separator: d))
+                return (!f.isEmpty && !b.isEmpty) ? PropCard(front: f, back: b) : nil
+            }
+            if cards.count >= 2 { return cards }
+        }
+
+        // Group into blocks separated by blank lines.
+        var blocks: [[String]] = []; var cur: [String] = []
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if raw.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !cur.isEmpty { blocks.append(cur); cur = [] }
+            } else { cur.append(String(raw)) }
+        }
+        if !cur.isEmpty { blocks.append(cur) }
+
+        // 2) Blank-line-separated cards: first line = front, remaining lines = back.
+        if blocks.count >= 2 {
+            let cards = blocks.compactMap { lines -> PropCard? in
+                guard lines.count >= 2 else { return nil }
+                let f = clean(lines[0]); let b = clean(lines[1...].joined(separator: " "))
+                return (!f.isEmpty && !b.isEmpty) ? PropCard(front: f, back: b) : nil
+            }
+            if !cards.isEmpty { return cards }
+        }
+
+        // 3) Last resort: pair up consecutive non-empty lines.
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        var out: [PropCard] = []; var i = 0
+        while i + 1 < lines.count {
+            let f = clean(lines[i]); let b = clean(lines[i + 1])
+            if !f.isEmpty, !b.isEmpty { out.append(PropCard(front: f, back: b)); i += 2 } else { i += 1 }
+        }
+        return out
     }
 
     private func add() {
