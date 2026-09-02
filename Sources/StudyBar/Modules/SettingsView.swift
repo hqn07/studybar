@@ -21,6 +21,7 @@ struct SettingsView: View {
     @AppStorage("focusEndShortcut") private var focusEndShortcut = ""
     @AppStorage("spotlightIndex") private var spotlightIndex = true
     @AppStorage("notesAutocomplete") private var notesAutocomplete = false
+    @AppStorage("aiProactive") private var aiProactive = false
     @AppStorage("notesFont") private var notesFont = "system"
     @AppStorage("notesFontSize") private var notesFontSize = 15.0
     @AppStorage("notesLineSpacing") private var notesLineSpacing = 3.5
@@ -547,6 +548,12 @@ struct SettingsView: View {
                         .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
                 }
             }
+        }
+
+        Section("Inline AI") {
+            Toggle("Suggest actions as I work", isOn: $aiProactive)
+            Text("Off by default — AI stays out of the way until you invoke it (the ✨ on any text). Turn this on and StudyBar adds a gentle, dismissible chip when it could help — e.g. \"Summarize?\" on a long note. Still a suggestion you accept; nothing is applied on its own.")
+                .font(.caption).foregroundStyle(.secondary)
         }
 
         Section("Boundaries") {

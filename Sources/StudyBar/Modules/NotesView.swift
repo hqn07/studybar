@@ -292,6 +292,8 @@ struct NoteEditor: View {
     @State private var aiRange = NSRange(location: 0, length: 0)
     @State private var aiTask: Task<Void, Never>?
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
+    @AppStorage("aiProactive") private var aiProactive = false
+    @State private var chipDismissed = false
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
     private let startedEmpty: Bool
@@ -354,6 +356,7 @@ struct NoteEditor: View {
             }
             if let defineResult { defineCard(defineResult) }
             if aiAction != nil { aiCard }
+            else if showProactiveChip { proactiveChip }
             editorOrPreview
             if editor.slashQuery != nil { Divider(); slashBar }
             else if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
@@ -576,6 +579,26 @@ struct NoteEditor: View {
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
         .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    // Opt-in ambient suggestion (Settings ▸ Intelligence ▸ Inline AI). Gentle, dismissible,
+    // never auto-acts — it just offers the same Summarize the ✨ menu would run.
+    private var showProactiveChip: Bool {
+        aiProactive && AIConfig.isReady && !chipDismissed && !showPreview && !focusMode && liveWords >= 150
+    }
+    private var proactiveChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles").foregroundStyle(.tint)
+            Text("This note's getting long — summarize it?").font(.caption)
+            Spacer()
+            Button("Summarize") { chipDismissed = true; runAI(.summarize) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+            Button { chipDismissed = true } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Dismiss")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(.tint.opacity(0.08), in: Capsule())
+        .padding(.horizontal, 10).padding(.top, 4)
     }
 
     private func runAI(_ action: NoteAI) {
