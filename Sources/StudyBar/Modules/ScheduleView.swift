@@ -44,6 +44,7 @@ struct WeekGridView: View {
     @State private var editing: ClassSession?
     @State private var importBatch: ClassImportBatch?
     @State private var importError: String?
+    @State private var weekOffset = 0        // 0 = this week; ± pages through weeks
     @AppStorage("useClassPeriods") private var useClassPeriods = false
 
     private let hourHeight: CGFloat = 52
@@ -52,6 +53,24 @@ struct WeekGridView: View {
 
     private var cal: Calendar { Calendar.current }
     private var today: Int { cal.component(.weekday, from: .now) }
+    private var isCurrentWeek: Bool { weekOffset == 0 }
+
+    /// The week currently shown (this week shifted by `weekOffset`).
+    private var displayedWeek: DateInterval {
+        let now = cal.date(byAdding: .weekOfYear, value: weekOffset, to: .now) ?? .now
+        return cal.dateInterval(of: .weekOfYear, for: now) ?? DateInterval(start: now, duration: 604800)
+    }
+    /// The calendar date of weekday `wd` within the displayed week.
+    private func date(for wd: Int) -> Date? {
+        let start = displayedWeek.start
+        let delta = (wd - cal.component(.weekday, from: start) + 7) % 7
+        return cal.date(byAdding: .day, value: delta, to: start)
+    }
+    /// Planned time-blocks on the displayed week's instance of weekday `wd`.
+    private func blockCount(for wd: Int) -> Int {
+        guard let d = date(for: wd) else { return 0 }
+        return (state.data.timeBlocks ?? []).filter { cal.isDate($0.day, inSameDayAs: d) }.count
+    }
     private var nowMinutes: Int {
         let c = cal.dateComponents([.hour, .minute], from: .now); return (c.hour ?? 0) * 60 + (c.minute ?? 0)
     }
@@ -116,6 +135,8 @@ struct WeekGridView: View {
                     }
                 } else {
                     VStack(spacing: 0) {
+                        weekNavBar
+                        Divider()
                         if let n = nextClass { nextBanner(n.session); Divider() }
                         if !asyncClasses.isEmpty { onlineStrip; Divider() }
                         if state.data.classes.contains(where: { !$0.isAsync }) {
@@ -209,8 +230,8 @@ struct WeekGridView: View {
                     ScrollView {
                         ZStack(alignment: .topLeading) {
                             hourLines(lo: lo, hi: hi, width: gutter + dayWidth * CGFloat(days.count))
-                            // Today column highlight.
-                            if let ti = days.firstIndex(of: today) {
+                            // Today column highlight (only when viewing the current week).
+                            if isCurrentWeek, let ti = days.firstIndex(of: today) {
                                 Rectangle().fill(.tint.opacity(0.05))
                                     .frame(width: dayWidth, height: totalHeight)
                                     .offset(x: gutter + CGFloat(ti) * dayWidth)
@@ -219,7 +240,7 @@ struct WeekGridView: View {
                             ForEach(Array(days.enumerated()), id: \.element) { i, wd in
                                 columnLayer(wd: wd, index: i, lo: lo, dayWidth: dayWidth, totalHeight: totalHeight)
                             }
-                            if let ti = days.firstIndex(of: today) {
+                            if isCurrentWeek, let ti = days.firstIndex(of: today) {
                                 nowLine(lo: lo, hi: hi, x: gutter + CGFloat(ti) * dayWidth, width: dayWidth)
                             }
                             // Anchor for auto-scrolling to the current time on open.
@@ -237,41 +258,70 @@ struct WeekGridView: View {
         }
     }
 
+    /// Week navigation: page through weeks, jump back to this one.
+    private var weekNavBar: some View {
+        HStack(spacing: DS.Space.m) {
+            Button { withAnimation { weekOffset -= 1 } } label: { Image(systemName: "chevron.left") }
+                .buttonStyle(.borderless)
+            Text(weekRangeLabel).font(.callout.weight(.semibold)).contentTransition(.numericText())
+            Button { withAnimation { weekOffset += 1 } } label: { Image(systemName: "chevron.right") }
+                .buttonStyle(.borderless)
+            Spacer()
+            if !isCurrentWeek {
+                Button("This week") { withAnimation { weekOffset = 0 } }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, DS.Space.s)
+    }
+    private var weekRangeLabel: String {
+        let s = displayedWeek.start, e = cal.date(byAdding: .day, value: 6, to: s) ?? s
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let base = "\(f.string(from: s)) – \(f.string(from: e))"
+        return isCurrentWeek ? "This week · \(base)" : base
+    }
+
     private func headerRow(days: [Int], dayWidth: CGFloat) -> some View {
         let due = weekDue
         return HStack(spacing: 0) {
-            Color.clear.frame(width: gutter, height: 46)
+            Color.clear.frame(width: gutter, height: 50)
             ForEach(days, id: \.self) { wd in
-                let isToday = wd == today
-                let items = due[wd] ?? []
+                let isTodayCol = isCurrentWeek && wd == today
                 VStack(spacing: 3) {
-                    Text(weekdayLetters[wd])
-                        .font(.headline)
-                        .foregroundStyle(isToday ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                        .frame(width: 26, height: 26)
-                        .background { if isToday { Circle().fill(.tint) } }
-                    dueDots(items)
+                    HStack(spacing: 4) {
+                        Text(weekdayLetters[wd]).font(.subheadline.weight(.bold))
+                        if let d = date(for: wd) {
+                            Text("\(cal.component(.day, from: d))").font(.caption)
+                        }
+                    }
+                    .foregroundStyle(isTodayCol ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background { if isTodayCol { Capsule().fill(.tint) } }
+                    markerRow(due[wd] ?? [], blocks: blockCount(for: wd))
                 }
-                .frame(width: dayWidth, height: 46)
+                .frame(width: dayWidth, height: 50)
             }
         }
-        .frame(height: 46)                 // don't let the flexible spacer stretch the header
+        .frame(height: 50)                 // don't let the flexible spacer stretch the header
     }
 
-    /// A row of due-marker dots under a weekday: red for exams/quizzes, accent otherwise.
-    @ViewBuilder private func dueDots(_ items: [Assignment]) -> some View {
-        if items.isEmpty {
-            Color.clear.frame(height: 6)
-        } else {
-            HStack(spacing: 2) {
-                ForEach(items.prefix(4)) { a in
-                    Circle().fill(isExam(a) ? Color.red : Color.accentColor).frame(width: 5, height: 5)
-                }
-                if items.count > 4 { Text("+\(items.count - 4)").font(.system(size: 8)).foregroundStyle(.secondary) }
+    /// Under a weekday: due-marker dots (red for exams/quizzes, accent otherwise) plus a small
+    /// count of planned time-blocks on that day.
+    @ViewBuilder private func markerRow(_ items: [Assignment], blocks: Int) -> some View {
+        HStack(spacing: 3) {
+            ForEach(items.prefix(3)) { a in
+                Circle().fill(isExam(a) ? Color.red : Color.accentColor).frame(width: 5, height: 5)
             }
-            .frame(height: 6)
-            .help(dueHelp(items))
+            if items.count > 3 { Text("+\(items.count - 3)").font(.system(size: 8)).foregroundStyle(.secondary) }
+            if blocks > 0 {
+                HStack(spacing: 1) {
+                    Image(systemName: "square.stack").font(.system(size: 7))
+                    Text("\(blocks)").font(.system(size: 8, weight: .semibold))
+                }.foregroundStyle(.tint)
+            }
         }
+        .frame(height: 9)
+        .help(items.isEmpty ? "" : dueHelp(items))
     }
     private func dueHelp(_ items: [Assignment]) -> String {
         items.map { a in
@@ -283,9 +333,9 @@ struct WeekGridView: View {
         let t = a.title.lowercased()
         return ["exam", "midterm", "final", "quiz", "test"].contains { t.contains($0) }
     }
-    /// Open assignments due in the current calendar week, bucketed by weekday (1=Sun…7=Sat).
+    /// Open assignments due in the displayed calendar week, bucketed by weekday (1=Sun…7=Sat).
     private var weekDue: [Int: [Assignment]] {
-        guard let wi = cal.dateInterval(of: .weekOfYear, for: .now) else { return [:] }
+        let wi = displayedWeek
         var out: [Int: [Assignment]] = [:]
         for a in state.data.assignments where a.status != .done {
             guard let d = a.due, wi.contains(d) else { continue }
