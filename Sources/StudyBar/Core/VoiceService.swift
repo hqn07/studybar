@@ -51,10 +51,13 @@ final class VoiceService: ObservableObject {
     private var currentPartial = ""
     private var wantsRecording = false
     private var segmentStart = Date()
-    private var lastLoudAt = Date()
     private var segmentID = 0
     private var rotating = false
     private var rotateTimer: Timer?
+    private var segmentGotResult = false
+    private var emptyStreak = 0
+    private var recordingStart = Date()
+    private var everGotResult = false
     // Whisper (batch)
     private var whisper: WhisperKit?
     private var audioFile: AVAudioFile?
@@ -117,18 +120,32 @@ final class VoiceService: ObservableObject {
         guard installTap(write: false) else { return }
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
+        emptyStreak = 0; everGotResult = false; recordingStart = Date()
         startSegment()
+        // 1s timer: watchdog for a silent/dead mic, and rotate before SFSpeech's ~60s wall.
         rotateTimer?.invalidate()
-        rotateTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.maybeRotate() }
+        rotateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.watchdog(); self?.maybeRotate() }
         }
     }
 
+    /// If we've been "recording" for a while with no recognized text AND the input meter is
+    /// flat, the mic is delivering silence — almost always a mic/Speech permission that reset
+    /// when the app was rebuilt (ad-hoc signing). Surface it instead of looking frozen.
+    private func watchdog() {
+        guard status == .recording, wantsRecording else { return }
+        let elapsed = Date().timeIntervalSince(recordingStart)
+        let live = (waveform.max() ?? 0) > 0.03
+        guard elapsed > 8, !everGotResult, !live else { return }
+        status = .unavailable("The mic isn't picking up any sound. Grant Microphone and Speech Recognition to StudyBar in System Settings ▸ Privacy & Security (ad-hoc builds reset these on each update), then try again.")
+        finish()
+    }
+
     private func startSegment() {
-        guard let recognizer, wantsRecording else { finish(); return }
+        guard let recognizer, wantsRecording, engine.isRunning else { finish(); return }
         segmentID &+= 1
         let myID = segmentID
-        segmentStart = Date(); lastLoudAt = Date(); rotating = false
+        segmentStart = Date(); rotating = false; segmentGotResult = false
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
@@ -137,34 +154,41 @@ final class VoiceService: ObservableObject {
             Task { @MainActor in
                 guard let self, self.segmentID == myID else { return }   // ignore a rotated-out task
                 if let result {
+                    self.segmentGotResult = true; self.everGotResult = true
                     self.currentPartial = result.bestTranscription.formattedString
                     self.transcript = self.join(self.committed, self.currentPartial)
-                    if result.isFinal { self.endSegment(restart: self.wantsRecording) }
+                    if result.isFinal { self.rotate(restart: self.wantsRecording) }
                 } else if error != nil {
-                    self.endSegment(restart: self.wantsRecording)   // hit the limit/ended: commit + continue
+                    self.rotate(restart: self.wantsRecording)   // ended/limit: commit + continue
                 }
             }
         }
     }
 
-    /// Rotate to a fresh request before SFSpeech's ~1-min wall — at a pause when we can find one.
     private func maybeRotate() {
         guard status == .recording, wantsRecording, !rotating, task != nil else { return }
-        let age = Date().timeIntervalSince(segmentStart)
-        let quietFor = Date().timeIntervalSince(lastLoudAt)
-        guard age > 55 || (age > 40 && quietFor > 0.35) else { return }
-        rotating = true
-        commitCurrent()                 // during a pause the partial is complete → no tail lost
-        let old = task; task = nil; request = nil
-        segmentID &+= 1                 // pre-bump so the cancel's late callback is ignored
-        old?.cancel()
-        startSegment()
+        guard Date().timeIntervalSince(segmentStart) > 50 else { return }
+        rotate(restart: true)
     }
 
-    private func endSegment(restart: Bool) {
+    /// Commit the current partial and start a fresh request (chained recognition). Guards
+    /// against an error-thrash loop: if several segments in a row produce no text at all,
+    /// stop with a helpful message instead of spinning silently.
+    private func rotate(restart: Bool) {
+        guard !rotating else { return }
+        rotating = true
+        let hadText = !currentPartial.isEmpty
         commitCurrent()
-        task = nil; request = nil
-        if restart, engine.isRunning { startSegment() } else { finish() }
+        emptyStreak = (segmentGotResult || hadText) ? 0 : emptyStreak + 1
+        let old = task; task = nil; request = nil
+        segmentID &+= 1                                  // ignore the rotated-out task's late callback
+        old?.cancel()
+        guard restart, wantsRecording, engine.isRunning else { finish(); return }
+        if emptyStreak >= 4 {
+            status = .unavailable("Apple Speech isn't producing any text on this Mac — switch to Whisper (menu, top-right), which runs fully offline.")
+            finish(); return
+        }
+        startSegment()
     }
 
     private func commitCurrent() {
@@ -192,8 +216,16 @@ final class VoiceService: ObservableObject {
     private func finishWhisperAndTranscribe() {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
+        let frames = audioFile?.length ?? 0
         audioFile = nil
         guard let url = recordURL else { status = .idle; return }
+        recordURL = nil
+        // No frames written = the mic delivered silence (usually a reset/denied permission
+        // after an app rebuild). Say so plainly instead of "transcribing" an empty file.
+        guard frames > 4000 else {
+            status = .unavailable("Nothing was recorded — the mic didn't pick up any audio. Check Microphone access in System Settings ▸ Privacy & Security (ad-hoc builds reset it), then try again.")
+            try? FileManager.default.removeItem(at: url); return
+        }
         Task { @MainActor in
             let text = await runWhisper(url)
             if case .unavailable = status {} else { status = .idle }
@@ -231,8 +263,13 @@ final class VoiceService: ObservableObject {
                 Task { @MainActor in if !t.isEmpty { self?.transcript = t } }
                 return nil
             }
+            let out = results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !out.isEmpty else {
+                status = .unavailable("No speech detected in the recording. Speak a little closer to the mic and try again.")
+                return nil
+            }
             lastEngine = "Whisper (\(loadedModel ?? whisperModel))"
-            return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            return out
         } catch {
             status = .unavailable("Whisper couldn't transcribe: \(error.localizedDescription)")
             return nil
@@ -285,7 +322,6 @@ final class VoiceService: ObservableObject {
         let rms = (sum / Float(n)).squareRoot()
         let level = max(0, min(1, (20 * log10(max(rms, 1e-7)) + 50) / 50))
         Task { @MainActor in
-            if level > 0.08 { self.lastLoudAt = Date() }   // pause detection for segment rotation
             guard Date().timeIntervalSince(self.lastMeter) > 0.033 else { return }
             self.lastMeter = Date()
             var w = self.waveform; w.removeFirst(); w.append(level); self.waveform = w

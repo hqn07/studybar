@@ -66,7 +66,17 @@ struct VoiceView: View {
                     case .denied:
                         deniedState
                     case .unavailable(let msg):
-                        EmptyState(symbol: "mic.slash", title: "Can't record", subtitle: msg)
+                        VStack(spacing: 12) {
+                            EmptyState(symbol: "mic.slash", title: "Can't record", subtitle: msg)
+                            HStack(spacing: 8) {
+                                Button("Open Privacy Settings") {
+                                    if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                        NSWorkspace.shared.open(u)
+                                    }
+                                }.buttonStyle(.borderedProminent)
+                                Button("Try again") { voice.toggle() }.buttonStyle(.bordered)
+                            }
+                        }
                     case .preparing:
                         preparingState
                     case .transcribing:
@@ -102,9 +112,12 @@ struct VoiceView: View {
     }
 
     private var transcribingState: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large)
-            Text("Transcribing with Whisper (\(voiceWhisperModel))…").font(.callout.weight(.medium))
+        VStack(spacing: 16) {
+            TranscribingBars()
+            HStack(spacing: 2) {
+                Text("Transcribing with Whisper (\(voiceWhisperModel))").font(.callout.weight(.semibold))
+                AnimatedEllipsis()
+            }
             if voice.transcript.isEmpty {
                 Text("Running on-device. Larger models are more accurate but take longer.")
                     .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -332,6 +345,35 @@ struct VoiceView: View {
         rawBeforeOrganize = nil
         VoiceService.clearDraft(); draftAvailable = false     // saved for real — clear the crash-safe draft
         state.selectedModuleID = "notes"
+    }
+}
+
+/// Animated equalizer bars — a clear "working" effect while Whisper decodes (there's no
+/// reliable progress %, so motion is the signal). Driven by TimelineView(.animation).
+struct TranscribingBars: View {
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 5) {
+                ForEach(0..<7, id: \.self) { i in
+                    let h = 10 + 26 * (0.5 + 0.5 * sin(t * 5.5 + Double(i) * 0.65))
+                    Capsule().fill(.tint).frame(width: 6, height: h)
+                }
+            }
+            .frame(height: 40)
+        }
+        .accessibilityLabel("Transcribing")
+    }
+}
+
+/// A trailing "…" that fills in one dot at a time.
+struct AnimatedEllipsis: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.4)) { ctx in
+            let n = Int(ctx.date.timeIntervalSinceReferenceDate / 0.4) % 4
+            Text(String(repeating: ".", count: n) + String(repeating: " ", count: 3 - n))
+                .font(.callout.weight(.semibold)).monospaced()
+        }
     }
 }
 
