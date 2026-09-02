@@ -1,18 +1,7 @@
 import SwiftUI
 
-// (54) Density controls compactness of module chrome.
-enum Density: String { case comfortable, compact }
-private struct DensityKey: EnvironmentKey { static let defaultValue: Density = .comfortable }
-extension EnvironmentValues {
-    var density: Density {
-        get { self[DensityKey.self] }
-        set { self[DensityKey.self] = newValue }
-    }
-}
-
 /// Standard module container: title bar + optional trailing accessory + content.
 struct ModulePane<Content: View, Bar: View>: View {
-    @Environment(\.density) private var density
     let title: String
     @ViewBuilder var toolbar: () -> Bar
     @ViewBuilder var content: () -> Content
@@ -20,13 +9,12 @@ struct ModulePane<Content: View, Bar: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title).font(density == .compact ? .headline : .title3.bold())
+                Text(title).font(.title3.bold())
                 Spacer()
                 toolbar()
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, density == .compact ? 6 : 10)
-            .controlSize(density == .compact ? .small : .regular)
+            .padding(.vertical, 10)
             Divider()
             content()
         }

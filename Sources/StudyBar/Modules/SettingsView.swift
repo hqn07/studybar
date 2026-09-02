@@ -8,7 +8,6 @@ struct SettingsView: View {
     @AppStorage("popoverSize") private var popoverSize = PopoverSize.medium.rawValue
     @AppStorage("menuBarClick") private var menuBarClick = "popover"
     @AppStorage("appearance") private var appearance = "system"
-    @AppStorage("density") private var density = "comfortable"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
     @AppStorage(SurfaceTheme.storageKey) private var surfaceTheme = "system"
     @AppStorage("notifyClasses") private var notifyClasses = true
@@ -241,9 +240,6 @@ struct SettingsView: View {
         Section("Theme") {
             Picker("Appearance", selection: $appearance) {
                 Text("Light").tag("light"); Text("Dark").tag("dark"); Text("Device").tag("system")
-            }.pickerStyle(.segmented)
-            Picker("Density", selection: $density) {
-                Text("Comfortable").tag("comfortable"); Text("Compact").tag("compact")
             }.pickerStyle(.segmented)
             Picker("Surface", selection: $surfaceTheme) {
                 ForEach(SurfaceTheme.allCases) { Text($0.label).tag($0.rawValue) }

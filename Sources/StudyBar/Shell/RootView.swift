@@ -23,7 +23,6 @@ struct RootView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
-    @AppStorage("density") private var densityRaw = "comfortable"
     @AppStorage(SurfaceTheme.storageKey) private var surfaceThemeRaw = "system"
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
     @AppStorage("onboarded") private var onboarded = false
@@ -74,7 +73,6 @@ struct RootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(baseFill)
-        .environment(\.density, densityRaw == "compact" ? .compact : .comfortable)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
     }
