@@ -91,7 +91,10 @@ enum TodayFocus {
         // completePlain, not complete: Ollama's complete forces format:json and would return a
         // `{}` blob instead of a sentence.
         let text = try? await provider.completePlain(system: system, messages: [AIMessage(role: .user, text: user)])
-        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty == false) ? trimmed : nil
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        // Defense in depth: if a model ignores the prose instruction (or a stray grammar
+        // constraint) and emits a JSON blob, never show it in the hero — fall back to `reason`.
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") { return nil }
+        return trimmed
     }
 }
