@@ -29,8 +29,13 @@ struct DiagnosticsSections: View {
     @ViewBuilder private var crashSection: some View {
         if let crash = diag.lastCrash {
             Section {
-                ScrollView { Text(crash).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(maxHeight: 160)
+                ScrollView([.horizontal, .vertical]) {
+                    Text(crash).font(.caption.monospaced()).textSelection(.enabled).padding(8)
+                }
+                .frame(height: 150)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5))
                 Text("Included in the report below. Send it so this can be fixed.").font(.caption2).foregroundStyle(.secondary)
                 Button { diag.lastCrash = nil } label: { Label("Dismiss", systemImage: "xmark") }
             } header: {
