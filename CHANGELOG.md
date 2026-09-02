@@ -5,6 +5,13 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-09-02
+
+- **Notes toolbar, decluttered** — the formatting bar is now one tidy row instead of a long strip that scrolled tools off-screen. Common actions stay inline (bold/italic/underline/strike, bullet/numbered/checklist); the rest live in **Style ▾**, **Insert ▾** (table, image, equation, code, quote, divider, collapse, define), and a single **colour** menu. Undo/redo dropped from the bar (⌘Z / ⌘⇧Z still work).
+- **Notes appearance, one click away** — a new **Aa** menu in the toolbar lets you change your notes' font, size, and line spacing right where you're writing (it applies live), instead of digging through Settings. And **Style ▾** now shows a checkmark on the heading level your cursor is in.
+- **Release notes in the app** — Settings ▸ About now has a **Release Notes** section, so you can read what changed in each version without leaving StudyBar.
+- **Safer deletes** — deleting a course, grade component, highlight, chapter, citation, or feed is now **undoable** and lands in **Recently Deleted**, like the rest of the app — no more silently-permanent removals.
+
 ## [1.8.0] — 2026-09-02
 
 - **Ask your textbook** — attach a PDF to a book and StudyBar extracts its text on your Mac, so you can **search inside the book** and **ask questions answered from the actual pages** — with page citations you can trust, and **follow-up questions** that keep their thread. Only the handful of relevant pages are ever sent to the model (never the whole book), so it works within a local model's limits. Scanned PDFs are read with on-device **OCR**. Nothing leaves your Mac. Equations in answers render as real math.
