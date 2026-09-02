@@ -39,9 +39,9 @@ struct VoiceView: View {
                                 }
                                 Divider()
                                 Button { voice.prepareWhisper() } label: {
-                                    Label(voice.whisperReady ? "Model ready" : "Download model now",
-                                          systemImage: voice.whisperReady ? "checkmark.circle" : "arrow.down.circle")
-                                }.disabled(voice.whisperReady)
+                                    Label(voice.isModelDownloaded(voiceWhisperModel) ? "Model downloaded" : "Download model now",
+                                          systemImage: voice.isModelDownloaded(voiceWhisperModel) ? "checkmark.circle" : "arrow.down.circle")
+                                }.disabled(voice.isModelDownloaded(voiceWhisperModel))
                                 Button { importAudio() } label: { Label("Transcribe an audio file…", systemImage: "waveform.badge.plus") }
                             }
                         } label: { Image(systemName: whisper ? "cpu" : "waveform") }
@@ -258,10 +258,10 @@ struct VoiceView: View {
                     }
                 }
             } else if idle {
-                if whisper && !voice.whisperReady {
+                if whisper && !voice.isModelDownloaded(voiceWhisperModel) {
                     downloadPrompt
                 } else {
-                    if whisper && voice.whisperReady {
+                    if whisper && voice.isModelDownloaded(voiceWhisperModel) {
                         Label("Whisper \(modelName) ready · offline", systemImage: "checkmark.circle")
                             .font(.caption2).foregroundStyle(.green)
                     }

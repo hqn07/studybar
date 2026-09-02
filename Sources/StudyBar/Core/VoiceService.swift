@@ -68,6 +68,28 @@ final class VoiceService: ObservableObject {
     static var draftURL: URL { AppState.localDir.appendingPathComponent("voice-draft.txt") }
 
     var whisperReady: Bool { loadedModel == whisperModel }
+    /// Whether a model's files are on disk (survives launches) — distinct from `whisperReady`,
+    /// which only means "loaded into memory this session". The download prompt uses THIS so a
+    /// model that's already downloaded isn't asked to download again on every launch.
+    private func modelFolderKey(_ model: String) -> String { "whisperFolder-\(model)" }
+    /// WhisperKit's default on-disk location for a variant (non-sandboxed app → ~/Documents).
+    private func defaultModelFolder(_ model: String) -> String? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let p = docs.appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\(model)")
+        return FileManager.default.fileExists(atPath: p.path) ? p.path : nil
+    }
+    func isModelDownloaded(_ model: String) -> Bool {
+        if let p = UserDefaults.standard.string(forKey: modelFolderKey(model)),
+           FileManager.default.fileExists(atPath: p) { return true }
+        // Recognize a model downloaded before this session (or by an earlier build) so we don't
+        // re-prompt: probe WhisperKit's default folder and remember it if present.
+        if let p = defaultModelFolder(model) {
+            UserDefaults.standard.set(p, forKey: modelFolderKey(model))
+            return true
+        }
+        return false
+    }
+    var whisperDownloaded: Bool { isModelDownloaded(whisperModel) }
     var isRecording: Bool { status == .recording }
     func toggle() {
         switch status {
@@ -288,10 +310,17 @@ final class VoiceService: ObservableObject {
         whisper = nil; loadedModel = nil
         status = .preparing; prepProgress = 0
         let model = whisperModel
+        // Already downloaded? Load straight from the saved folder — no network, no re-download.
+        if let saved = UserDefaults.standard.string(forKey: modelFolderKey(model)),
+           FileManager.default.fileExists(atPath: saved),
+           let w = try? await WhisperKit(WhisperKitConfig(modelFolder: saved, load: true, download: false)) {
+            whisper = w; loadedModel = model; return
+        }
         do {
             let folder = try await WhisperKit.download(variant: "openai_whisper-\(model)") { [weak self] p in
                 Task { @MainActor in self?.prepProgress = p.fractionCompleted }
             }
+            UserDefaults.standard.set(folder.path, forKey: modelFolderKey(model))   // remember it's on disk
             whisper = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path, load: true, download: false))
         } catch {
             whisper = try await WhisperKit(WhisperKitConfig(model: model, load: true, download: true))
