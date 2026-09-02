@@ -462,6 +462,20 @@ final class AppState: ObservableObject {
         return block
     }
 
+    /// Time-block a study session of a chosen length onto a day at the next open slot. Powers
+    /// Today's "Plan my day": accepting each block stacks it after the previous one (nextFreeSlot
+    /// bumps past blocks already placed).
+    @discardableResult
+    func planBlock(title: String, minutes: Int, courseID: UUID?, assignmentID: UUID?, on day: Date) -> TimeBlock {
+        let s = nextFreeSlot(on: day)
+        let block = TimeBlock(title: title.isEmpty ? "Study" : title,
+                              day: Calendar.current.startOfDay(for: day),
+                              startMinutes: s, endMinutes: min(24 * 60, s + max(15, minutes)),
+                              courseID: courseID, assignmentID: assignmentID)
+        upsertTimeBlock(block)
+        return block
+    }
+
     /// Start a focus session for a planned block: it inherits the block's course and
     /// linked assignment (so the logged time lands back on them) and runs for the block's
     /// planned length. Caller-independent — also jumps to the Time & Focus module so the

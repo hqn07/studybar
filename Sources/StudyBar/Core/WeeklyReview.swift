@@ -126,4 +126,90 @@ enum DailyPlan {
     }
 
     private static func fmt(_ min: Int) -> String { min >= 60 ? "\(min / 60)h \(min % 60)m" : "\(min)m" }
+
+    // MARK: - Day plan (propose → accept study blocks on Today)
+
+    struct PlanCandidate { let a: Assignment; let minutes: Int }
+
+    /// An accepted-on-tap study block. Stays view state until the student accepts it, then
+    /// becomes a `TimeBlock` on today's plan.
+    struct PlanBlockDraft: Identifiable, Hashable {
+        let id = UUID()
+        let assignmentID: UUID
+        var title: String
+        var courseID: UUID?
+        var minutes: Int
+        var why: String
+    }
+
+    /// The open items that most deserve time today (importance-ranked, due within ~10 days),
+    /// each with a suggested block length by weight. The AI planner picks/orders a subset of
+    /// these; the deterministic fallback takes the top few directly.
+    static func candidates(_ data: AppData, limit: Int = 6) -> [PlanCandidate] {
+        data.assignments
+            .filter { $0.status != .done && ($0.daysUntilDue ?? 999) <= 10 }
+            .sorted { TodayFocus.importance($0) > TodayFocus.importance($1) }
+            .prefix(limit)
+            .map { a in
+                let w = TodayFocus.weight(a.title)
+                let mins = w >= 0.9 ? 60 : (w <= 0.2 ? 25 : 45)
+                return PlanCandidate(a: a, minutes: mins)
+            }
+    }
+
+    /// Build today's plan. `provider` is nil when no engine is ready (caller decides, since
+    /// `AIConfig.isReady` is main-actor isolated) → deterministic top-3. The AI path chooses,
+    /// orders, sizes, and explains a subset — matched back by INDEX, so a weak model can't
+    /// invent items. Never throws.
+    static func plan(_ data: AppData, provider: AIProvider?) async -> [PlanBlockDraft] {
+        let cands = candidates(data)
+        guard !cands.isEmpty else { return [] }
+        if let provider, let drafts = try? await aiPlan(cands, data: data, provider: provider), !drafts.isEmpty {
+            return drafts
+        }
+        return cands.prefix(3).map { c in
+            PlanBlockDraft(assignmentID: c.a.id, title: c.a.title.isEmpty ? "Study" : c.a.title,
+                           courseID: c.a.courseID, minutes: c.minutes, why: TodayFocus.reason(c.a))
+        }
+    }
+
+    private static func aiPlan(_ cands: [PlanCandidate], data: AppData, provider: AIProvider) async throws -> [PlanBlockDraft] {
+        let numbered = cands.enumerated().map { i, c -> String in
+            let course = data.courses.first { $0.id == c.a.courseID }
+            let code = course?.code.isEmpty == false ? course!.code : (course?.name ?? "—")
+            let due = c.a.daysUntilDue.map { $0 == 0 ? "due today" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
+            let pts = c.a.points.map { ", \(Int($0))pts" } ?? ""
+            return "\(i). \(c.a.title.isEmpty ? "Untitled" : c.a.title) [\(code)] — \(due)\(pts)"
+        }.joined(separator: "\n")
+        let sys = """
+        You plan a student's study time for TODAY. From the numbered candidate items, choose the \
+        2–4 that most deserve time now (lead with overdue, then soonest / heaviest), put them in \
+        the order to work them, set a realistic block length in minutes (25–90), and give one \
+        short concrete reason each. Use ONLY the listed items. Reply with ONLY a JSON array in \
+        work order:
+        [{"i":0,"minutes":45,"why":"…"}]
+        """
+        let user = "Candidates:\n\(numbered)\n\nContext:\n\(brief(data))"
+        let out = try await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)])
+        return parsePlan(out, cands: cands)
+    }
+
+    static func parsePlan(_ raw: String, cands: [PlanCandidate]) -> [PlanBlockDraft] {
+        guard let s = raw.firstIndex(of: "["), let e = raw.lastIndex(of: "]"), s < e,
+              let data = String(raw[s...e]).data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        var out: [PlanBlockDraft] = []
+        var used = Set<Int>()
+        for o in arr {
+            guard let i = o["i"] as? Int, cands.indices.contains(i), !used.contains(i) else { continue }
+            used.insert(i)
+            let c = cands[i]
+            let mins = min(120, max(15, (o["minutes"] as? Int) ?? c.minutes))
+            let whyRaw = (o["why"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            out.append(PlanBlockDraft(assignmentID: c.a.id, title: c.a.title.isEmpty ? "Study" : c.a.title,
+                                      courseID: c.a.courseID, minutes: mins,
+                                      why: whyRaw.isEmpty ? TodayFocus.reason(c.a) : whyRaw))
+        }
+        return out
+    }
 }

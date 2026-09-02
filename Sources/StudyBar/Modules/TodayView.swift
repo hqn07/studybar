@@ -11,6 +11,11 @@ struct TodayView: View {
     @State private var aiForID: UUID?
     @AppStorage("scheduleMode") private var scheduleMode = "week"
 
+    // Plan my day (propose → accept study blocks)
+    @State private var planDrafts: [DailyPlan.PlanBlockDraft] = []
+    @State private var planLoading = false
+    @State private var planTask: Task<Void, Never>?
+
     /// Turn an assignment into a time block on today's plan, then jump to Schedule ▸ Plan
     /// so it's visible and draggable — the daily-planning move, adapted to a single pane.
     private func plan(_ a: Assignment) {
@@ -56,6 +61,7 @@ struct TodayView: View {
                     heroCard
                     if !overdue.isEmpty { overdueBanner }
                     weekStrip
+                    planSection
                     quickAddBlock
                     if !todayClasses.isEmpty {
                         section("Today", todayClasses.count, "clock") {
@@ -314,6 +320,91 @@ struct TodayView: View {
         a.urgency = p.priority >= 2 ? 2 : nil
         state.data.assignments.append(a)
         quickTask = ""
+    }
+
+    // MARK: - Plan my day
+
+    @ViewBuilder private var planSection: some View {
+        if planLoading || !planDrafts.isEmpty {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                HStack {
+                    SectionHeader(title: "Today's plan", count: planDrafts.count, systemImage: "sparkles")
+                    Spacer()
+                    if !planDrafts.isEmpty && !planLoading {
+                        Button("Add all") { acceptAllPlan() }.buttonStyle(.borderless).font(.caption.bold())
+                        Button("Dismiss") { withAnimation { planDrafts = [] } }
+                            .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if planLoading {
+                    HStack(spacing: DS.Space.s) {
+                        ProgressView().controlSize(.small)
+                        Text("Planning your day…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach($planDrafts) { planRow($0) }
+            }
+        } else if focus != nil || !next7.isEmpty {
+            Button { generatePlan() } label: {
+                Label("Plan my day", systemImage: "sparkles")
+            }.buttonStyle(.bordered).controlSize(.small)
+        }
+    }
+
+    private func planRow(_ d: Binding<DailyPlan.PlanBlockDraft>) -> some View {
+        let draft = d.wrappedValue
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: DS.Space.s) {
+                Text(draft.title).font(.callout.weight(.medium)).lineLimit(1)
+                if let c = state.course(draft.courseID) { CourseChip(course: c) }
+                Spacer(minLength: DS.Space.s)
+                Stepper(value: d.minutes, in: 15...120, step: 15) {
+                    Text("\(draft.minutes) min").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }.fixedSize()
+                Button { acceptPlan(draft) } label: { Image(systemName: "checkmark.circle.fill") }
+                    .buttonStyle(.borderless).foregroundStyle(.green).help("Add this block to today")
+                Button { withAnimation { planDrafts.removeAll { $0.id == draft.id } } } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Skip")
+            }
+            if !draft.why.isEmpty {
+                Text(draft.why).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(DS.Space.s)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func generatePlan() {
+        guard !planLoading else { return }
+        planLoading = true
+        planDrafts = []
+        let provider = AIConfig.isReady ? AIService.makeProvider() : nil
+        let data = state.data
+        planTask?.cancel()
+        planTask = Task {
+            let drafts = await DailyPlan.plan(data, provider: provider)
+            await MainActor.run {
+                planLoading = false
+                withAnimation(.easeOut(duration: 0.2)) { planDrafts = drafts }
+            }
+        }
+    }
+
+    private func acceptPlan(_ d: DailyPlan.PlanBlockDraft) {
+        if let a = state.data.assignments.first(where: { $0.id == d.assignmentID }) {
+            state.planBlock(title: d.title, minutes: d.minutes, courseID: d.courseID, assignmentID: a.id, on: Date())
+        }
+        withAnimation { planDrafts.removeAll { $0.id == d.id } }
+    }
+
+    private func acceptAllPlan() {
+        for d in planDrafts where state.data.assignments.contains(where: { $0.id == d.assignmentID }) {
+            state.planBlock(title: d.title, minutes: d.minutes, courseID: d.courseID, assignmentID: d.assignmentID, on: Date())
+        }
+        planDrafts = []
+        scheduleMode = "plan"
+        state.selectedModuleID = "schedule"   // land on the plan so the blocks are visible
     }
 
     // MARK: - Pieces
