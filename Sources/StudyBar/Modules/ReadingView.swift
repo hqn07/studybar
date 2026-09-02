@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// the answer was drawn from.
 struct BookQA: Identifiable { let id = UUID(); let question: String; var answer: String; var pages: [Int] }
 
+enum BookTab: String, CaseIterable { case overview = "Overview", highlights = "Highlights", ask = "Ask AI" }
+
 enum ReadingSort: String, CaseIterable, Identifiable {
     case recent = "Recently read", progress = "Progress", title = "Title", rating = "Rating"
     var id: String { rawValue }
@@ -320,6 +322,7 @@ struct ReadingDetailView: View {
     @State private var askThread: [BookQA] = []
     @State private var askLoading = false
     @State private var askTask: Task<Void, Never>?
+    @State private var tab = BookTab.overview
     // OCR (scanned PDFs)
     @State private var ocrURL: URL?
     @State private var ocrProgress: Double = 0
@@ -349,18 +352,21 @@ struct ReadingDetailView: View {
             Divider()
             if let item {
                 ScrollView {
-                    VStack(spacing: 16) {
-                        headerBlock(item)
-                        progressBlock(item)
-                        chaptersBlock(item)
-                        if item.done { finishedBlock(item) }
-                        highlightsBlock(item)
-                        pdfBlock(item)
-                        if !item.notes.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("NOTES").font(.caption2.bold()).foregroundStyle(.secondary)
-                                Text(item.notes).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(12).background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+                    VStack(spacing: 14) {
+                        compactHeader(item)
+                        Picker("", selection: $tab) {
+                            ForEach(BookTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }.pickerStyle(.segmented).labelsHidden()
+                        switch tab {
+                        case .overview:
+                            pageControls(item)
+                            chaptersBlock(item)
+                            if item.done { finishedBlock(item) }
+                            if !item.notes.isEmpty { notesBlock(item) }
+                        case .highlights:
+                            highlightsBlock(item)
+                        case .ask:
+                            pdfBlock(item)
                         }
                     }.padding(16)
                 }
@@ -373,69 +379,61 @@ struct ReadingDetailView: View {
         .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()) }
     }
 
-    private func headerBlock(_ item: ReadingItem) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            CoverThumb(coverPath: item.coverPath, size: CGSize(width: 96, height: 140))
-            VStack(alignment: .leading, spacing: 5) {
-                Text(item.title).font(.title3.bold())
-                if !item.author.isEmpty { Text(item.author).foregroundStyle(.secondary) }
-                if !item.publisher.isEmpty || !item.year.isEmpty {
-                    Text([item.publisher, item.year].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.tertiary)
+    private func compactHeader(_ item: ReadingItem) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            CoverThumb(coverPath: item.coverPath, size: CGSize(width: 54, height: 78))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title).font(.headline).lineLimit(2)
+                let meta = [item.author, item.publisher, item.year].filter { !$0.isEmpty }.joined(separator: " · ")
+                if !meta.isEmpty { Text(meta).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                HStack(spacing: 8) {
+                    ProgressView(value: item.progress).tint(item.done ? .green : .accentColor).frame(maxWidth: 190)
+                    Text(item.usesUnits ? "\(item.unitsDone)/\(item.units.count)"
+                         : (item.totalPages > 0 ? "p\(item.currentPage)/\(item.totalPages)" : "p\(item.currentPage)"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button { state.toggleReadingDone(itemID) } label: {
+                        Label(item.done ? "Undo" : "Mark done", systemImage: item.done ? "arrow.uturn.left" : "checkmark.circle")
+                    }.buttonStyle(.borderless).font(.caption)
+                }.padding(.top, 2)
+                HStack(spacing: 6) {
+                    if let p = item.pdfPages { metaChip("doc.text", "PDF · \(p) pp") }
+                    if !item.highlights.isEmpty { metaChip("quote.opening", "\(item.highlights.count) highlights") }
+                    CourseChip(course: state.course(item.courseID))
+                    if !item.url.isEmpty {
+                        Button { open(item.url) } label: { Image(systemName: "arrow.up.right.square") }
+                            .buttonStyle(.borderless).font(.caption)
+                    }
                 }
                 if !item.tags.isEmpty {
                     HStack(spacing: DS.Space.xs) { ForEach(item.tags, id: \.self) { Chip($0, .tag) } }
                 }
-                CourseChip(course: state.course(item.courseID))
-                if !item.url.isEmpty {
-                    Button { open(item.url) } label: { Label("Open link", systemImage: "arrow.up.right.square") }
-                        .buttonStyle(.borderless).font(.caption)
-                }
-                Spacer()
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
+        .padding(12).frame(maxWidth: .infinity)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func progressBlock(_ item: ReadingItem) -> some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Circle().stroke(.quaternary, lineWidth: 10)
-                Circle().trim(from: 0, to: item.progress)
-                    .stroke(item.done ? Color.green : .accentColor, style: .init(lineWidth: 10, lineCap: .round))
-                    .rotationEffect(.degrees(-90)).animation(.easeOut, value: item.progress)
-                VStack(spacing: 0) {
-                    if !item.usesUnits && item.totalPages == 0 {
-                        Text("p.\(item.currentPage)").font(.title2.bold())
-                        Text("no total set").font(.caption2).foregroundStyle(.tertiary)
-                    } else {
-                        Text("\(Int(item.progress * 100))%").font(.title2.bold())
-                        if item.usesUnits {
-                            Text("\(item.unitsDone)/\(item.units.count) done").font(.caption2).foregroundStyle(.secondary)
-                        } else if item.totalPages > 0 {
-                            Text("\(item.pagesLeft) left").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }.frame(width: 120, height: 120)
+    private func metaChip(_ icon: String, _ text: String) -> some View {
+        Label(text, systemImage: icon).font(.caption2)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.tint.opacity(0.12), in: Capsule()).foregroundStyle(.tint)
+    }
 
+    private func pageControls(_ item: ReadingItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             if !item.usesUnits {
-                HStack(spacing: 12) {
-                    Button { state.bumpReading(itemID, by: -10) } label: { Text("−10").frame(width: 40) }.buttonStyle(.bordered)
+                HStack(spacing: 10) {
+                    Button { state.bumpReading(itemID, by: -10) } label: { Text("−10").frame(width: 38) }.buttonStyle(.bordered)
                     Button { state.bumpReading(itemID, by: -1) } label: { Image(systemName: "minus") }.buttonStyle(.bordered)
                     Button { state.bumpReading(itemID, by: 1) } label: { Image(systemName: "plus") }.buttonStyle(.borderedProminent)
-                    Button { state.bumpReading(itemID, by: 10) } label: { Text("+10").frame(width: 40) }.buttonStyle(.bordered)
+                    Button { state.bumpReading(itemID, by: 10) } label: { Text("+10").frame(width: 38) }.buttonStyle(.bordered)
+                    Spacer()
+                    Text("Page").font(.caption).foregroundStyle(.secondary)
+                    TextField("\(item.currentPage)", text: $pageField).textFieldStyle(.roundedBorder).frame(width: 64)
+                        .onSubmit { if let p = Int(pageField) { state.setReadingPage(itemID, to: p) }; pageField = "" }
+                    if item.totalPages > 0 { Text("of \(item.totalPages)").font(.caption).foregroundStyle(.secondary) }
                 }
-            }
-            HStack {
-                Text("Page").font(.caption).foregroundStyle(.secondary)
-                TextField("\(item.currentPage)", text: $pageField).textFieldStyle(.roundedBorder).frame(width: 70)
-                    .onSubmit { if let p = Int(pageField) { state.setReadingPage(itemID, to: p) }; pageField = "" }
-                if item.totalPages > 0 { Text("of \(item.totalPages)").font(.caption).foregroundStyle(.secondary) }
-                Spacer()
-                Button { state.toggleReadingDone(itemID) } label: {
-                    Label(item.done ? "Mark unread" : "Mark done", systemImage: item.done ? "arrow.uturn.left" : "checkmark.circle")
-                }.buttonStyle(.bordered)
             }
             if let pace = paceHint(item) {
                 Label(pace, systemImage: "calendar").font(.caption).foregroundStyle(.orange)
@@ -445,6 +443,13 @@ struct ReadingDetailView: View {
         }
         .padding(14).frame(maxWidth: .infinity)
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func notesBlock(_ item: ReadingItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("NOTES").font(.caption2.bold()).foregroundStyle(.secondary)
+            SwiftMathContent(text: item.notes).frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(12).background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func chaptersBlock(_ item: ReadingItem) -> some View {
@@ -595,7 +600,9 @@ struct ReadingDetailView: View {
                 }
                 if AIConfig.isReady {
                     Divider().padding(.vertical, 2)
-                    ForEach(askThread) { qa in qaCard(qa) }
+                    ForEach(askThread) { qa in
+                        qaCard(qa, streaming: askLoading && qa.id == askThread.last?.id)
+                    }
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").foregroundStyle(.tint)
                         TextField(askThread.isEmpty ? "Ask about the book…" : "Ask a follow-up…", text: $askQuery)
@@ -633,7 +640,7 @@ struct ReadingDetailView: View {
         }
     }
 
-    private func qaCard(_ qa: BookQA) -> some View {
+    private func qaCard(_ qa: BookQA, streaming: Bool) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles").foregroundStyle(.tint).font(.caption)
@@ -644,9 +651,14 @@ struct ReadingDetailView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            Text(qa.answer.isEmpty ? "Thinking…" : qa.answer).font(.callout).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(qa.answer.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            if qa.answer.isEmpty {
+                Text("Thinking…").font(.callout).foregroundStyle(.secondary)
+            } else if streaming {
+                // Plain text while tokens arrive (cheap); math renders once the turn settles.
+                Text(qa.answer).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                SwiftMathContent(text: qa.answer).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(10)
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: DS.Radius.card))
@@ -715,7 +727,7 @@ struct ReadingDetailView: View {
         askThread.append(BookQA(question: q, answer: "", pages: chunks.map(\.page)))
         let turnIdx = askThread.count - 1
         askLoading = true
-        let sys = "You answer a student's question about their book using ONLY the excerpts provided in the latest turn (earlier turns are conversation context). Cite the page(s) you used inline like (p42). If the answer is not in the excerpts, reply exactly: Not found in the retrieved pages — try rephrasing. Do not use outside knowledge. Be concise; you may build on earlier answers for follow-ups."
+        let sys = "You answer a student's question about their book using ONLY the excerpts provided in the latest turn (earlier turns are conversation context). Cite the page(s) you used inline like (p42). Write ALL mathematics as LaTeX between single dollar signs — e.g. $y' = y$, $\\int_0^1 x\\,dx$, $e^{x}$ — never as plain text. If the answer is not in the excerpts, reply exactly: Not found in the retrieved pages — try rephrasing. Do not use outside knowledge. Be concise; you may build on earlier answers for follow-ups."
         askTask?.cancel()
         askTask = Task {
             let out: String?
