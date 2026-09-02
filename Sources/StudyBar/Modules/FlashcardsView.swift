@@ -761,7 +761,7 @@ struct GenerateCardsView: View {
         let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 20 else { return }
         loading = true; raw = ""; proposed = []; genError = false
-        let sys = "You create study flashcards from a student's own material. Output concise question/answer cards, one per line, EXACTLY as `front :: back`. Front = a question or term; back = a short answer or definition. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
+        let sys = "You create study flashcards from a student's own material. Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` Front = a question or term; back = a short answer or definition. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
         task?.cancel()
         task = Task {
             let msgs = [AIMessage(role: .user, text: text)]
@@ -795,8 +795,9 @@ struct GenerateCardsView: View {
                 .trimmingCharacters(in: .whitespaces)
         }
 
-        // 1) Delimiter per line.
-        for d in ["::", "|", "\t"] {
+        // 1) Delimiter per line. Space-padded " / " and " | " so mid-content slashes/pipes
+        //    ("benefit/cost") don't split; `::` and tab are unambiguous.
+        for d in ["::", " / ", " | ", "\t"] {
             let cards: [PropCard] = text.split(whereSeparator: \.isNewline).compactMap { line in
                 let raw = String(line)
                 guard raw.contains(d) else { return nil }
