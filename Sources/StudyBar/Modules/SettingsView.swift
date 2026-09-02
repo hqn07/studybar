@@ -114,7 +114,7 @@ struct SettingsView: View {
                 navSeparator
                 navGroup([.modules, .integrations, .intelligence])
                 navSeparator
-                navGroup([.data, .openSource, .about])
+                navGroup([.data, .openSource, .diagnostics, .about])
             }
             .padding(10)
         }
