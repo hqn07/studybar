@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 enum ReadingSort: String, CaseIterable, Identifiable {
@@ -305,7 +306,11 @@ struct ReadingDetailView: View {
     @State private var hlText = ""
     @State private var chapterText = ""
     @State private var bulkCount = ""
-    // Inline AI: summarize this book's highlights into its notes (propose → accept).
+    // PDF content layer: attach a PDF → extract text on-device → search inside the book.
+    @State private var pdfBusy = false
+    @State private var pdfError: String?
+    @State private var bookQuery = ""
+    @State private var bookHits: [BookText.Hit] = []
 
     private var idx: Int? { state.data.reading.firstIndex { $0.id == itemID } }
     private var item: ReadingItem? { idx.map { state.data.reading[$0] } }
@@ -337,6 +342,7 @@ struct ReadingDetailView: View {
                         chaptersBlock(item)
                         if item.done { finishedBlock(item) }
                         highlightsBlock(item)
+                        pdfBlock(item)
                         if !item.notes.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("NOTES").font(.caption2.bold()).foregroundStyle(.secondary)
@@ -523,6 +529,85 @@ struct ReadingDetailView: View {
                 Button("Add", action: addHighlight).disabled(hlText.isEmpty)
             }
         }
+    }
+
+    // MARK: PDF content layer (P1: attach → extract → search inside the book)
+
+    private func pdfBlock(_ item: ReadingItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("CONTENT").font(.caption2.bold()).foregroundStyle(.secondary)
+                Spacer()
+                if item.pdfPages != nil {
+                    Menu {
+                        Button(role: .destructive) { removePDF() } label: { Label("Remove PDF", systemImage: "trash") }
+                    } label: { Image(systemName: "ellipsis.circle") }.buttonStyle(.borderless)
+                }
+            }
+            if pdfBusy {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Extracting text from the PDF…").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if let pages = item.pdfPages {
+                Label("PDF attached · \(pages) pages · searchable, on-device", systemImage: "doc.text.magnifyingglass")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search inside the book…", text: $bookQuery)
+                        .textFieldStyle(.plain).onSubmit { runSearch() }
+                    if !bookQuery.isEmpty {
+                        Button { bookQuery = ""; bookHits = [] } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                ForEach(bookHits) { h in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("p\(h.page)").font(.caption2.monospacedDigit()).foregroundStyle(.tint)
+                        Text(h.snippet).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                }
+                if !bookQuery.trimmingCharacters(in: .whitespaces).isEmpty && bookHits.isEmpty {
+                    Text("No matches on any page.").font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Button { attachPDF() } label: { Label("Attach PDF to search inside", systemImage: "doc.badge.plus") }
+                    .buttonStyle(.bordered)
+                if let e = pdfError { Text(e).font(.caption).foregroundStyle(.orange) }
+                Text("Adds a private, on-device text layer so you can search the book — and, next, ask AI about it. Text PDFs only; scanned images have no text to extract.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func attachPDF() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pdfBusy = true; pdfError = nil
+        let id = itemID
+        Task {
+            let pages = await Task.detached { BookText.attach(url, to: id) }.value
+            await MainActor.run {
+                pdfBusy = false
+                if let pages, let i = idx { state.data.reading[i].pdfPages = pages }
+                else { pdfError = "No text found — this PDF is likely scanned images (no text layer to extract)." }
+            }
+        }
+    }
+
+    private func runSearch() {
+        let q = bookQuery.trimmingCharacters(in: .whitespaces)
+        bookHits = q.count >= 2 ? BookText.search(itemID, query: q) : []
+    }
+
+    private func removePDF() {
+        BookText.remove(itemID)
+        if let i = idx { state.data.reading[i].pdfPages = nil }
+        bookQuery = ""; bookHits = []; pdfError = nil
     }
 
     private func paceHint(_ item: ReadingItem) -> String? {

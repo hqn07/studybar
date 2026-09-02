@@ -360,6 +360,7 @@ struct ReadingItem: Identifiable, Codable, Hashable {
     var units: [ReadingUnit] = []      // chapters / topics
     var url: String = ""
     var notes: String = ""
+    var pdfPages: Int? = nil          // extracted-text page count when a PDF is attached (nil = none). Optional → decode-safe for old data.
     var highlights: [Highlight] = []
     var rating: Int = 0              // 0–5 stars (once finished)
     var targetDate: Date? = nil
