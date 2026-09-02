@@ -43,6 +43,7 @@ struct SettingsView: View {
     @State private var canvasStatus = ""
     @State private var canvasSyncing = false
     @State private var selectedTab = SettingsTab.general
+    @State private var openRelease: String?
     // Intelligence
     @State private var aiMode = AIConfig.mode
     @State private var aiKey = ""
@@ -655,6 +656,42 @@ struct SettingsView: View {
             Text("Free & open source. A menu bar study companion.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        releaseNotesSection
+    }
+
+    @ViewBuilder private var releaseNotesSection: some View {
+        let releases = Changelog.releases()
+        if !releases.isEmpty {
+            Section("Release Notes") {
+                ForEach(releases.prefix(12)) { rel in
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { (openRelease ?? releases.first?.version) == rel.version },
+                        set: { openRelease = $0 ? rel.version : "" })) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            ForEach(rel.notes.indices, id: \.self) { i in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("•").foregroundStyle(.tertiary)
+                                    Text(changeMarkdown(rel.notes[i])).font(.caption)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }.padding(.top, 4)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("Version \(rel.version)").font(.callout.weight(.medium))
+                            if !rel.date.isEmpty { Text(rel.date).font(.caption2).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Render a changelog bullet's inline markdown (**bold**, `code`, *italic*).
+    private func changeMarkdown(_ s: String) -> AttributedString {
+        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(s)
     }
 
     @ViewBuilder private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {

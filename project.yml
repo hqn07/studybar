@@ -40,6 +40,9 @@ targets:
       - path: Sources/StudyBar/Resources/katex
         type: folder
         buildPhase: resources
+      # Bundled so Settings ▸ About can render release notes from the single source of truth.
+      - path: CHANGELOG.md
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.studybar.StudyBar
