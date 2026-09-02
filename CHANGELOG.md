@@ -5,6 +5,13 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-09-02
+
+- **Turn book highlights into flashcards** — on a book's **Highlights** tab, one tap on **Make flashcards** drafts a study card from each highlight (a question and answer when an AI engine is set up, a fill-in-the-blank otherwise). Review and edit the drafts inline, then accept the ones you want — they land in a deck named after the book and start spaced repetition.
+- **Plan my day, on Today** — a new **Plan my day** button ranks what's due and proposes a short, ordered set of study blocks with a suggested length and a reason for each. Accept the ones you like and they drop onto today's plan.
+- **Time & Focus, redesigned** — the four tabs collapse into one place: pick **Pomodoro**, **Timer**, or **Stopwatch**, set what you're working on and your options once, and start. Session history moves behind a button, and the ambient-noise bar is always there.
+- **Fixed the Today hero showing a stray `{}`** — the one-line nudge on Today now always reads as a sentence, whichever AI engine you use.
+
 ## [1.8.2] — 2026-09-02
 
 - **Send feedback, right from the app** — Settings ▸ About now has a one-tap **Send feedback by email**, plus links to report a bug or start a discussion. Email is the fastest way to reach the maintainer.
