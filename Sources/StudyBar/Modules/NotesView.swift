@@ -293,6 +293,9 @@ struct NoteEditor: View {
     @State private var aiTask: Task<Void, Never>?
     @AppStorage("notesAutocomplete") private var autocompleteOn = false
     @AppStorage("aiProactive") private var aiProactive = false
+    @AppStorage("notesFont") private var notesFont = "system"
+    @AppStorage("notesFontSize") private var notesFontSize = 15.0
+    @AppStorage("notesLineSpacing") private var notesLineSpacing = 3.5
     @State private var chipDismissed = false
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
@@ -468,10 +471,13 @@ struct NoteEditor: View {
                 fmtBtn("strikethrough", "Strikethrough") { editor.toggleAttribute(.strikethroughStyle) }
                 sep
                 Menu {
-                    Button("Body") { editor.setHeading(.body) }
-                    Button("Heading 1") { editor.setHeading(.h1) }
-                    Button("Heading 2") { editor.setHeading(.h2) }
-                    Button("Heading 3") { editor.setHeading(.h3) }
+                    Picker("Heading", selection: Binding(get: { editor.currentHeading() },
+                                                         set: { editor.setHeading($0) })) {
+                        Text("Body").tag(RichTextController.Heading.body)
+                        Text("Heading 1").tag(RichTextController.Heading.h1)
+                        Text("Heading 2").tag(RichTextController.Heading.h2)
+                        Text("Heading 3").tag(RichTextController.Heading.h3)
+                    }.pickerStyle(.inline)
                 } label: { Label("Style", systemImage: "textformat.size") }.menuStyle(.borderlessButton).fixedSize()
                     .help("Text style — Body / Heading 1–3")
                     .onHover { setHint("Text style — Body / Heading 1–3", $0) }
@@ -500,7 +506,24 @@ struct NoteEditor: View {
                     .foregroundStyle(colorMode != nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     .help("Text & highlight color")
                     .onHover { setHint("Text & highlight color", $0) }
+                sep
+                Menu {
+                    Picker("Font", selection: $notesFont) {
+                        Text("System").tag("system"); Text("Serif").tag("serif"); Text("Mono").tag("mono")
+                    }.pickerStyle(.inline)
+                    Picker("Size", selection: $notesFontSize) {
+                        Text("Small").tag(13.0); Text("Medium").tag(15.0); Text("Large").tag(17.0)
+                    }.pickerStyle(.inline)
+                    Picker("Line spacing", selection: $notesLineSpacing) {
+                        Text("Tight").tag(2.0); Text("Normal").tag(3.5); Text("Relaxed").tag(6.0)
+                    }.pickerStyle(.inline)
+                } label: { Image(systemName: "textformat") }.menuStyle(.borderlessButton).fixedSize()
+                    .help("Notes appearance — font, size, line spacing (applies to all notes)")
+                    .onHover { setHint("Notes appearance — font, size, line spacing", $0) }
             }.padding(.horizontal, 10).padding(.vertical, 5)
+            .onChange(of: notesFont) { _, _ in editor.reapplyTypography() }
+            .onChange(of: notesFontSize) { _, _ in editor.reapplyTypography() }
+            .onChange(of: notesLineSpacing) { _, _ in editor.reapplyTypography() }
         }
     }
 

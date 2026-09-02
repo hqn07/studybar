@@ -258,6 +258,34 @@ final class RichTextController: ObservableObject {
         tv.didChangeText()
     }
 
+    /// The heading level of the cursor's paragraph, classified by font size — for the Style
+    /// menu's current-selection checkmark.
+    func currentHeading() -> Heading {
+        guard let tv = textView, let ts = tv.textStorage, ts.length > 0 else { return .body }
+        let para = (tv.string as NSString).paragraphRange(for: tv.selectedRange())
+        let loc = max(0, min(para.location, ts.length - 1))
+        let f = (ts.attribute(.font, at: loc, effectiveRange: nil) as? NSFont) ?? NotesTypography.font(.body)
+        let s = f.pointSize
+        let h1 = NotesTypography.font(.h1).pointSize, h2 = NotesTypography.font(.h2).pointSize
+        let h3 = NotesTypography.font(.h3).pointSize, body = NotesTypography.font(.body).pointSize
+        if s >= (h1 + h2) / 2 { return .h1 }
+        if s >= (h2 + h3) / 2 { return .h2 }
+        if s >= (h3 + body) / 2 + 0.01 { return .h3 }
+        return .body
+    }
+
+    /// Re-flow the whole note under the current NotesTypography (font / size / line spacing),
+    /// in place — so an Aa-menu change applies live without losing edits or the caret.
+    func reapplyTypography() {
+        guard let tv = textView, let ts = tv.textStorage else { return }
+        let sel = tv.selectedRange()
+        let updated = NSAttributedString(attributedString: ts).applyingNotesTypography()
+        ts.setAttributedString(updated)
+        let len = (tv.string as NSString).length
+        tv.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+        tv.didChangeText()
+    }
+
     // MARK: Colors (fixed palette — no NSColorPanel, which would dismiss the popover)
 
     func setForeground(_ color: NSColor?) { applyColor(.foregroundColor, color) }
