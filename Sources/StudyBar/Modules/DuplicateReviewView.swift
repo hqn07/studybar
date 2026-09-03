@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Review and merge duplicate assignments. A fast deterministic pass runs on open; an optional
-/// AI deep-scan finds reworded duplicates. Merging is propose→accept — you pick which to keep,
-/// and the rest are removed with undo. Nothing is deleted automatically.
+/// Review and merge duplicate assignments. A fast deterministic pass (same course + due date +
+/// similar title) runs on open. Merging is propose→accept — you pick which to keep, and the rest
+/// are removed with undo. Nothing is deleted automatically.
 struct DuplicateReviewView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
