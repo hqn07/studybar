@@ -55,6 +55,38 @@ struct NotesView: View {
         return list.sorted { ($0.pinned ? 1 : 0) > ($1.pinned ? 1 : 0) }
     }
 
+    /// The list broken into labelled sections: Pinned first, then — when sorting by last edited —
+    /// soft date buckets (Today / This week / Earlier). Flat (one unlabelled section) while
+    /// searching or sorting by title/created, so the header never contradicts the order.
+    private var notesSections: [(id: String, title: String?, notes: [Note])] {
+        let all = notes
+        if !search.isEmpty { return [("all", nil, all)] }
+        let pinned = all.filter(\.pinned)
+        let rest = all.filter { !$0.pinned }
+        var out: [(String, String?, [Note])] = []
+        if !pinned.isEmpty { out.append(("pinned", "Pinned", pinned)) }
+        if sort == .updated {
+            let cal = Calendar.current
+            let weekAgo = cal.date(byAdding: .day, value: -7, to: .now) ?? .now
+            let today = rest.filter { cal.isDateInToday($0.updatedAt) }
+            let week = rest.filter { !cal.isDateInToday($0.updatedAt) && $0.updatedAt >= weekAgo }
+            let earlier = rest.filter { $0.updatedAt < weekAgo }
+            for (id, t, g) in [("today", "Today", today), ("week", "This week", week), ("earlier", "Earlier", earlier)] where !g.isEmpty {
+                out.append((id, t, g))
+            }
+        } else if !rest.isEmpty {
+            out.append(("rest", pinned.isEmpty ? nil : "Notes", rest))
+        }
+        return out
+    }
+
+    private func sectionHeader(_ t: String) -> some View {
+        Text(t.uppercased())
+            .font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6).padding(.top, DS.Space.s).padding(.bottom, 1)
+    }
+
     var body: some View {
         GeometryReader { geo in
             let split = geo.size.width >= splitMinWidth
@@ -127,7 +159,10 @@ struct NotesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(notes) { n in NoteRow(note: n) { editing = OpenNote(note: n, preview: true) } }
+                        ForEach(notesSections, id: \.id) { sec in
+                            if let t = sec.title { sectionHeader(t) }
+                            ForEach(sec.notes) { n in NoteRow(note: n) { editing = OpenNote(note: n, preview: true) } }
+                        }
                     }.padding(10)
                 }
             }
@@ -154,9 +189,12 @@ struct NotesView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 6) {
-                            ForEach(notes) { n in
-                                NoteRow(note: n, selected: n.id == selection) { select(n.id) }
-                                    .id(n.id)
+                            ForEach(notesSections, id: \.id) { sec in
+                                if let t = sec.title { sectionHeader(t) }
+                                ForEach(sec.notes) { n in
+                                    NoteRow(note: n, selected: n.id == selection) { select(n.id) }
+                                        .id(n.id)
+                                }
                             }
                         }.padding(8)
                     }
@@ -234,27 +272,43 @@ struct NoteRow: View {
         self.note = note; self.selected = selected; self.onOpen = onOpen
     }
 
+    private var isEmpty: Bool { note.previewText.isEmpty }
+    private var spineColor: Color { state.course(note.courseID)?.color ?? .accentColor }
+
     var body: some View {
         Button(action: onOpen) {
-            HStack(alignment: .top, spacing: 8) {
-                if note.pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.orange) }
-                if let img = screenshotImage(note.imagePath) {
-                    Image(nsImage: img).resizable().scaledToFill()
-                        .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 5))
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(note.listTitle)
-                        .fontWeight(.medium).lineLimit(1)
-                    Text(note.previewText.isEmpty ? "No content" : note.previewText)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    HStack(spacing: DS.Space.s) {
-                        CourseChip(course: state.course(note.courseID))
-                        ForEach(note.tags, id: \.self) { t in Chip(t, .tag) }
+            HStack(alignment: .top, spacing: 0) {
+                // Course-color spine.
+                Rectangle().fill(spineColor.opacity(isEmpty ? 0.35 : 0.9)).frame(width: 3)
+                HStack(alignment: .top, spacing: 10) {
+                    if let img = screenshotImage(note.imagePath) {
+                        Image(nsImage: img).resizable().scaledToFill()
+                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 5))
                     }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            if note.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
+                            Text(note.listTitle)
+                                .fontWeight(.semibold).lineLimit(1)
+                                .foregroundStyle(isEmpty ? .secondary : .primary)
+                            if isEmpty {
+                                Text("empty").font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(.sbSurface2, in: Capsule())
+                            }
+                        }
+                        if !isEmpty {
+                            Text(note.previewText)
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        metaLine
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer()
+                .padding(DS.Space.m)
             }
-            .padding(DS.Space.m).contentShape(Rectangle())
+            .contentShape(Rectangle())
             .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.sbSurface),
                         in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay {
@@ -262,7 +316,30 @@ struct NoteRow: View {
                     RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.5), lineWidth: 1)
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))   // clip the spine to the card corners
         }.buttonStyle(.plain)
+    }
+
+    /// Course · when-edited · length, plus any tags — the quiet context line under a row.
+    private var metaLine: some View {
+        HStack(spacing: 6) {
+            if let c = state.course(note.courseID) {
+                Circle().fill(c.color).frame(width: 5, height: 5)
+                Text(c.code.isEmpty ? c.name : c.code).lineLimit(1)
+                Text("·")
+            }
+            Text(isEmpty ? "created \(note.createdAt.relativeShort)" : "edited \(note.updatedAt.relativeShort)")
+            if !isEmpty {
+                Text("·")
+                Text("\(note.wordCount) word\(note.wordCount == 1 ? "" : "s")").monospacedDigit()
+            }
+            ForEach(note.tags.prefix(2), id: \.self) { t in
+                Text("#\(t)").foregroundStyle(.tint).lineLimit(1)
+            }
+            if note.tags.count > 2 { Text("+\(note.tags.count - 2)") }
+        }
+        .font(.caption2).foregroundStyle(.tertiary)
+        .padding(.top, 1)
     }
 }
 
