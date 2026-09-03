@@ -187,8 +187,6 @@ struct DiagnosticsView: View {
             URLQueryItem(name: "body", value: body),
         ]
         if let url = c.url { NSWorkspace.shared.open(url) }
-        copied = true
-        Task { try? await Task.sleep(nanoseconds: 1_800_000_000); copied = false }
     }
     private func saveReport() {
         let panel = NSSavePanel()

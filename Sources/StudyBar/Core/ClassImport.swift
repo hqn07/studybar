@@ -119,7 +119,13 @@ enum ClassImport {
             c.title = title.isEmpty ? "Class" : title
             c.days = days
             c.weekday = days.first ?? 2
-            if let start { c.startMinutes = start; c.endMinutes = max(start + 5, end ?? (start + 50)) }
+            if let start {
+                c.startMinutes = start; c.endMinutes = max(start + 5, end ?? (start + 50))
+            } else if !online && !days.isEmpty {
+                // Has meeting days but the time didn't parse — flag it (‑1) rather than fabricate a
+                // 9 a.m. block; the review sheet shows "time not detected" and add() fills a default.
+                c.startMinutes = -1; c.endMinutes = -1
+            }
             c.room = room
             if !link.isEmpty { c.link = link }
             if online || (days.isEmpty && start == nil) { c.online = true }

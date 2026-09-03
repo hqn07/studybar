@@ -159,7 +159,12 @@ struct WeekGridView: View {
             .navigationDestination(item: $importBatch) { ClassImportView(drafts: $0.drafts) }
             .sheet(item: $planningDay) { PlanDaySheet(date: $0.date) }
             .sheet(isPresented: $pasting) {
-                PasteScheduleView { batch in pasting = false; importBatch = batch }
+                PasteScheduleView { batch in
+                    pasting = false
+                    // Let the sheet finish dismissing before pushing the review destination —
+                    // presenting a navigationDestination in the same tick as a sheet dismiss can drop it.
+                    DispatchQueue.main.async { importBatch = batch }
+                }
             }
             .alert("Couldn't import", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
                 Button("OK", role: .cancel) { importError = nil }
@@ -724,7 +729,27 @@ struct ClassImportView: View {
     @State private var rows: [Row]
 
     init(drafts: [ClassSession]) {
-        _rows = State(initialValue: drafts.map { Row(c: $0, include: true, courseID: $0.courseID) })
+        let courses = AppState.current?.data.courses ?? []
+        _rows = State(initialValue: drafts.map { d in
+            Row(c: d, include: true, courseID: d.courseID ?? Self.matchCourse(d.title, courses))
+        })
+    }
+
+    /// Best-effort link of an imported class to an existing course: prefer a course whose code
+    /// appears in the class title (spaces collapsed, so "MAC 2311" matches "MAC 2311 Lecture"),
+    /// then a course whose name appears. Returns nil so the picker stays empty when unsure.
+    static func matchCourse(_ title: String, _ courses: [Course]) -> UUID? {
+        guard !title.isEmpty else { return nil }
+        let t = title.uppercased().replacingOccurrences(of: " ", with: "")
+        if let byCode = courses.first(where: {
+            let code = $0.code.uppercased().replacingOccurrences(of: " ", with: "")
+            return !code.isEmpty && t.contains(code)
+        }) { return byCode.id }
+        let tl = title.lowercased()
+        if let byName = courses.first(where: { !$0.name.isEmpty && tl.contains($0.name.lowercased()) }) {
+            return byName.id
+        }
+        return nil
     }
 
     private var selectedCount: Int { rows.filter { $0.include }.count }
@@ -755,7 +780,9 @@ struct ClassImportView: View {
 
     private func importRow(_ row: Binding<Row>) -> some View {
         let c = row.wrappedValue.c
-        let meta = "\(c.isAsync ? "async" : c.daysShort) · \(c.isAsync ? "no set time" : "\(c.startString)–\(c.endString)")"
+        let timeStr = c.startMinutes < 0 ? "time not detected — set it after import"
+                                         : "\(c.startString)–\(c.endString)"
+        let meta = "\(c.isAsync ? "async" : c.daysShort) · \(c.isAsync ? "no set time" : timeStr)"
             + (c.room.isEmpty ? "" : " · \(c.room)") + (c.isOnline ? " · online" : "")
         return HStack(spacing: DS.Space.m) {
             Toggle("", isOn: row.include).labelsHidden()
@@ -777,6 +804,7 @@ struct ClassImportView: View {
                 var c = r.c
                 c.id = UUID()
                 c.courseID = r.courseID
+                if c.startMinutes < 0 { c.startMinutes = 9 * 60; c.endMinutes = 9 * 60 + 50 }  // undetected time → sane default
                 state.data.classes.append(c)
             }
         }
