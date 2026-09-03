@@ -1,4 +1,5 @@
 import SwiftUI
+import EventKit
 
 /// Time Blocking — plan work onto a day timeline.
 ///
@@ -9,6 +10,7 @@ import SwiftUI
 /// pushed editor) so it never trips the popover's no-modal rule.
 struct DayPlannerView: View {
     @EnvironmentObject var state: AppState
+    @StateObject private var calSvc = CalendarService()   // read-only macOS Calendar overlay
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var editing: TimeBlock?
 
@@ -39,6 +41,7 @@ struct DayPlannerView: View {
     private var range: (lo: Int, hi: Int) {
         let mins = classes.flatMap { [$0.startMinutes, $0.endMinutes] }
                  + blocks.flatMap { [$0.startMinutes, $0.endMinutes] }
+                 + calEvents.flatMap { [$0.start, $0.end] }
         let lo = min(7 * 60, mins.min() ?? 9 * 60)
         let hi = max(22 * 60, mins.max() ?? 18 * 60)
         return (max(0, (lo / 60) * 60), min(24 * 60, ((hi + 59) / 60) * 60))
@@ -64,7 +67,55 @@ struct DayPlannerView: View {
             .navigationDestination(item: $editing) { blk in
                 TimeBlockEditor(block: blk)
             }
+            .task { if calSvc.authorized { calSvc.load(days: 21) } }   // no prompt; only if already granted elsewhere
         }
+    }
+
+    // MARK: Calendar overlay (read-only macOS Calendar events on the day)
+
+    private struct CalBand: Identifiable { let id: String; let title: String; let start: Int; let end: Int; let color: Color }
+
+    /// Timed macOS Calendar events on the shown day, minus any that duplicate a StudyBar class
+    /// (same start/end within a few minutes) so a class synced to the OS calendar isn't drawn twice.
+    private var calEvents: [CalBand] {
+        guard calSvc.authorized else { return [] }
+        let cls = classes
+        func mins(_ d: Date) -> Int { let c = cal.dateComponents([.hour, .minute], from: d); return (c.hour ?? 0) * 60 + (c.minute ?? 0) }
+        return calSvc.events.compactMap { e -> CalBand? in
+            guard !e.isAllDay, cal.isDate(e.startDate, inSameDayAs: day) else { return nil }
+            let s = mins(e.startDate)
+            let end = cal.isDate(e.endDate, inSameDayAs: day) ? mins(e.endDate) : 24 * 60
+            guard end > s else { return nil }
+            if cls.contains(where: { abs($0.startMinutes - s) <= 5 && abs($0.endMinutes - end) <= 5 }) { return nil }
+            let color = e.calendar.cgColor.flatMap { Color(cgColor: $0) } ?? .secondary
+            return CalBand(id: e.eventIdentifier ?? UUID().uuidString,
+                           title: e.title?.isEmpty == false ? e.title : "Event",
+                           start: s, end: min(24 * 60, end), color: color)
+        }
+    }
+
+    /// A calendar event drawn as faint read-only context, distinct from class bands by its dashed
+    /// edge and calendar glyph so study blocks stay the visual focus.
+    private func eventBand(_ b: CalBand, lo: Int, width: CGFloat) -> some View {
+        let h = max(minBlockHeight, CGFloat(b.end - b.start) * pxPerMin)
+        return HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2).fill(b.color.opacity(0.6)).frame(width: 2)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 3) {
+                    Image(systemName: "calendar").font(.system(size: 8))
+                    Text(b.title).font(.caption2.weight(.medium)).lineLimit(1)
+                }
+                if h > 34 { Text(ClassSession.hm(b.start)).font(.caption2).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 5).padding(.vertical, 3)
+        .frame(width: width, height: h, alignment: .topLeading)
+        .background(b.color.opacity(0.07), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control)
+            .strokeBorder(b.color.opacity(0.35), style: StrokeStyle(lineWidth: 0.75, dash: [3, 2])))
+        .foregroundStyle(.secondary)
+        .offset(x: gutter, y: y(b.start, lo: lo))
     }
 
     // MARK: Day navigation + summary
@@ -121,6 +172,8 @@ struct DayPlannerView: View {
                     hourGrid(lo: lo, hi: hi, width: geo.size.width).allowsHitTesting(false)
                     ForEach(classes) { c in classBand(c, lo: lo, width: contentWidth) }
                         .allowsHitTesting(false)   // read-only context; let the create-drag pass through
+                    ForEach(calEvents) { e in eventBand(e, lo: lo, width: contentWidth) }
+                        .allowsHitTesting(false)
                     ForEach(dueToday) { a in dueMarker(a, lo: lo, width: contentWidth) }
                     if let r = createRange { createGhost(r, lo: lo, width: contentWidth).allowsHitTesting(false) }
                     ForEach(TimeBlock.layout(blocks), id: \.id) { p in
