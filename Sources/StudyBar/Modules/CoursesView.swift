@@ -371,6 +371,7 @@ struct CourseDetailView: View {
     @State private var syllabusDraft: SyllabusDraft?
     @State private var syllabusExtracting = false
     @State private var extractStart: Date?
+    @State private var syllabusError: String?
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
@@ -640,6 +641,14 @@ struct CourseDetailView: View {
                     }
                 } else if let d = syllabusDraft {
                     draftReview(c, d)
+                } else if let err = syllabusError {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(err).font(.caption).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    Button { syllabusError = nil; extractSyllabus(c, datesOnly: true) } label: { Label("Try dates only", systemImage: "arrow.clockwise").font(.caption) }
+                        .buttonStyle(.bordered).controlSize(.small)
                 } else if !syl.extracted {
                     HStack(spacing: DS.Space.s) {
                         Button { extractSyllabus(c) } label: { Label("Extract details", systemImage: "sparkles").font(.caption) }
@@ -733,15 +742,21 @@ struct CourseDetailView: View {
     }
     private func extractSyllabus(_ c: Course, datesOnly: Bool = false) {
         guard let syl = c.syllabus, AIConfig.isReady else { return }
-        syllabusExtracting = true
-        extractStart = Date()
         let text = SyllabusStore.text(syl)
+        guard text.count >= 40 else {
+            syllabusError = "Couldn't read text from this syllabus — it may be a scanned image (OCR isn't supported yet). Try a text-based PDF."
+            return
+        }
+        syllabusError = nil; syllabusExtracting = true; extractStart = Date()
         let provider = AIService.makeProvider()
         Task { @MainActor in
             let draft = await SyllabusExtract.run(text, provider: provider, datesOnly: datesOnly)
-            syllabusExtracting = false
-            extractStart = nil
-            syllabusDraft = draft
+            syllabusExtracting = false; extractStart = nil
+            if let draft {
+                syllabusDraft = draft
+            } else {
+                syllabusError = "The AI didn't return usable details (it may have timed out or replied with unusable text). Make sure Ollama is running with \(AIConfig.ollamaModel), then try again — Dates only is faster. See Settings ▸ Diagnostics for details."
+            }
         }
     }
     private func acceptDraft(_ c: Course, _ d: SyllabusDraft) {

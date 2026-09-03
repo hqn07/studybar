@@ -22,46 +22,57 @@ enum SyllabusExtract {
     /// `provider` is nil when no engine is ready → returns nil (attach still works without AI).
     /// `datesOnly` = the fast path: only the schedule dates, so a smaller prompt and less output.
     static func run(_ text: String, provider: AIProvider?, datesOnly: Bool = false) async -> SyllabusDraft? {
-        guard let provider, text.count > 40 else { return nil }
+        guard let provider else { Diagnostics.warn(.ai, "Syllabus extract: no AI provider"); return nil }
+        guard text.count > 40 else { Diagnostics.warn(.ai, "Syllabus extract: no extractable text (\(text.count) chars)"); return nil }
+
+        let sys: String, user: String
         if datesOnly {
-            let sys = """
+            sys = """
             List EVERY dated deliverable from this course schedule — each homework, quiz and exam — \
             with its due date. Reply with ONLY a JSON array: [{"label":"HW 1","date":"2026-08-24"}]. \
             date is YYYY-MM-DD, inferring the year and month from the term. Include the final exam. \
             No prose outside the JSON array.
             """
-            let user = "SYLLABUS SCHEDULE:\n" + scheduleFocus(text)
-            guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
-            return parseDates(out)
+            user = "SYLLABUS SCHEDULE:\n" + scheduleFocus(text)
+        } else {
+            sys = """
+            You extract structured facts from a university course syllabus. Reply with ONLY a JSON object:
+            {"grading":[{"name":"Homework","weight":20}],\
+            "keyDates":[{"label":"HW 1","date":"2026-08-24"}],\
+            "policies":"…","officeHours":"…","textbooks":["…"]}
+            Rules:
+            - grading: include a component ONLY if the syllabus explicitly gives its PERCENTAGE OF THE \
+            FINAL GRADE (e.g. "Exams 40%"). Never invent weights, and never use general-education \
+            outcome categories (Content, Communication, Critical Thinking) or learning-outcome / \
+            "Methods of Evaluation" tables as grades — those are not grade weights. If the syllabus \
+            states no explicit percentages, return "grading": [].
+            - keyDates: from the course schedule, list EVERY dated deliverable — each homework, quiz \
+            and exam — with its due date as YYYY-MM-DD (infer the year and month from the term and the \
+            schedule). Include the final exam. Prefer the due date over the assigned date.
+            - textbooks: required book title(s) and author.
+            - policies: the late-work / attendance policy in one short paragraph.
+            - officeHours: instructor office hours if given.
+            Use only what the syllabus states. No prose outside the JSON.
+            """
+            user = "SYLLABUS:\n" + focus(text)
         }
-        let sys = """
-        You extract structured facts from a university course syllabus. Reply with ONLY a JSON object:
-        {"grading":[{"name":"Homework","weight":20}],\
-        "keyDates":[{"label":"HW 1","date":"2026-08-24"}],\
-        "policies":"…","officeHours":"…","textbooks":["…"]}
-        Rules:
-        - grading: include a component ONLY if the syllabus explicitly gives its PERCENTAGE OF THE \
-        FINAL GRADE (e.g. "Exams 40%"). Never invent weights, and never use general-education \
-        outcome categories (Content, Communication, Critical Thinking) or learning-outcome / \
-        "Methods of Evaluation" tables as grades — those are not grade weights. If the syllabus \
-        states no explicit percentages, return "grading": [].
-        - keyDates: from the course schedule, list EVERY dated deliverable — each homework, quiz \
-        and exam — with its due date as YYYY-MM-DD (infer the year and month from the term and the \
-        schedule). Include the final exam. Prefer the due date over the assigned date.
-        - textbooks: required book title(s) and author.
-        - policies: the late-work / attendance policy in one short paragraph.
-        - officeHours: instructor office hours if given.
-        Use only what the syllabus states. No prose outside the JSON.
-        """
-        let user = "SYLLABUS:\n" + focus(text)
-        guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
-        return parse(out)
+        Diagnostics.info(.ai, "Syllabus extract (\(datesOnly ? "dates" : "full")): sending \(user.count) chars…")
+        do {
+            let out = try await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)])
+            let draft = datesOnly ? parseDates(out) : parse(out)
+            Diagnostics.log(.ai, draft == nil ? .warn : .info,
+                            "Syllabus extract: got \(out.count) chars, parsed \(draft == nil ? "NOTHING (bad JSON?)" : "ok")")
+            return draft
+        } catch {
+            Diagnostics.error(.ai, "Syllabus extract failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Just the schedule region — no front matter — for the fast dates-only path.
     private static func scheduleFocus(_ text: String) -> String {
-        let lower = text.lowercased()
-        if let a = lower.range(of: "course schedule") ?? lower.range(of: "schedule") {
+        if let a = text.range(of: "course schedule", options: .caseInsensitive)
+            ?? text.range(of: "schedule", options: .caseInsensitive) {
             return String(text[a.lowerBound...].prefix(14000))
         }
         return String(text.prefix(14000))
@@ -88,10 +99,12 @@ enum SyllabusExtract {
     /// and its outcome table is exactly what made the grade extraction hallucinate.
     private static func focus(_ text: String) -> String {
         let head = String(text.prefix(3000))
-        let lower = text.lowercased()
-        let anchor = lower.range(of: "course schedule") ?? lower.range(of: "schedule")
-            ?? lower.range(of: "grading") ?? lower.range(of: "evaluation")
-        if let a = anchor, a.lowerBound > text.index(text.startIndex, offsetBy: 3000, limitedBy: text.endIndex) ?? text.startIndex {
+        let anchor = text.range(of: "course schedule", options: .caseInsensitive)
+            ?? text.range(of: "schedule", options: .caseInsensitive)
+            ?? text.range(of: "grading", options: .caseInsensitive)
+            ?? text.range(of: "evaluation", options: .caseInsensitive)
+        let cut = text.index(text.startIndex, offsetBy: 3000, limitedBy: text.endIndex) ?? text.startIndex
+        if let a = anchor, a.lowerBound > cut {
             return head + "\n\n[…]\n\n" + String(text[a.lowerBound...].prefix(13000))
         }
         return String(text.prefix(16000))
