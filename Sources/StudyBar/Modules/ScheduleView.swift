@@ -380,9 +380,32 @@ struct WeekGridView: View {
             ForEach(laid(classes(on: wd)), id: \.c.id) { item in
                 classBlock(item.c, lane: item.lane, lanes: item.lanes, lo: lo, dayWidth: dayWidth)
             }
+            // Exams due this day, pinned at the top of the column (all-day style) — highest stakes.
+            let exams = (weekDue[wd] ?? []).filter { isExam($0) }
+            if !exams.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(exams) { examPill($0, width: dayWidth) }
+                }
+                .padding(2)
+            }
         }
         .frame(width: dayWidth, height: totalHeight, alignment: .topLeading)
         .offset(x: x)
+    }
+
+    private func examPill(_ a: Assignment, width: CGFloat) -> some View {
+        Button { state.selectedModuleID = "assignments" } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 7))
+                Text(a.title.isEmpty ? "Exam" : a.title).font(.system(size: 9, weight: .bold)).lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .frame(maxWidth: max(20, width - 4), alignment: .leading)
+            .background(.red, in: RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .help("\(a.title.isEmpty ? "Exam" : a.title) — due \(a.due?.dayMonth ?? "")")
     }
 
     private func classBlock(_ c: ClassSession, lane: Int, lanes: Int, lo: Int, dayWidth: CGFloat) -> some View {
