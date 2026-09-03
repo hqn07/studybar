@@ -6,9 +6,13 @@ enum NoteSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// A note being opened, plus whether it should land in reading (preview) or editing mode —
+/// existing notes open to read, brand-new / template notes open ready to type.
+struct OpenNote: Identifiable, Hashable { let note: Note; let preview: Bool; var id: UUID { note.id } }
+
 struct NotesView: View {
     @EnvironmentObject var state: AppState
-    @State private var editing: Note?           // narrow/popover: pushed note
+    @State private var editing: OpenNote?       // narrow/popover: pushed note
     @State private var selection: UUID?         // wide window: selected note in the split
     @State private var newDraft: Note?          // wide window: a not-yet-saved new note
     @State private var search = ""
@@ -58,9 +62,9 @@ struct NotesView: View {
                 ModulePane(title: "Notes") { toolbar(split: split) } content: {
                     if split { splitBody } else { stackBody }
                 }
-                .navigationDestination(item: $editing) { note in
-                    NoteEditor(note: note, onNavigate: { id in
-                        if let n = state.data.notes.first(where: { $0.id == id }) { editing = n }
+                .navigationDestination(item: $editing) { target in
+                    NoteEditor(note: target.note, startInPreview: target.preview, onNavigate: { id in
+                        if let n = state.data.notes.first(where: { $0.id == id }) { editing = OpenNote(note: n, preview: true) }
                     })
                 }
                 .onAppear { consumePending(split: split) }
@@ -123,7 +127,7 @@ struct NotesView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(notes) { n in NoteRow(note: n) { editing = n } }
+                        ForEach(notes) { n in NoteRow(note: n) { editing = OpenNote(note: n, preview: true) } }
                     }.padding(10)
                 }
             }
@@ -169,7 +173,7 @@ struct NotesView: View {
 
     @ViewBuilder private var detailPane: some View {
         if let sel = selection, let note = noteForSelection(sel) {
-            NoteEditor(note: note, embedded: true,
+            NoteEditor(note: note, embedded: true, startInPreview: newDraft?.id != sel,
                        onClose: { selection = nil; newDraft = nil },
                        onNavigate: { select($0) })
                 .id(sel)   // switching notes rebuilds the editor → old one autosaves on teardown
@@ -200,7 +204,7 @@ struct NotesView: View {
         var n = Note()
         if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
         if split { newDraft = n; selection = n.id }   // editor inserts it on first edit
-        else { editing = n }                          // insert only on Save
+        else { editing = OpenNote(note: n, preview: false) }   // new note → start editing
     }
 
     private func newFromTemplate(_ t: NoteTemplates.Template, split: Bool) {
@@ -209,7 +213,7 @@ struct NotesView: View {
         if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
         n.rich = attr.rtfdData(); n.body = attr.string
         state.data.notes.append(n)                    // has content → insert now
-        if split { selection = n.id; newDraft = nil } else { editing = n }
+        if split { selection = n.id; newDraft = nil } else { editing = OpenNote(note: n, preview: false) }
     }
 
 }
@@ -309,13 +313,16 @@ struct NoteEditor: View {
 
     enum ColorMode { case highlight, foreground }
 
-    init(note: Note, embedded: Bool = false, onClose: @escaping () -> Void = {}, onNavigate: @escaping (UUID) -> Void = { _ in }) {
+    init(note: Note, embedded: Bool = false, startInPreview: Bool = false,
+         onClose: @escaping () -> Void = {}, onNavigate: @escaping (UUID) -> Void = { _ in }) {
         self.embedded = embedded
         self.onClose = onClose
         self.onNavigate = onNavigate
         _draft = State(initialValue: note)
         _tagText = State(initialValue: note.tags.joined(separator: ", "))
         startedEmpty = note.title.isEmpty && note.body.isEmpty && note.rich == nil
+        // Read-first: an existing note opens rendered; a brand-new/empty note opens ready to type.
+        _showPreview = State(initialValue: startInPreview && !(note.title.isEmpty && note.body.isEmpty && note.rich == nil))
         _liveWords = State(initialValue: note.wordCount)
         if let data = note.rich, let a = NSAttributedString.fromRTFD(data) {
             initialAttributed = a
@@ -698,9 +705,16 @@ struct NoteEditor: View {
 
     @ViewBuilder private var editorOrPreview: some View {
         if showPreview {
-            ScrollView {
-                NotePreview(text: draft.body.isEmpty ? "_Nothing to preview yet._" : draft.body)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            VStack(spacing: 0) {
+                readingBar
+                ScrollView {
+                    NotePreview(text: draft.body.isEmpty ? "_Nothing here yet — click to start writing._" : draft.body)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 12)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { enterEditFromPreview() }
+                // Return also drops into editing (hidden zero-size button captures the key).
+                .background(Button("") { enterEditFromPreview() }.keyboardShortcut(.return, modifiers: []).opacity(0).frame(width: 0, height: 0))
             }
         } else if splitLive {
             VStack(spacing: 0) {
@@ -730,6 +744,20 @@ struct NoteEditor: View {
                 .padding(.horizontal, 4).padding(.vertical, 2)
         }
     }
+
+    /// Slim strip atop the reading view — names the mode and advertises the click-to-edit gesture.
+    private var readingBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "book").font(.caption2)
+            Text("Reading").font(.caption2.weight(.semibold))
+            Spacer()
+            Label("Click anywhere to edit", systemImage: "pencil").font(.caption2)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16).padding(.vertical, 5)
+        .background(.sbSurface.opacity(0.5))
+    }
+    private func enterEditFromPreview() { withAnimation(.easeOut(duration: 0.12)) { showPreview = false } }
 
     private func countWords(_ s: String) -> Int {
         // Drop bare markers ($ • ☐ ☑ ─ [ ]) so they aren't counted as words.

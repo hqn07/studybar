@@ -77,6 +77,13 @@ extension Note {
         (try! NSRegularExpression(pattern: #"─{3,}"#), ""),                    // dividers
         (try! NSRegularExpression(pattern: #"(?m)^\s*[☐☑]\s*"#), "○ "),        // checkboxes
         (try! NSRegularExpression(pattern: #"(?m)^\s*\d+\.\s+"#), ""),          // numbered
+        (try! NSRegularExpression(pattern: #"(?m)^[ \t]{0,3}#{1,6}[ \t]+"#), ""),   // ATX headings (# … ######)
+        (try! NSRegularExpression(pattern: #"(?m)^[ \t]{0,3}>[ \t]?"#), ""),        // blockquotes
+        (try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#), "$1"),               // **bold**
+        (try! NSRegularExpression(pattern: #"__(.+?)__"#), "$1"),                   // __bold__
+        (try! NSRegularExpression(pattern: #"\*(.+?)\*"#), "$1"),                   // *italic*
+        (try! NSRegularExpression(pattern: "`([^`]+)`"), "$1"),                     // `code`
+        (try! NSRegularExpression(pattern: #"(?m)^[ \t]*[-*+•][ \t]+"#), "• "),     // bullet markers → •
     ]
     /// The row title: the note's title, or its first non-empty preview line.
     var listTitle: String {
