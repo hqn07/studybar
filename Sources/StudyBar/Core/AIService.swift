@@ -330,7 +330,9 @@ struct OllamaProvider: AIProvider {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 120
+        // A large prompt (e.g. a syllabus) can take minutes of prompt-eval on a local model
+        // before the first token streams; don't time out during that.
+        req.timeoutInterval = 300
         var msgs: [[String: String]] = [["role": "system", "content": system]]
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
         let body: [String: Any] = [

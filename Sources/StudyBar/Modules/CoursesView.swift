@@ -370,6 +370,7 @@ struct CourseDetailView: View {
     @AppStorage("gradeTarget") private var gradeTarget = 90.0
     @State private var syllabusDraft: SyllabusDraft?
     @State private var syllabusExtracting = false
+    @State private var extractStart: Date?
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
@@ -629,10 +630,13 @@ struct CourseDetailView: View {
                 .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
 
                 if syllabusExtracting {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Reading the syllabus… a long one can take a minute or two. Stay on this page.")
-                            .font(.caption).foregroundStyle(.secondary)
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        let secs = extractStart.map { max(0, Int(ctx.date.timeIntervalSince($0))) } ?? 0
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Reading the syllabus… \(secs)s. This takes 1–3 min on a local model — stay on this page.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 } else if let d = syllabusDraft {
                     draftReview(c, d)
@@ -728,11 +732,13 @@ struct CourseDetailView: View {
     private func extractSyllabus(_ c: Course) {
         guard let syl = c.syllabus, AIConfig.isReady else { return }
         syllabusExtracting = true
+        extractStart = Date()
         let text = SyllabusStore.text(syl)
         let provider = AIService.makeProvider()
         Task { @MainActor in
             let draft = await SyllabusExtract.run(text, provider: provider)
             syllabusExtracting = false
+            extractStart = nil
             syllabusDraft = draft
         }
     }

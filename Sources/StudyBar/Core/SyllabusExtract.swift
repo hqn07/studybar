@@ -41,12 +41,23 @@ enum SyllabusExtract {
         - officeHours: instructor office hours if given.
         Use only what the syllabus states. No prose outside the JSON.
         """
-        // Syllabi are long and the useful schedule sits past the first page, so send well beyond
-        // the front matter — but ~22k chars (≈5.5k tokens) still fits the default 8k context, which
-        // is much faster than a wide window on a local model.
-        let user = "SYLLABUS:\n" + String(text.prefix(22000))
+        let user = "SYLLABUS:\n" + focus(text)
         guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
         return parse(out)
+    }
+
+    /// Keep the front matter (instructor, textbook, office hours) plus the schedule/grading region,
+    /// and drop the Gen-Ed boilerplate in the middle — it bloats prompt-eval (slow on a local model)
+    /// and its outcome table is exactly what made the grade extraction hallucinate.
+    private static func focus(_ text: String) -> String {
+        let head = String(text.prefix(3000))
+        let lower = text.lowercased()
+        let anchor = lower.range(of: "course schedule") ?? lower.range(of: "schedule")
+            ?? lower.range(of: "grading") ?? lower.range(of: "evaluation")
+        if let a = anchor, a.lowerBound > text.index(text.startIndex, offsetBy: 3000, limitedBy: text.endIndex) ?? text.startIndex {
+            return head + "\n\n[…]\n\n" + String(text[a.lowerBound...].prefix(13000))
+        }
+        return String(text.prefix(16000))
     }
 
     static func parse(_ raw: String) -> SyllabusDraft? {
