@@ -3,6 +3,7 @@ import Charts
 
 struct InsightsView: View {
     @EnvironmentObject var state: AppState
+    @AppStorage("weeklyStudyGoalMinutes") private var goalMinutes = 0
 
     private var week7: [(day: Date, minutes: Int)] { StudyStats.last7Days(state.data) }
     private var maxMin: Int { max(1, week7.map(\.minutes).max() ?? 1) }
@@ -15,6 +16,7 @@ struct InsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     if AIConfig.isReady { weeklyReviewCard }
+                    weeklyGoalCard
                     todayCard
                     streakCard
                     section("Last 7 days", nil, "chart.bar.fill") { barChart }
@@ -49,6 +51,40 @@ struct InsightsView: View {
             .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.25), lineWidth: 0.5))
         }.buttonStyle(.plain)
+    }
+
+    // MARK: - Weekly goal
+
+    private var weeklyGoalCard: some View {
+        let done = weekTotal / 60
+        return HStack(spacing: DS.Space.l) {
+            if goalMinutes > 0 {
+                WeeklyGoalRing(doneMinutes: done, goalMinutes: goalMinutes, size: 54, line: 6)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Weekly goal").font(.callout.weight(.semibold))
+                    Text(done >= goalMinutes
+                         ? "\(StudyGoal.label(done)) studied — goal reached 🎉"
+                         : "\(StudyGoal.label(done)) of \(StudyGoal.label(goalMinutes)) · \(StudyGoal.label(goalMinutes - done)) to go")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: DS.Space.s)
+                Menu { WeeklyGoalMenu(goalMinutes: $goalMinutes) } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }.menuStyle(.borderlessButton).fixedSize().help("Change your weekly goal")
+            } else {
+                Image(systemName: "target").font(.title2).foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Set a weekly study goal").font(.callout.weight(.semibold))
+                    Text("Give your streak a number to beat").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: DS.Space.s)
+                Menu("Set goal") { WeeklyGoalMenu(goalMinutes: $goalMinutes) }.fixedSize()
+            }
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
     }
 
     // MARK: - Metric tiles (mono-accent — semantic color is state only)

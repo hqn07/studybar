@@ -10,6 +10,7 @@ struct TodayView: View {
     @State private var aiLine: String?
     @State private var aiForID: UUID?
     @AppStorage("scheduleMode") private var scheduleMode = "week"
+    @AppStorage("weeklyStudyGoalMinutes") private var weeklyGoal = 0
 
     // Plan my day (propose → accept study blocks)
     @State private var planDrafts: [DailyPlan.PlanBlockDraft] = []
@@ -55,7 +56,7 @@ struct TodayView: View {
     // MARK: body
 
     var body: some View {
-        ModulePane(title: greeting) { streakChip } content: {
+        ModulePane(title: greeting) { headerAccessory } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.l) {
                     heroCard
@@ -412,6 +413,21 @@ struct TodayView: View {
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: .now)
         switch h { case 0..<12: return "Good morning"; case 12..<17: return "Good afternoon"; default: return "Good evening" }
+    }
+
+    /// Toolbar accessory: the weekly-goal ring (when a goal is set) beside the streak chip.
+    @ViewBuilder private var headerAccessory: some View {
+        HStack(spacing: DS.Space.m) {
+            if weeklyGoal > 0 {
+                Button { state.selectedModuleID = "insights" } label: {
+                    WeeklyGoalRing(doneMinutes: StudyStats.secondsThisWeek(state.data) / 60,
+                                   goalMinutes: weeklyGoal, size: 26, line: 3.5)
+                }
+                .buttonStyle(.plain)
+                .help("Weekly study goal — \(StudyGoal.label(StudyStats.secondsThisWeek(state.data) / 60)) of \(StudyGoal.label(weeklyGoal))")
+            }
+            streakChip
+        }
     }
 
     private var streakChip: some View {

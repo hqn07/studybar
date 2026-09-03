@@ -303,15 +303,15 @@ struct WeekGridView: View {
             Color.clear.frame(width: gutter, height: 50)
             ForEach(days, id: \.self) { wd in
                 let isTodayCol = isCurrentWeek && wd == today
+                let d = date(for: wd)
+                let plannable = d.map { $0 >= cal.startOfDay(for: .now) } ?? false
                 VStack(spacing: 3) {
                     HStack(spacing: 4) {
                         Text(weekdayLetters[wd]).font(.subheadline.weight(.bold))
-                        if let d = date(for: wd) {
-                            Text("\(cal.component(.day, from: d))").font(.caption)
-                        }
+                        if let d { Text("\(cal.component(.day, from: d))").font(.caption) }
                         Image(systemName: "sparkles")
                             .font(.system(size: 9)).foregroundStyle(.tint)
-                            .opacity(hoverDay == wd ? 1 : 0)
+                            .opacity(plannable && hoverDay == wd ? 1 : 0)
                     }
                     .foregroundStyle(isTodayCol ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -320,9 +320,9 @@ struct WeekGridView: View {
                 }
                 .frame(width: dayWidth, height: 50)
                 .contentShape(Rectangle())
-                .onHover { hoverDay = $0 ? wd : (hoverDay == wd ? nil : hoverDay) }
-                .onTapGesture { if let d = date(for: wd) { planningDay = PlanDayTarget(date: d) } }
-                .help("Plan this day — suggest study blocks")
+                .onHover { if plannable { hoverDay = $0 ? wd : (hoverDay == wd ? nil : hoverDay) } }
+                .onTapGesture { if plannable, let d { planningDay = PlanDayTarget(date: d) } }
+                .help(plannable ? "Plan this day — suggest study blocks" : "")
             }
         }
         .frame(height: 50)                 // don't let the flexible spacer stretch the header
