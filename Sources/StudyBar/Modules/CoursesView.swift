@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 func gstr(_ d: Double) -> String { String(format: "%g", d) }
 
@@ -367,6 +368,8 @@ struct CourseDetailView: View {
     @State private var editing: Course?
     @State private var editingAssignment: Assignment?
     @AppStorage("gradeTarget") private var gradeTarget = 90.0
+    @State private var syllabusDraft: SyllabusDraft?
+    @State private var syllabusExtracting = false
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
@@ -397,6 +400,7 @@ struct CourseDetailView: View {
                         headerCard(c)
                         effortCard(c)
                         gradeCard()
+                        syllabusCard(c)
                         if !assignments.isEmpty {
                             section("OPEN ASSIGNMENTS (\(assignments.count))") {
                                 ForEach(assignments) { a in assignmentRow(a) }
@@ -601,6 +605,158 @@ struct CourseDetailView: View {
                 .frame(width: 52).multilineTextAlignment(.trailing)
             Text("%").font(.caption2).foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: - Syllabus
+
+    @ViewBuilder private func syllabusCard(_ c: Course) -> some View {
+        section("SYLLABUS") {
+            if let syl = c.syllabus {
+                HStack(spacing: DS.Space.s) {
+                    Image(systemName: "doc.text.fill").foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(syl.fileName.isEmpty ? "Syllabus" : syl.fileName).font(.callout.weight(.medium)).lineLimit(1)
+                        Text("Added \(syl.importedAt.dayMonth)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { SyllabusStore.open(syl) } label: { Image(systemName: "arrow.up.right.square") }
+                        .buttonStyle(.borderless).help("Open the syllabus")
+                    Menu {
+                        Button { attachSyllabus(c) } label: { Label("Replace…", systemImage: "arrow.triangle.2.circlepath") }
+                        Button(role: .destructive) { removeSyllabus(c) } label: { Label("Remove", systemImage: "trash") }
+                    } label: { Image(systemName: "ellipsis") }.buttonStyle(.borderless).fixedSize()
+                }
+                .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+
+                if syllabusExtracting {
+                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Reading the syllabus…").font(.caption).foregroundStyle(.secondary) }
+                } else if let d = syllabusDraft {
+                    draftReview(c, d)
+                } else if !syl.extracted {
+                    Button { extractSyllabus(c) } label: { Label("Extract details with AI", systemImage: "sparkles").font(.caption) }
+                        .buttonStyle(.bordered).controlSize(.small).disabled(!AIConfig.isReady)
+                    if !AIConfig.isReady {
+                        Text("Set up an engine in Settings ▸ Intelligence to pull out grading, dates and policies.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+
+                if !syl.keyDates.isEmpty { keyDatesView(c, syl.keyDates) }
+                if !syl.officeHours.isEmpty { fieldRow("Office hours", syl.officeHours) }
+                if !syl.textbooks.isEmpty { fieldRow("Textbooks", syl.textbooks.joined(separator: "\n")) }
+                if !syl.policies.isEmpty { fieldRow("Policies", syl.policies) }
+            } else {
+                Button { attachSyllabus(c) } label: { Label("Attach syllabus", systemImage: "paperclip").font(.caption) }
+                    .buttonStyle(.bordered).controlSize(.small)
+                Text("Keep the syllabus here — StudyBar can pull out the grading breakdown, key dates and policies.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func fieldRow(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            Text(value).font(.caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func keyDatesView(_ c: Course, _ dates: [SyllabusDate]) -> some View {
+        let dated = dates.filter { $0.date != nil }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("KEY DATES").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            ForEach(dates) { d in
+                HStack {
+                    Text(d.label).font(.caption)
+                    Spacer()
+                    Text(d.date?.dayMonth ?? "—").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            if !dated.isEmpty {
+                Button { addDatesToAssignments(c, dated) } label: {
+                    Label("Add \(dated.count) dated item\(dated.count == 1 ? "" : "s") to Assignments", systemImage: "calendar.badge.plus").font(.caption2)
+                }.buttonStyle(.borderless)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    /// Inline propose→accept of the AI-extracted syllabus details.
+    private func draftReview(_ c: Course, _ d: SyllabusDraft) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("PROPOSED FROM SYLLABUS").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+            if !d.grading.isEmpty {
+                Text("Grading → \(d.grading.count) component\(d.grading.count == 1 ? "" : "s"): "
+                     + d.grading.map { "\($0.name) \(Int($0.weight))%" }.joined(separator: ", "))
+                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+            if !d.keyDates.isEmpty { Text("Key dates → \(d.keyDates.count)").font(.caption) }
+            if !d.textbooks.isEmpty { Text("Textbooks → \(d.textbooks.count)").font(.caption) }
+            if !d.officeHours.isEmpty { Text("Office hours").font(.caption) }
+            if !d.policies.isEmpty { Text("Policies").font(.caption) }
+            HStack(spacing: DS.Space.m) {
+                Button("Apply") { acceptDraft(c, d) }.buttonStyle(.borderedProminent).controlSize(.small)
+                Button("Discard") { syllabusDraft = nil }.buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9).background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func attachSyllabus(_ c: Course) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf, .plainText, .text, .rtf]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url, let item = SyllabusStore.attach(url, courseID: c.id) else { return }
+        updateCourse { $0.syllabus = item }
+        syllabusDraft = nil
+    }
+    private func removeSyllabus(_ c: Course) {
+        if let s = c.syllabus { SyllabusStore.remove(s) }
+        updateCourse { $0.syllabus = nil }
+        syllabusDraft = nil
+    }
+    private func extractSyllabus(_ c: Course) {
+        guard let syl = c.syllabus, AIConfig.isReady else { return }
+        syllabusExtracting = true
+        let text = SyllabusStore.text(syl)
+        let provider = AIService.makeProvider()
+        Task { @MainActor in
+            let draft = await SyllabusExtract.run(text, provider: provider)
+            syllabusExtracting = false
+            syllabusDraft = draft
+        }
+    }
+    private func acceptDraft(_ c: Course, _ d: SyllabusDraft) {
+        state.withUndo("Applied syllabus") {
+            for g in d.grading {
+                state.gradeItems.append(GradeItem(courseID: c.id, name: g.name, weight: g.weight, score: 0, graded: false))
+            }
+            if let i = state.data.courses.firstIndex(where: { $0.id == c.id }) {
+                state.data.courses[i].syllabus?.policies = d.policies
+                state.data.courses[i].syllabus?.officeHours = d.officeHours
+                state.data.courses[i].syllabus?.textbooks = d.textbooks
+                state.data.courses[i].syllabus?.keyDates = d.keyDates
+                state.data.courses[i].syllabus?.extracted = true
+            }
+        }
+        syllabusDraft = nil
+    }
+    private func addDatesToAssignments(_ c: Course, _ dates: [SyllabusDate]) {
+        state.withUndo("Added syllabus dates") {
+            for d in dates where d.date != nil {
+                state.data.assignments.append(Assignment(title: d.label, courseID: c.id, due: d.date))
+            }
+        }
+    }
+    private func updateCourse(_ f: (inout Course) -> Void) {
+        guard let i = state.data.courses.firstIndex(where: { $0.id == courseID }) else { return }
+        f(&state.data.courses[i])
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {

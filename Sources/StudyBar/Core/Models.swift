@@ -14,6 +14,7 @@ struct Course: Identifiable, Codable, Hashable {
     var colorHex: String = "#4F8DFD"
     var canvasID: Int? = nil        // Canvas course id (for sync dedup)
     var term: String = ""           // e.g. "Fall 2026"; empty = current term (decode-safe)
+    var syllabus: SyllabusItem? = nil   // attached syllabus + AI-extracted details (decode-safe)
     var createdAt: Date = .now
 
     var color: Color { Color(hex: colorHex) ?? .accentColor }
@@ -510,6 +511,25 @@ struct GradeItem: Identifiable, Codable, Hashable {
     var weight: Double = 0     // percent of the final grade
     var score: Double = 0      // percent earned, 0–100
     var graded: Bool = true    // false = not taken yet (a target/unknown)
+}
+
+/// A syllabus attached to a course: the stored file plus AI-extracted structured details.
+/// Grading weights are pushed into `GradeItem`s (the Grade section) rather than duplicated here.
+struct SyllabusItem: Codable, Hashable {
+    var fileName: String = ""
+    var filePath: String = ""        // copy stored under App Support/Syllabi
+    var importedAt: Date = .now
+    var extracted: Bool = false      // AI extraction has been accepted
+    var policies: String = ""
+    var officeHours: String = ""
+    var textbooks: [String] = []
+    var keyDates: [SyllabusDate] = []
+}
+
+struct SyllabusDate: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var label: String = ""
+    var date: Date? = nil
 }
 
 // MARK: - Trash (soft-delete; recover a deleted item without reverting later work)
