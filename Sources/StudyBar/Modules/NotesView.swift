@@ -797,8 +797,6 @@ struct NoteEditor: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { enterEditFromPreview() }
-                // Return also drops into editing (hidden zero-size button captures the key).
-                .background(Button("") { enterEditFromPreview() }.keyboardShortcut(.return, modifiers: []).opacity(0).frame(width: 0, height: 0))
             }
         } else if splitLive {
             VStack(spacing: 0) {
