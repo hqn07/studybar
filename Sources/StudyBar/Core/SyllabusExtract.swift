@@ -20,8 +20,20 @@ struct SyllabusDraft: Hashable {
 
 enum SyllabusExtract {
     /// `provider` is nil when no engine is ready → returns nil (attach still works without AI).
-    static func run(_ text: String, provider: AIProvider?) async -> SyllabusDraft? {
+    /// `datesOnly` = the fast path: only the schedule dates, so a smaller prompt and less output.
+    static func run(_ text: String, provider: AIProvider?, datesOnly: Bool = false) async -> SyllabusDraft? {
         guard let provider, text.count > 40 else { return nil }
+        if datesOnly {
+            let sys = """
+            List EVERY dated deliverable from this course schedule — each homework, quiz and exam — \
+            with its due date. Reply with ONLY a JSON array: [{"label":"HW 1","date":"2026-08-24"}]. \
+            date is YYYY-MM-DD, inferring the year and month from the term. Include the final exam. \
+            No prose outside the JSON array.
+            """
+            let user = "SYLLABUS SCHEDULE:\n" + scheduleFocus(text)
+            guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
+            return parseDates(out)
+        }
         let sys = """
         You extract structured facts from a university course syllabus. Reply with ONLY a JSON object:
         {"grading":[{"name":"Homework","weight":20}],\
@@ -44,6 +56,31 @@ enum SyllabusExtract {
         let user = "SYLLABUS:\n" + focus(text)
         guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
         return parse(out)
+    }
+
+    /// Just the schedule region — no front matter — for the fast dates-only path.
+    private static func scheduleFocus(_ text: String) -> String {
+        let lower = text.lowercased()
+        if let a = lower.range(of: "course schedule") ?? lower.range(of: "schedule") {
+            return String(text[a.lowerBound...].prefix(14000))
+        }
+        return String(text.prefix(14000))
+    }
+
+    /// Parse a bare JSON array of {label, date} (the dates-only reply).
+    static func parseDates(_ raw: String) -> SyllabusDraft? {
+        guard let s = raw.firstIndex(of: "["), let e = raw.lastIndex(of: "]"), s < e,
+              let data = String(raw[s...e]).data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+        let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX"); df.dateFormat = "yyyy-MM-dd"
+        var dates: [SyllabusDate] = []
+        for k in arr {
+            let l = (k["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let dt = (k["date"] as? String).flatMap { df.date(from: $0) }
+            if !l.isEmpty { dates.append(SyllabusDate(label: l, date: dt)) }
+        }
+        guard !dates.isEmpty else { return nil }
+        var d = SyllabusDraft(); d.keyDates = dates; return d
     }
 
     /// Keep the front matter (instructor, textbook, office hours) plus the schedule/grading region,

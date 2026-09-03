@@ -641,8 +641,10 @@ struct CourseDetailView: View {
                 } else if let d = syllabusDraft {
                     draftReview(c, d)
                 } else if !syl.extracted {
-                    Button { extractSyllabus(c) } label: { Label("Extract details with AI", systemImage: "sparkles").font(.caption) }
-                        .buttonStyle(.bordered).controlSize(.small).disabled(!AIConfig.isReady)
+                    HStack(spacing: DS.Space.s) {
+                        Button { extractSyllabus(c) } label: { Label("Extract details", systemImage: "sparkles").font(.caption) }
+                        Button { extractSyllabus(c, datesOnly: true) } label: { Label("Dates only (faster)", systemImage: "calendar.badge.clock").font(.caption) }
+                    }.buttonStyle(.bordered).controlSize(.small).disabled(!AIConfig.isReady)
                     if !AIConfig.isReady {
                         Text("Set up an engine in Settings ▸ Intelligence to pull out grading, dates and policies.")
                             .font(.caption2).foregroundStyle(.secondary)
@@ -729,14 +731,14 @@ struct CourseDetailView: View {
         updateCourse { $0.syllabus = nil }
         syllabusDraft = nil
     }
-    private func extractSyllabus(_ c: Course) {
+    private func extractSyllabus(_ c: Course, datesOnly: Bool = false) {
         guard let syl = c.syllabus, AIConfig.isReady else { return }
         syllabusExtracting = true
         extractStart = Date()
         let text = SyllabusStore.text(syl)
         let provider = AIService.makeProvider()
         Task { @MainActor in
-            let draft = await SyllabusExtract.run(text, provider: provider)
+            let draft = await SyllabusExtract.run(text, provider: provider, datesOnly: datesOnly)
             syllabusExtracting = false
             extractStart = nil
             syllabusDraft = draft
