@@ -148,6 +148,13 @@ struct Assignment: Identifiable, Codable, Hashable {
         guard let due else { return nil }
         return Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: .now), to: Calendar.current.startOfDay(for: due)).day
     }
+    /// Whole calendar days from `ref` to the due date (negative = overdue as of `ref`).
+    /// Lets the planner reason about a day other than today.
+    func daysUntilDue(asOf ref: Date) -> Int? {
+        guard let due else { return nil }
+        let cal = Calendar.current
+        return cal.dateComponents([.day], from: cal.startOfDay(for: ref), to: cal.startOfDay(for: due)).day
+    }
 }
 
 extension Assignment {

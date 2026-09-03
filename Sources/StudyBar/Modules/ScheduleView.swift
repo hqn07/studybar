@@ -6,6 +6,8 @@ let weekdaySymbols = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 /// A parsed batch of draft classes awaiting review (drives the import sheet).
 struct ClassImportBatch: Identifiable, Hashable { let id = UUID(); var drafts: [ClassSession] }
+/// A day the student tapped to plan (drives the `PlanDaySheet`).
+struct PlanDayTarget: Identifiable, Hashable { let id = UUID(); let date: Date }
 private let weekdayLetters = ["", "S", "M", "T", "W", "T", "F", "S"]
 
 /// Which face of the unified Schedule is showing: the recurring weekly class grid, or
@@ -44,6 +46,8 @@ struct WeekGridView: View {
     @State private var editing: ClassSession?
     @State private var importBatch: ClassImportBatch?
     @State private var importError: String?
+    @State private var planningDay: PlanDayTarget?
+    @State private var hoverDay: Int?        // weekday whose header is hovered (plan affordance)
     @State private var weekOffset = 0        // 0 = this week; ± pages through weeks
     @AppStorage("useClassPeriods") private var useClassPeriods = false
 
@@ -150,6 +154,7 @@ struct WeekGridView: View {
             }
             .navigationDestination(item: $editing) { ClassEditor(session: $0) }
             .navigationDestination(item: $importBatch) { ClassImportView(drafts: $0.drafts) }
+            .sheet(item: $planningDay) { PlanDaySheet(date: $0.date) }
             .alert("Couldn't import", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
                 Button("OK", role: .cancel) { importError = nil }
             } message: { Text(importError ?? "") }
@@ -293,6 +298,9 @@ struct WeekGridView: View {
                         if let d = date(for: wd) {
                             Text("\(cal.component(.day, from: d))").font(.caption)
                         }
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 9)).foregroundStyle(.tint)
+                            .opacity(hoverDay == wd ? 1 : 0)
                     }
                     .foregroundStyle(isTodayCol ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -300,6 +308,10 @@ struct WeekGridView: View {
                     markerRow(due[wd] ?? [], blocks: blockCount(for: wd))
                 }
                 .frame(width: dayWidth, height: 50)
+                .contentShape(Rectangle())
+                .onHover { hoverDay = $0 ? wd : (hoverDay == wd ? nil : hoverDay) }
+                .onTapGesture { if let d = date(for: wd) { planningDay = PlanDayTarget(date: d) } }
+                .help("Plan this day — suggest study blocks")
             }
         }
         .frame(height: 50)                 // don't let the flexible spacer stretch the header

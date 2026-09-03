@@ -71,10 +71,10 @@ enum WeeklyReview {
 /// course grade + how much that course was studied this week, effort so far, GPA) are
 /// computed here so the model prioritizes by *risk*, not just the nearest deadline.
 enum DailyPlan {
-    static func brief(_ data: AppData) -> String {
+    static func brief(_ data: AppData, asOf ref: Date = Date()) -> String {
         var lines: [String] = []
-        let now = Date()
-        lines.append("Today: \(now.formatted(.dateTime.weekday(.wide).month().day())).")
+        let isToday = Calendar.current.isDateInToday(ref)
+        lines.append("\(isToday ? "Today" : "Planning"): \(ref.formatted(.dateTime.weekday(.wide).month().day())).")
 
         let todayMin = StudyStats.secondsToday(data) / 60
         let weekMin = StudyStats.secondsThisWeek(data) / 60
@@ -92,19 +92,19 @@ enum DailyPlan {
         var weekByCourse: [UUID: Int] = [:]
         for row in StudyStats.weekByCourse(data) { if let id = row.courseID { weekByCourse[id] = row.seconds / 60 } }
 
-        // Open work due within ~10 days (plus anything overdue): overdue first, then soonest.
+        // Open work due within ~10 days of the planned day (plus anything overdue): overdue first, then soonest.
         let candidates = data.assignments.filter { $0.status != .done }
-            .filter { ($0.daysUntilDue ?? 99) <= 10 }
+            .filter { ($0.daysUntilDue(asOf: ref) ?? 99) <= 10 }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
         if candidates.isEmpty {
-            lines.append("No assignments due in the next 10 days.")
+            lines.append("No assignments due in the 10 days after that.")
         } else {
             lines.append("Open work (soonest first) — with each course's grade + minutes studied this week:")
             for a in candidates.prefix(12) {
                 let c = data.courses.first { $0.id == a.courseID }
                 let code = c?.code.isEmpty == false ? c!.code : (c?.name ?? "—")
                 let grade = c.flatMap { $0.grade.isEmpty ? nil : "grade \($0.grade)" } ?? "no grade yet"
-                let due = a.daysUntilDue.map { $0 == 0 ? "due today" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
+                let due = a.daysUntilDue(asOf: ref).map { $0 == 0 ? "due that day" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
                 let effort = c.map { "studied \(weekByCourse[$0.id] ?? 0)m this week" } ?? ""
                 let pts = a.points.map { ", \(Int($0))pts" } ?? ""
                 lines.append("  • \(a.title.isEmpty ? "Untitled" : a.title) [\(code), \(grade)] — \(due)\(pts); \(effort)")
@@ -145,10 +145,10 @@ enum DailyPlan {
     /// The open items that most deserve time today (importance-ranked, due within ~10 days),
     /// each with a suggested block length by weight. The AI planner picks/orders a subset of
     /// these; the deterministic fallback takes the top few directly.
-    static func candidates(_ data: AppData, limit: Int = 6) -> [PlanCandidate] {
+    static func candidates(_ data: AppData, asOf ref: Date = Date(), limit: Int = 6) -> [PlanCandidate] {
         data.assignments
-            .filter { $0.status != .done && ($0.daysUntilDue ?? 999) <= 10 }
-            .sorted { TodayFocus.importance($0) > TodayFocus.importance($1) }
+            .filter { $0.status != .done && ($0.daysUntilDue(asOf: ref) ?? 999) <= 10 }
+            .sorted { TodayFocus.importance($0, asOf: ref) > TodayFocus.importance($1, asOf: ref) }
             .prefix(limit)
             .map { a in
                 let w = TodayFocus.weight(a.title)
@@ -161,40 +161,42 @@ enum DailyPlan {
     /// `AIConfig.isReady` is main-actor isolated) → deterministic top-3. The AI path chooses,
     /// orders, sizes, and explains a subset — matched back by INDEX, so a weak model can't
     /// invent items. Never throws.
-    static func plan(_ data: AppData, provider: AIProvider?) async -> [PlanBlockDraft] {
-        let cands = candidates(data)
+    static func plan(_ data: AppData, asOf ref: Date = Date(), provider: AIProvider?) async -> [PlanBlockDraft] {
+        let cands = candidates(data, asOf: ref)
         guard !cands.isEmpty else { return [] }
-        if let provider, let drafts = try? await aiPlan(cands, data: data, provider: provider), !drafts.isEmpty {
+        if let provider, let drafts = try? await aiPlan(cands, data: data, asOf: ref, provider: provider), !drafts.isEmpty {
             return drafts
         }
         return cands.prefix(3).map { c in
             PlanBlockDraft(assignmentID: c.a.id, title: c.a.title.isEmpty ? "Study" : c.a.title,
-                           courseID: c.a.courseID, minutes: c.minutes, why: TodayFocus.reason(c.a))
+                           courseID: c.a.courseID, minutes: c.minutes, why: TodayFocus.reason(c.a, asOf: ref))
         }
     }
 
-    private static func aiPlan(_ cands: [PlanCandidate], data: AppData, provider: AIProvider) async throws -> [PlanBlockDraft] {
+    private static func aiPlan(_ cands: [PlanCandidate], data: AppData, asOf ref: Date, provider: AIProvider) async throws -> [PlanBlockDraft] {
+        let isToday = Calendar.current.isDateInToday(ref)
+        let when = isToday ? "TODAY" : ref.formatted(.dateTime.weekday(.wide).month().day())
         let numbered = cands.enumerated().map { i, c -> String in
             let course = data.courses.first { $0.id == c.a.courseID }
             let code = course?.code.isEmpty == false ? course!.code : (course?.name ?? "—")
-            let due = c.a.daysUntilDue.map { $0 == 0 ? "due today" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
+            let due = c.a.daysUntilDue(asOf: ref).map { $0 == 0 ? "due that day" : ($0 < 0 ? "\(-$0)d overdue" : "in \($0)d") } ?? "no due date"
             let pts = c.a.points.map { ", \(Int($0))pts" } ?? ""
             return "\(i). \(c.a.title.isEmpty ? "Untitled" : c.a.title) [\(code)] — \(due)\(pts)"
         }.joined(separator: "\n")
         let sys = """
-        You plan a student's study time for TODAY. From the numbered candidate items, choose the \
-        2–4 that most deserve time now (lead with overdue, then soonest / heaviest), put them in \
+        You plan a student's study time for \(when). From the numbered candidate items, choose the \
+        2–4 that most deserve time then (lead with overdue, then soonest / heaviest), put them in \
         the order to work them, set a realistic block length in minutes (25–90), and give one \
         short concrete reason each. Use ONLY the listed items. Reply with ONLY a JSON array in \
         work order:
         [{"i":0,"minutes":45,"why":"…"}]
         """
-        let user = "Candidates:\n\(numbered)\n\nContext:\n\(brief(data))"
+        let user = "Candidates:\n\(numbered)\n\nContext:\n\(brief(data, asOf: ref))"
         let out = try await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)])
-        return parsePlan(out, cands: cands)
+        return parsePlan(out, cands: cands, asOf: ref)
     }
 
-    static func parsePlan(_ raw: String, cands: [PlanCandidate]) -> [PlanBlockDraft] {
+    static func parsePlan(_ raw: String, cands: [PlanCandidate], asOf ref: Date = Date()) -> [PlanBlockDraft] {
         guard let s = raw.firstIndex(of: "["), let e = raw.lastIndex(of: "]"), s < e,
               let data = String(raw[s...e]).data(using: .utf8),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
@@ -208,7 +210,7 @@ enum DailyPlan {
             let whyRaw = (o["why"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             out.append(PlanBlockDraft(assignmentID: c.a.id, title: c.a.title.isEmpty ? "Study" : c.a.title,
                                       courseID: c.a.courseID, minutes: mins,
-                                      why: whyRaw.isEmpty ? TodayFocus.reason(c.a) : whyRaw))
+                                      why: whyRaw.isEmpty ? TodayFocus.reason(c.a, asOf: ref) : whyRaw))
         }
         return out
     }

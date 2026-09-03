@@ -25,10 +25,10 @@ enum TodayFocus {
 
     /// How much this item deserves attention now. Size dominates; urgency is scaled by size
     /// so a big-but-later item outranks a trivial-but-imminent one — the whole point.
-    static func importance(_ a: Assignment) -> Double {
+    static func importance(_ a: Assignment, asOf ref: Date = Date()) -> Double {
         let base = weight(a.title)
         let points = a.points.map { min(0.6, $0 / 100 * 0.6) } ?? 0
-        let days = a.daysUntilDue ?? 99
+        let days = a.daysUntilDue(asOf: ref) ?? 99
         let proximity = days < 0 ? 0.6 : max(0, (14.0 - Double(days)) / 14.0) * 0.8
         return base * 2 + points + base * proximity
     }
@@ -41,9 +41,9 @@ enum TodayFocus {
     }
 
     /// Deterministic one-liner for the hero — used offline and as the AI fallback.
-    static func reason(_ a: Assignment) -> String {
+    static func reason(_ a: Assignment, asOf ref: Date = Date()) -> String {
         let w = weight(a.title)
-        let days = a.daysUntilDue ?? 99
+        let days = a.daysUntilDue(asOf: ref) ?? 99
         let due = days < 0 ? "\(-days) day\(days == -1 ? "" : "s") overdue"
                 : days == 0 ? "due today"
                 : days == 1 ? "due tomorrow"
