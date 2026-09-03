@@ -80,14 +80,14 @@ Look for the graduation-cap in your menu bar. **Left-click** for the popover,
 A focused set of modules across study, capture, focus, schedule, research and
 organization — everything hangs off your **Courses**.
 
-- **Overview** — Today (AI-ranked next-up, streak, due-today, natural-language quick-add) · Insights (7-day chart, time by course, flashcard retention).
+- **Overview** — Today (AI-ranked next-up, streak, due-today, natural-language quick-add, **Plan my day** — propose→accept study blocks) · Insights (7-day chart, time by course, flashcard retention).
 - **Assignments** — due countdowns, checklists, recurring, notifications with Complete/Snooze, AI urgency ranking, and **AI "break into steps."**
 - **Notes** — a real Markdown editor (slash menu, tables, checklists, native LaTeX, `[[wikilinks]]` + backlinks, templates) with inline **✨ AI** to summarize / rewrite / proofread.
 - **Voice Note** — on-device transcription (Apple Speech live, or Whisper) with crash-safe autosave.
 - **Flashcards** — FSRS scheduling, cloze, match & test modes, **Anki `.apkg`/CSV import & export**, and **AI card generation** from your own material.
 - **Reading** — track books, chapters, highlights — and **attach a PDF to search inside it and ask questions answered from the actual pages, with citations** (on-device; OCR for scanned PDFs).
 - **Time & Focus** — Pomodoro (course-linked) · Stopwatch · Focus (hide apps + ambient noise) · Time blocking.
-- **Schedule** — weekly timetable · unified Calendar (EventKit + iCal feeds + assignments).
+- **Schedule** — weekly timetable with due-markers & exam banners · **tap any day to plan it** (AI study blocks for that date) · import classes from an **`.ics` feed or pasted text** · unified Calendar (EventKit + iCal feeds + assignments).
 - **Research & Library** — Citations (APA/MLA/Chicago/IEEE/Harvard/Vancouver/BibTeX) · Reading List · Files · **News** (RSS/Atom reader).
 - **Organize** — Kanban board · Courses + grades.
 
@@ -146,7 +146,7 @@ editors push inline and confirmations are in-popover overlay cards.
 StudyBar is built in the open — feedback shapes it.
 
 - **✉️ Feedback? Email is best: [unrest.green_6d@icloud.com](mailto:unrest.green_6d@icloud.com)** — it gets the fastest reply. (Heads-up: I don't check GitHub often, so email beats an issue for anything you want a response to.) There's also a one-click **Send feedback by email** in Settings ▸ About.
-- **🐞 Bug?** Email works, or [open an issue](https://github.com/hqn07/studybar/issues/new/choose) (there's a template) — include your macOS version and steps to reproduce.
+- **🐞 Bug?** Email works, or [open an issue](https://github.com/hqn07/studybar/issues/new/choose) (there's a template) — include your macOS version and steps to reproduce. Even easier: **Settings ▸ Diagnostics ▸ Send by email** attaches a privacy-safe report (version, engine state, recent technical events — never your note or transcript text).
 - **💡 Ideas / questions / show & tell?** [Discussions](https://github.com/hqn07/studybar/discussions).
 
 Pull requests are welcome — a module is just a view plus a line in `Core/ModuleRegistry.swift`.
