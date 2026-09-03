@@ -271,6 +271,7 @@ struct OllamaProvider: AIProvider {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             let msg = String(data: data, encoding: .utf8) ?? ""
+            Diagnostics.warn(.net, "Ollama (\(model)) HTTP \(code)")
             throw AIError.http(code, msg.isEmpty ? "Is Ollama running? Start it, then `ollama pull \(model)`." : msg)
         }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -301,6 +302,7 @@ struct OllamaProvider: AIProvider {
         let (bytes, resp) = try await URLSession.shared.bytes(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
+            Diagnostics.warn(.net, "Ollama (\(model)) HTTP \(code) [completeStreaming]")
             throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.")
         }
         var raw = ""; var lastSent = ""
@@ -340,7 +342,10 @@ struct OllamaProvider: AIProvider {
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.") }
+        guard code == 200 else {
+            Diagnostics.warn(.net, "Ollama (\(model)) HTTP \(code) [completePlainOnce]")
+            throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.")
+        }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let text = (obj?["message"] as? [String: Any])?["content"] as? String ?? ""
         guard !text.isEmpty else { throw AIError.badResponse }
@@ -371,6 +376,7 @@ struct OllamaProvider: AIProvider {
         let (bytes, resp) = try await URLSession.shared.bytes(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
+            Diagnostics.warn(.net, "Ollama (\(model)) HTTP \(code) [completePlainStreaming]")
             throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.")
         }
         var raw = ""
@@ -498,6 +504,21 @@ enum AIService {
     /// Run one assistant turn. The model may first request read-only data (which we
     /// execute and feed back) before returning its final reply + write actions.
     static func send(history: [AIMessage], state: AppState,
+                     onReplyDelta: (@MainActor (String) -> Void)? = nil) async throws -> AITurn {
+        let t0 = Date()
+        Diagnostics.info(.ai, "Assistant turn: \(history.count) msg(s), engine \(AIConfig.mode)")
+        do {
+            let turn = try await sendInner(history: history, state: state, onReplyDelta: onReplyDelta)
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            Diagnostics.info(.ai, "Assistant turn done in \(ms)ms: \(turn.reply.count) reply chars, \(turn.actions.count) action(s)")
+            return turn
+        } catch {
+            Diagnostics.error(.ai, "Assistant turn failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    private static func sendInner(history: [AIMessage], state: AppState,
                      onReplyDelta: (@MainActor (String) -> Void)? = nil) async throws -> AITurn {
         guard let provider = makeProvider() else { throw AIError.notConfigured }
         // Cloud engines use the provider's native tool-calling API (structured, reliable)

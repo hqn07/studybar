@@ -311,14 +311,21 @@ final class AppState: ObservableObject {
            let disk = try? JSONDecoder.studybar.decode(AppData.self, from: raw), !disk.isEffectivelyEmpty {
             backupDiskFile()
             NSLog("StudyBar: refused to overwrite a non-empty store (%d records) with an empty one", disk.contentCount)
+            Diagnostics.error(.sync, "Refused to overwrite a non-empty store (\(disk.contentCount) records) with an empty one — backed up the disk copy")
             return
         }
-        guard let raw = try? JSONEncoder.studybar.encode(data) else { return }
+        guard let raw = try? JSONEncoder.studybar.encode(data) else {
+            Diagnostics.error(.sync, "Save skipped: could not encode the store")
+            return
+        }
         do {
             try raw.write(to: fileURL, options: .atomic)
             loadedMtime = AppState.mtime(fileURL)
             baseData = data
-        } catch { /* leave loadedMtime/baseData so a later save retries the merge check */ }
+        } catch {
+            // leave loadedMtime/baseData so a later save retries the merge check
+            Diagnostics.error(.sync, "Save failed writing \(raw.count) bytes: \(error.localizedDescription)")
+        }
     }
 
     /// If the on-disk file is newer than our last sync point, back it up and return the
@@ -330,7 +337,11 @@ final class AppState: ObservableObject {
               disk.timeIntervalSince(loaded) > 1 else { return nil }   // >1s allows for fs granularity
         backupDiskFile()
         guard let raw = try? Data(contentsOf: fileURL),
-              let theirs = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else { return nil }
+              let theirs = try? JSONDecoder.studybar.decode(AppData.self, from: raw) else {
+            Diagnostics.warn(.sync, "On-disk store changed but couldn't be decoded — backed it up, keeping local")
+            return nil
+        }
+        Diagnostics.info(.sync, "On-disk store changed (external write) — merging before save")
         return AppData.merged(base: baseData, mine: data, theirs: theirs)
     }
 
@@ -355,6 +366,7 @@ final class AppState: ObservableObject {
         suppressSave = false
         loadedMtime = disk
         baseData = merged
+        Diagnostics.info(.sync, "Reloaded external change and merged into live state")
         // If the merge added anything the disk file lacks (unsaved local edits), persist
         // the union so the other device converges on it too.
         if merged != theirs { scheduleSave() }
@@ -376,6 +388,7 @@ final class AppState: ObservableObject {
         fileURL = target
         loadedMtime = AppState.mtime(fileURL)
         baseData = data
+        Diagnostics.info(.sync, "iCloud sync turned \(on ? "on" : "off") — store now at \(target.deletingLastPathComponent().lastPathComponent)/\(target.lastPathComponent)")
     }
     var iCloudAvailable: Bool { AppState.iCloudDir != nil }
 

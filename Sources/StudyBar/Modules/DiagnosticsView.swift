@@ -149,10 +149,11 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button { copyReport() } label: { Label(copied ? "Copied ✓" : "Copy report", systemImage: "doc.on.doc") }
+                Button { emailReport() } label: { Label("Send by email", systemImage: "envelope") }
                 Button { saveReport() } label: { Label("Save…", systemImage: "square.and.arrow.down") }
                 Button(role: .destructive) { diag.clear() } label: { Label("Clear log", systemImage: "trash") }
             }.buttonStyle(.bordered).controlSize(.small)
-            rowText("The report includes app version, macOS, engine + model state, record counts and recent technical events — never your note text, transcripts or other content.",
+            rowText("The report includes app version, macOS, engine + model state, record counts and recent technical events — never your note text, transcripts or other content. Sending copies the full report to your clipboard and opens a pre-addressed email.",
                     font: .caption2, color: .secondary)
         }
     }
@@ -167,6 +168,25 @@ struct DiagnosticsView: View {
     private func copyReport() {
         let r = Diagnostics.report(state.data, health: health)
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(r, forType: .string)
+        copied = true
+        Task { try? await Task.sleep(nanoseconds: 1_800_000_000); copied = false }
+    }
+    /// Copy the full redacted report to the clipboard and open a pre-addressed email with the
+    /// report inline (truncated to a mail-safe length; the clipboard holds the full copy).
+    private func emailReport() {
+        let r = Diagnostics.report(state.data, health: health)
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(r, forType: .string)
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        var c = URLComponents()
+        c.scheme = "mailto"
+        c.path = "unrest.green_6d@icloud.com"
+        let body = "What happened (please describe):\n\n\n———\nDiagnostics report (the full copy is on your clipboard — paste it here if this looks cut off):\n\n"
+            + String(r.prefix(6000))
+        c.queryItems = [
+            URLQueryItem(name: "subject", value: "StudyBar diagnostics (v\(v))"),
+            URLQueryItem(name: "body", value: body),
+        ]
+        if let url = c.url { NSWorkspace.shared.open(url) }
         copied = true
         Task { try? await Task.sleep(nanoseconds: 1_800_000_000); copied = false }
     }
