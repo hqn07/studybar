@@ -63,6 +63,7 @@ struct TodayView: View {
                     if !overdue.isEmpty { overdueBanner }
                     weekStrip
                     planSection
+                    wrapUpSection
                     quickAddBlock
                     if !todayClasses.isEmpty {
                         section("Today", todayClasses.count, "clock") {
@@ -406,6 +407,62 @@ struct TodayView: View {
         planDrafts = []
         scheduleMode = "plan"
         state.selectedModuleID = "schedule"   // land on the plan so the blocks are visible
+    }
+
+    // MARK: - Wrap up today (end-of-day reconcile)
+
+    private var nowMin: Int {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: .now)
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
+    /// Today's planned blocks that have already ended without being marked done — the
+    /// "did it actually happen?" set the reconcile acts on.
+    private var endedIncompleteBlocks: [TimeBlock] {
+        let today = Calendar.current.startOfDay(for: .now)
+        return state.timeBlocks(on: today)
+            .filter { !$0.done && $0.endMinutes <= nowMin }
+            .sorted { $0.startMinutes < $1.startMinutes }
+    }
+
+    @ViewBuilder private var wrapUpSection: some View {
+        let items = endedIncompleteBlocks
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                HStack {
+                    SectionHeader(title: "Wrap up today", count: items.count, systemImage: "moon.stars")
+                    Spacer()
+                    Button("Move all to tomorrow") { withAnimation { items.forEach(rollForward) } }
+                        .buttonStyle(.borderless).font(.caption.bold())
+                }
+                Text("Blocks whose time has passed — check off what you did, or push the rest to tomorrow.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(items) { wrapRow($0) }
+            }
+        }
+    }
+
+    private func wrapRow(_ b: TimeBlock) -> some View {
+        HStack(spacing: DS.Space.s) {
+            if let c = state.course(b.courseID) { Circle().fill(c.color).frame(width: 6, height: 6) }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(b.title.isEmpty ? "Block" : b.title).font(.callout.weight(.medium)).lineLimit(1)
+                Text("\(b.startString) – \(b.endString)").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: DS.Space.s)
+            Button { withAnimation { markBlockDone(b) } } label: { Image(systemName: "checkmark.circle.fill") }
+                .buttonStyle(.borderless).foregroundStyle(.green).help("Mark done — it counts toward your day")
+            Button { withAnimation { rollForward(b) } } label: { Image(systemName: "arrow.uturn.forward") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Move this block to tomorrow")
+        }
+        .padding(DS.Space.s)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func markBlockDone(_ b: TimeBlock) { var x = b; x.done = true; state.upsertTimeBlock(x) }
+    private func rollForward(_ b: TimeBlock) {
+        let cal = Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: b.day)) ?? b.day
+        var x = b; x.day = tomorrow; x.done = false; state.upsertTimeBlock(x)
     }
 
     // MARK: - Pieces
