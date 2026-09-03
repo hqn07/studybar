@@ -372,6 +372,7 @@ struct CourseDetailView: View {
     @State private var syllabusExtracting = false
     @State private var extractStart: Date?
     @State private var syllabusError: String?
+    @State private var excludedDates: Set<UUID> = []
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
@@ -683,46 +684,87 @@ struct CourseDetailView: View {
     }
 
     private func keyDatesView(_ c: Course, _ dates: [SyllabusDate]) -> some View {
-        let dated = dates.filter { $0.date != nil }
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("KEY DATES").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-            ForEach(dates) { d in
-                HStack {
-                    Text(d.label).font(.caption)
-                    Spacer()
-                    Text(d.date?.dayMonth ?? "—").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("KEY DATES (\(dates.count)) — added to Assignments").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(dates) { d in
+                        HStack {
+                            Text(d.label).font(.caption).lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(d.date?.dayMonth ?? "—").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }.padding(.horizontal, 8).padding(.vertical, 2)
+                    }
                 }
-            }
-            if !dated.isEmpty {
-                Button { addDatesToAssignments(c, dated) } label: {
-                    Label("Add \(dated.count) dated item\(dated.count == 1 ? "" : "s") to Assignments", systemImage: "calendar.badge.plus").font(.caption2)
-                }.buttonStyle(.borderless)
-            }
+            }.frame(maxHeight: dates.count > 8 ? 180 : .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
-    /// Inline propose→accept of the AI-extracted syllabus details.
+    private func includedDates(_ d: SyllabusDraft) -> [SyllabusDate] { d.keyDates.filter { !excludedDates.contains($0.id) } }
+
+    /// Inline propose→accept: review the extracted details — every date is listed and checkable —
+    /// before anything is created. Apply adds only the checked items.
     private func draftReview(_ c: Course, _ d: SyllabusDraft) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("PROPOSED FROM SYLLABUS").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+        let inc = includedDates(d).count
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("REVIEW — FROM SYLLABUS").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+
             if !d.grading.isEmpty {
-                Text("Grading → \(d.grading.count) component\(d.grading.count == 1 ? "" : "s"): "
-                     + d.grading.map { "\($0.name) \(Int($0.weight))%" }.joined(separator: ", "))
-                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                Text("GRADE COMPONENTS").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                ForEach(d.grading) { g in
+                    HStack { Text(g.name).font(.caption); Spacer(); Text("\(gstr(g.weight))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                }
+                let sum = d.grading.reduce(0) { $0 + $1.weight }
+                Text("Sum \(gstr(sum))%\(abs(sum - 100) > 1 ? " — usually 100%, double-check" : "")")
+                    .font(.caption2).foregroundStyle(abs(sum - 100) > 1 ? .orange : .secondary)
             }
-            if !d.keyDates.isEmpty { Text("Key dates → \(d.keyDates.count)").font(.caption) }
-            if !d.textbooks.isEmpty { Text("Textbooks → \(d.textbooks.count)").font(.caption) }
-            if !d.officeHours.isEmpty { Text("Office hours").font(.caption) }
-            if !d.policies.isEmpty { Text("Policies").font(.caption) }
+
+            if !d.keyDates.isEmpty {
+                HStack {
+                    Text("DATES → ASSIGNMENTS (\(inc)/\(d.keyDates.count))").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(excludedDates.isEmpty ? "Uncheck all" : "Check all") {
+                        excludedDates = excludedDates.isEmpty ? Set(d.keyDates.map(\.id)) : []
+                    }.font(.caption2).buttonStyle(.borderless)
+                }
+                ScrollView {
+                    VStack(spacing: 2) { ForEach(d.keyDates) { dateReviewRow($0) } }
+                }
+                .frame(maxHeight: 220)
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            }
+
+            if !d.textbooks.isEmpty { Text("Textbooks: " + d.textbooks.joined(separator: "; ")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            if !d.officeHours.isEmpty { Text("Office hours: \(d.officeHours)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+
             HStack(spacing: DS.Space.m) {
                 Button("Apply") { acceptDraft(c, d) }.buttonStyle(.borderedProminent).controlSize(.small)
-                Button("Discard") { syllabusDraft = nil }.buttonStyle(.bordered).controlSize(.small)
+                Button("Discard") { syllabusDraft = nil; excludedDates = [] }.buttonStyle(.bordered).controlSize(.small)
+                Spacer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9).background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    private func dateReviewRow(_ k: SyllabusDate) -> some View {
+        let on = !excludedDates.contains(k.id)
+        return Button {
+            if on { excludedDates.insert(k.id) } else { excludedDates.remove(k.id) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: on ? "checkmark.circle.fill" : "circle").foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                Text(k.label).font(.caption).lineLimit(1).strikethrough(!on).foregroundStyle(on ? .primary : .secondary)
+                Spacer(minLength: 6)
+                Text(k.date?.dayMonth ?? "no date").font(.caption.monospacedDigit())
+                    .foregroundStyle(k.date == nil ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8).padding(.vertical, 3)
     }
 
     private func attachSyllabus(_ c: Course) {
@@ -753,6 +795,7 @@ struct CourseDetailView: View {
             let draft = await SyllabusExtract.run(text, provider: provider, datesOnly: datesOnly)
             syllabusExtracting = false; extractStart = nil
             if let draft {
+                excludedDates = []
                 syllabusDraft = draft
             } else {
                 syllabusError = "The AI didn't return usable details (it may have timed out or replied with unusable text). Make sure Ollama is running with \(AIConfig.ollamaModel), then try again — Dates only is faster. See Settings ▸ Diagnostics for details."
@@ -760,26 +803,24 @@ struct CourseDetailView: View {
         }
     }
     private func acceptDraft(_ c: Course, _ d: SyllabusDraft) {
+        let included = includedDates(d)
         state.withUndo("Applied syllabus") {
             for g in d.grading {
                 state.gradeItems.append(GradeItem(courseID: c.id, name: g.name, weight: g.weight, score: 0, graded: false))
+            }
+            // Every checked, dated item becomes an assignment; the checked list is kept on the syllabus.
+            for k in included where k.date != nil {
+                state.data.assignments.append(Assignment(title: k.label, courseID: c.id, due: k.date))
             }
             if let i = state.data.courses.firstIndex(where: { $0.id == c.id }) {
                 state.data.courses[i].syllabus?.policies = d.policies
                 state.data.courses[i].syllabus?.officeHours = d.officeHours
                 state.data.courses[i].syllabus?.textbooks = d.textbooks
-                state.data.courses[i].syllabus?.keyDates = d.keyDates
+                state.data.courses[i].syllabus?.keyDates = included
                 state.data.courses[i].syllabus?.extracted = true
             }
         }
-        syllabusDraft = nil
-    }
-    private func addDatesToAssignments(_ c: Course, _ dates: [SyllabusDate]) {
-        state.withUndo("Added syllabus dates") {
-            for d in dates where d.date != nil {
-                state.data.assignments.append(Assignment(title: d.label, courseID: c.id, due: d.date))
-            }
-        }
+        syllabusDraft = nil; excludedDates = []
     }
     private func updateCourse(_ f: (inout Course) -> Void) {
         guard let i = state.data.courses.firstIndex(where: { $0.id == courseID }) else { return }
