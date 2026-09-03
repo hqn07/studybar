@@ -378,6 +378,7 @@ struct NoteEditor: View {
     @AppStorage("notesFontSize") private var notesFontSize = 15.0
     @AppStorage("notesLineSpacing") private var notesLineSpacing = 3.5
     @State private var chipDismissed = false
+    @FocusState private var tagFieldFocused: Bool
     private let initialAttributed: NSAttributedString
     /// A brand-new, empty note — grab focus so the user can just start typing.
     private let startedEmpty: Bool
@@ -785,8 +786,14 @@ struct NoteEditor: View {
             VStack(spacing: 0) {
                 readingBar
                 ScrollView {
-                    NotePreview(text: draft.body.isEmpty ? "_Nothing here yet — click to start writing._" : draft.body)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 12)
+                    VStack(alignment: .leading, spacing: 14) {
+                        readingHeader
+                        NotePreview(text: draft.body.isEmpty ? "_Nothing here yet — click to start writing._" : draft.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: 680, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)   // center the reading column
+                    .padding(.horizontal, 24).padding(.vertical, 20)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { enterEditFromPreview() }
@@ -836,6 +843,55 @@ struct NoteEditor: View {
     }
     private func enterEditFromPreview() { withAnimation(.easeOut(duration: 0.12)) { showPreview = false } }
 
+    /// Existing tags (across all notes) that aren't already on this note, ranked by how often
+    /// they're used and narrowed to the tag currently being typed — keeps the vocabulary tight.
+    private var tagSuggestions: [String] {
+        let tokens = tagText.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        let onNote = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
+        let partial = (tokens.last ?? "").lowercased()
+        var freq: [String: (display: String, n: Int)] = [:]
+        for t in state.data.notes.flatMap({ $0.tags }) where !t.isEmpty {
+            freq[t.lowercased(), default: (t, 0)].n += 1
+        }
+        return freq.values
+            .filter { !onNote.contains($0.display.lowercased()) }
+            .filter { partial.isEmpty || $0.display.lowercased().contains(partial) }
+            .sorted { $0.n > $1.n }
+            .prefix(6).map(\.display)
+    }
+    /// Complete the tag being typed with a suggestion, leaving a trailing separator to continue.
+    private func applyTag(_ tag: String) {
+        var tokens = tagText.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        if tokens.isEmpty { tokens = [""] }
+        tokens[tokens.count - 1] = tag
+        tagText = tokens.filter { !$0.isEmpty }.joined(separator: ", ") + ", "
+        tagFieldFocused = true
+    }
+
+    /// Reading-view masthead: the note's title as a page heading, plus a quiet course/edited line.
+    @ViewBuilder private var readingHeader: some View {
+        if !draft.title.isEmpty || draft.courseID != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if !draft.title.isEmpty {
+                    Text(draft.title).font(.system(.title, design: .default).weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    if let c = state.course(draft.courseID) {
+                        HStack(spacing: 5) {
+                            Circle().fill(c.color).frame(width: 6, height: 6)
+                            Text(c.code.isEmpty ? c.name : c.code)
+                        }
+                    }
+                    Text("edited \(draft.updatedAt.relativeShort)")
+                    if !draft.tags.isEmpty { Text(draft.tags.map { "#\($0)" }.joined(separator: " ")).foregroundStyle(.tint).lineLimit(1) }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                Divider().padding(.top, 2)
+            }
+        }
+    }
+
     private func countWords(_ s: String) -> Int {
         // Drop bare markers ($ • ☐ ☑ ─ [ ]) so they aren't counted as words.
         let cleaned = s.filter { !"$•☐☑─[]".contains($0) }
@@ -859,6 +915,7 @@ struct NoteEditor: View {
             HStack(spacing: 8) {
                 Image(systemName: "tag").font(.caption).foregroundStyle(.secondary)
                 TextField("tags, comma separated", text: $tagText).textFieldStyle(.plain).font(.caption)
+                    .focused($tagFieldFocused)
                 Spacer()
                 Menu {
                     Button { duplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
@@ -870,6 +927,20 @@ struct NoteEditor: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 Button("Delete", role: .destructive) { delete() }
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
+            }
+            if tagFieldFocused && !tagSuggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(tagSuggestions, id: \.self) { t in
+                            Button { applyTag(t) } label: { Text("#\(t)").font(.caption2) }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(.sbSurface2, in: Capsule())
+                                .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
+                        }
+                    }.padding(.horizontal, 2)
+                }
+                .frame(height: 24)
             }
         }.padding(10)
     }
