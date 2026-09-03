@@ -5,6 +5,12 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.6] — 2026-09-03
+
+- **Syllabus, attached to the course** — open a course and **Attach syllabus**: the file is kept and re-openable, and **Extract details with AI** pulls out the grading breakdown, key dates, policies, office hours and textbooks. Review every extracted date in a checkable list (uncheck any that look wrong) before **Apply** — grade rows fill your Grade section and the checked, dated items become assignments. There's a **Dates only (faster)** mode when you just want the whole semester's due dates.
+- **Exam markers on the schedule** — an exam due in the week you're viewing now shows as a red banner at the top of its day's column, not just a small dot, so the high-stakes items are unmissable.
+- **Find duplicate assignments** — a new button in Assignments groups likely duplicates (the same task imported from two sources with different names) by course, due date and similar title. Pick which to keep; merging the rest is undoable.
+
 ## [1.8.5] — 2026-09-02
 
 - **Diagnostics panel** — a new **Settings ▸ Diagnostics** tab: health checks (data, mic and speech permissions, Whisper models, Ollama, disk), an environment summary, a filterable log of recent technical events, and detection of an unexpected quit. One tap copies or saves a **redacted** report to send with a bug report — it never includes your note text or transcripts.
