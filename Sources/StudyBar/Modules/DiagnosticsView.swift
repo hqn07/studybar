@@ -3,9 +3,13 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// Settings ▸ Diagnostics — a local, privacy-safe view of the app's health, environment and
-/// recent technical events, with a one-tap redacted report for bug reports. Rendered as Form
-/// sections to match the other settings tabs.
-struct DiagnosticsSections: View {
+/// recent technical events, with a one-tap redacted report for bug reports.
+///
+/// Rendered as its OWN scroll view (not inside the settings Form): a grouped Form won't give a
+/// long child a bounded width, so wide content (the crash log, long event lines) overflowed the
+/// pane and grew the window. Here a plain vertical ScrollView bounds the width, so every text
+/// wraps and nothing pushes the window.
+struct DiagnosticsView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var diag = Diagnostics.shared
     @AppStorage("diagVerbose") private var verbose = false
@@ -16,69 +20,85 @@ struct DiagnosticsSections: View {
     @State private var copied = false
 
     var body: some View {
-        Group {
-            if diag.lastCrash != nil { crashSection }
-            healthSection
-            environmentSection
-            eventsSection
-            actionsSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if diag.lastCrash != nil { crashCard }
+                card("Health") { healthContent }
+                card("Environment") { environmentContent }
+                card("Events (\(diag.events.count))") { eventsContent }
+                card("Report") { reportContent }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await refreshHealth() }
     }
 
-    @ViewBuilder private var crashSection: some View {
-        if diag.lastCrash != nil {
-            Section {
-                // The raw multi-line log is NOT shown inline — its long monospace lines can't be
-                // width-bounded reliably inside a grouped Form and overflowed the pane. It's kept
-                // in full in the exported report instead.
-                HStack(alignment: .top, spacing: 0) {
-                    Text("The full log leading up to it is in the report below — Copy or Save it to send.")
-                        .font(.callout).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)     // absorbs width so the Text wraps within the pane
-                }
-                Button { diag.lastCrash = nil } label: { Label("Dismiss", systemImage: "xmark") }
-            } header: {
-                Label("Previous session ended unexpectedly", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            }
+    /// A titled surface card; content wraps within the (bounded) scroll width.
+    @ViewBuilder private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.headline)
+            content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
+    }
+
+    private func rowText(_ s: String, font: Font = .callout, color: Color = .primary) -> some View {
+        Text(s).font(font).foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: Crash
+
+    private var crashCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Previous session ended unexpectedly", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline).foregroundStyle(.orange)
+            rowText("A crash, force-quit or power loss. The full log leading up to it is in the report below — Copy or Save it to send so this can be fixed.", color: .secondary)
+            Button { diag.lastCrash = nil } label: { Label("Dismiss", systemImage: "xmark") }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.orange.opacity(0.4), lineWidth: 0.5))
     }
 
     // MARK: Health
 
-    private var healthSection: some View {
-        Section {
-            if loadingHealth && health.isEmpty {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Running checks…").foregroundStyle(.secondary) }
-            }
-            ForEach(health) { h in
-                HStack(spacing: 10) {
-                    Image(systemName: h.status.symbol).foregroundStyle(color(h.status))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(h.name)
-                        Text(h.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
+    @ViewBuilder private var healthContent: some View {
+        if loadingHealth && health.isEmpty {
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Running checks…").foregroundStyle(.secondary) }
+        }
+        ForEach(health) { h in
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: h.status.symbol).foregroundStyle(color(h.status)).frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(h.name)
+                    rowText(h.detail, font: .caption, color: .secondary)
                 }
             }
-            Button { Task { await refreshHealth() } } label: { Label("Re-run checks", systemImage: "arrow.clockwise") }
-                .disabled(loadingHealth)
-        } header: { Text("Health") }
+        }
+        Button { Task { await refreshHealth() } } label: { Label("Re-run checks", systemImage: "arrow.clockwise") }
+            .buttonStyle(.bordered).controlSize(.small).disabled(loadingHealth).padding(.top, 2)
     }
 
     // MARK: Environment
 
-    private var environmentSection: some View {
-        Section {
-            ForEach(Diagnostics.environment(state.data), id: \.0) { row in
-                HStack(alignment: .top) {
-                    Text(row.0).foregroundStyle(.secondary).fixedSize()
-                    Spacer(minLength: 12)
-                    Text(row.1).multilineTextAlignment(.trailing).textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)   // wrap, don't push width
-                }.font(.callout)
+    @ViewBuilder private var environmentContent: some View {
+        ForEach(Diagnostics.environment(state.data), id: \.0) { row in
+            HStack(alignment: .top, spacing: 12) {
+                Text(row.0).font(.callout).foregroundStyle(.secondary).fixedSize()
+                Spacer(minLength: 8)
+                Text(row.1).font(.callout).multilineTextAlignment(.trailing).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        } header: { Text("Environment") }
+            if row.0 != Diagnostics.environment(state.data).last?.0 { Divider() }
+        }
     }
 
     // MARK: Events
@@ -87,50 +107,54 @@ struct DiagnosticsSections: View {
         diag.events.filter { $0.level >= minLevel && (catFilter == nil || $0.category == catFilter) }
     }
 
-    private var eventsSection: some View {
-        Section {
-            HStack(spacing: 10) {
-                Picker("Level", selection: $minLevel) {
-                    ForEach(DiagLevel.allCases) { Text($0.label).tag($0) }
-                }.fixedSize()
-                Picker("Category", selection: $catFilter) {
-                    Text("All").tag(DiagCategory?.none)
-                    ForEach(DiagCategory.allCases) { Text($0.label).tag(DiagCategory?.some($0)) }
-                }.fixedSize()
-                Spacer()
-                Toggle("Verbose", isOn: $verbose).toggleStyle(.switch).controlSize(.mini)
-            }
-            let rows = Array(filtered.suffix(200).reversed())     // newest first
-            if rows.isEmpty {
-                Text(diag.events.isEmpty ? "No events yet — use the app and technical events appear here."
-                                         : "No events match the filter.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(rows) { eventRow($0) }
-            }
-        } header: { Text("Events (\(diag.events.count))") }
+    @ViewBuilder private var eventsContent: some View {
+        HStack(spacing: 8) {
+            Text("Level").font(.caption).foregroundStyle(.secondary)
+            Picker("", selection: $minLevel) {
+                ForEach(DiagLevel.allCases) { Text($0.label).tag($0) }
+            }.labelsHidden().pickerStyle(.menu).fixedSize()
+            Text("Category").font(.caption).foregroundStyle(.secondary).padding(.leading, 4)
+            Picker("", selection: $catFilter) {
+                Text("All").tag(DiagCategory?.none)
+                ForEach(DiagCategory.allCases) { Text($0.label).tag(DiagCategory?.some($0)) }
+            }.labelsHidden().pickerStyle(.menu).fixedSize()
+            Spacer(minLength: 8)
+            Toggle("Verbose", isOn: $verbose).controlSize(.small).fixedSize()
+        }
+        Divider()
+        let rows = Array(filtered.suffix(150).reversed())     // newest first
+        if rows.isEmpty {
+            Text(diag.events.isEmpty ? "No events yet — use the app and technical events appear here."
+                                     : "No events match the filter.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            ForEach(rows) { eventRow($0) }
+        }
     }
 
     private func eventRow(_ e: DiagEvent) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: e.level.symbol).font(.caption2).foregroundStyle(levelColor(e.level)).frame(width: 14)
             Text(time(e.date)).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 58, alignment: .leading)
-            Text(e.category.label.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary).frame(width: 62, alignment: .leading)
-            Text(e.message).font(.caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            Text(e.category.label.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary).frame(width: 54, alignment: .leading)
+            Text(e.message).font(.caption).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)   // wraps within the bounded card
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // MARK: Actions
+    // MARK: Report
 
-    private var actionsSection: some View {
-        Section {
-            Button { copyReport() } label: { Label(copied ? "Copied ✓" : "Copy diagnostics report", systemImage: "doc.on.doc") }
-            Button { saveReport() } label: { Label("Save report…", systemImage: "square.and.arrow.down") }
-            Button(role: .destructive) { diag.clear() } label: { Label("Clear log", systemImage: "trash") }
-            Text("The report includes app version, macOS, engine + model state, record counts and recent technical events — never your note text, transcripts or other content.")
-                .font(.caption2).foregroundStyle(.secondary)
-        } header: { Text("Report") }
+    @ViewBuilder private var reportContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button { copyReport() } label: { Label(copied ? "Copied ✓" : "Copy report", systemImage: "doc.on.doc") }
+                Button { saveReport() } label: { Label("Save…", systemImage: "square.and.arrow.down") }
+                Button(role: .destructive) { diag.clear() } label: { Label("Clear log", systemImage: "trash") }
+            }.buttonStyle(.bordered).controlSize(.small)
+            rowText("The report includes app version, macOS, engine + model state, record counts and recent technical events — never your note text, transcripts or other content.",
+                    font: .caption2, color: .secondary)
+        }
     }
 
     // MARK: Helpers

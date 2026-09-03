@@ -57,7 +57,12 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             settingsSidebar
             Divider()
-            Form { tabSections }.formStyle(.grouped)
+            // Diagnostics renders as its own scroll view (a Form won't bound its wide content).
+            if selectedTab == .diagnostics {
+                DiagnosticsView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Form { tabSections }.formStyle(.grouped)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileExporter(isPresented: $exporting,
@@ -159,7 +164,7 @@ struct SettingsView: View {
         case .integrations: integrationsSections
         case .intelligence: intelligenceSections
         case .openSource:   openSourceSections
-        case .diagnostics:  DiagnosticsSections()
+        case .diagnostics:  EmptyView()   // rendered outside the Form (see body)
         case .about:        aboutSections
         }
     }
