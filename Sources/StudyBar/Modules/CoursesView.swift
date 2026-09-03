@@ -629,7 +629,11 @@ struct CourseDetailView: View {
                 .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
 
                 if syllabusExtracting {
-                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Reading the syllabus…").font(.caption).foregroundStyle(.secondary) }
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading the syllabus… a long one can take a minute or two. Stay on this page.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 } else if let d = syllabusDraft {
                     draftReview(c, d)
                 } else if !syl.extracted {

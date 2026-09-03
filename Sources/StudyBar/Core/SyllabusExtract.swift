@@ -23,14 +23,28 @@ enum SyllabusExtract {
     static func run(_ text: String, provider: AIProvider?) async -> SyllabusDraft? {
         guard let provider, text.count > 40 else { return nil }
         let sys = """
-        Extract structured info from a course syllabus. Reply with ONLY a JSON object:
-        {"grading":[{"name":"Exams","weight":40}],"keyDates":[{"label":"Midterm","date":"2026-10-15"}],\
+        You extract structured facts from a university course syllabus. Reply with ONLY a JSON object:
+        {"grading":[{"name":"Homework","weight":20}],\
+        "keyDates":[{"label":"HW 1","date":"2026-08-24"}],\
         "policies":"…","officeHours":"…","textbooks":["…"]}
-        - weight is a percent as a number. Grading rows should roughly sum to 100.
-        - date is YYYY-MM-DD, or omit it if the syllabus doesn't give one.
-        - Use ONLY what the syllabus states; leave a field empty/[] if it's not there. No prose outside the JSON.
+        Rules:
+        - grading: include a component ONLY if the syllabus explicitly gives its PERCENTAGE OF THE \
+        FINAL GRADE (e.g. "Exams 40%"). Never invent weights, and never use general-education \
+        outcome categories (Content, Communication, Critical Thinking) or learning-outcome / \
+        "Methods of Evaluation" tables as grades — those are not grade weights. If the syllabus \
+        states no explicit percentages, return "grading": [].
+        - keyDates: from the course schedule, list EVERY dated deliverable — each homework, quiz \
+        and exam — with its due date as YYYY-MM-DD (infer the year and month from the term and the \
+        schedule). Include the final exam. Prefer the due date over the assigned date.
+        - textbooks: required book title(s) and author.
+        - policies: the late-work / attendance policy in one short paragraph.
+        - officeHours: instructor office hours if given.
+        Use only what the syllabus states. No prose outside the JSON.
         """
-        let user = "SYLLABUS:\n" + String(text.prefix(8000))
+        // Syllabi are long and the useful schedule sits past the first page, so send well beyond
+        // the front matter — but ~22k chars (≈5.5k tokens) still fits the default 8k context, which
+        // is much faster than a wide window on a local model.
+        let user = "SYLLABUS:\n" + String(text.prefix(22000))
         guard let out = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)]) else { return nil }
         return parse(out)
     }
@@ -42,7 +56,7 @@ enum SyllabusExtract {
         var d = SyllabusDraft()
         for g in (obj["grading"] as? [[String: Any]] ?? []) {
             let n = (g["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let w = (g["weight"] as? Double) ?? Double(g["weight"] as? Int ?? 0)
+            let w = number(g["weight"])   // weight may come back "7.5%", "7.5", 7.5, or 7
             if !n.isEmpty { d.grading.append(.init(name: n, weight: max(0, min(100, w)))) }
         }
         let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX"); df.dateFormat = "yyyy-MM-dd"
@@ -53,7 +67,23 @@ enum SyllabusExtract {
         }
         d.policies = (obj["policies"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         d.officeHours = (obj["officeHours"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        d.textbooks = (obj["textbooks"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        // textbooks may be plain strings or objects {title, author, edition, …}.
+        if let arr = obj["textbooks"] as? [String] {
+            d.textbooks = arr.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        } else if let arr = obj["textbooks"] as? [[String: Any]] {
+            d.textbooks = arr.compactMap { t in
+                let parts = ["title", "author", "edition"].compactMap { (t[$0] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                return parts.isEmpty ? nil : parts.joined(separator: " · ")
+            }
+        }
         return d.isEmpty ? nil : d
+    }
+
+    /// Coerce a JSON number that might arrive as a Double, Int, or a string like "7.5%".
+    private static func number(_ v: Any?) -> Double {
+        if let d = v as? Double { return d }
+        if let i = v as? Int { return Double(i) }
+        if let s = v as? String { return Double(s.filter { $0.isNumber || $0 == "." }) ?? 0 }
+        return 0
     }
 }
