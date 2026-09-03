@@ -47,6 +47,7 @@ struct WeekGridView: View {
     @State private var importBatch: ClassImportBatch?
     @State private var importError: String?
     @State private var planningDay: PlanDayTarget?
+    @State private var pasting = false       // paste-a-schedule sheet
     @State private var hoverDay: Int?        // weekday whose header is hovered (plan affordance)
     @State private var weekOffset = 0        // 0 = this week; ± pages through weeks
     @AppStorage("useClassPeriods") private var useClassPeriods = false
@@ -117,6 +118,7 @@ struct WeekGridView: View {
                         Toggle("Class periods (UF)", isOn: $useClassPeriods)
                         Divider()
                         Button { runImport() } label: { Label("Import from .ics…", systemImage: "square.and.arrow.down") }
+                        Button { pasting = true } label: { Label("Paste schedule…", systemImage: "doc.on.clipboard") }
                         if mergeableCount > 0 {
                             Divider()
                             Button {
@@ -135,6 +137,7 @@ struct WeekGridView: View {
                         HStack(spacing: DS.Space.s) {
                             Button { addClass(day: today, at: nil) } label: { Label("Add a class", systemImage: "plus") }
                             Button { runImport() } label: { Label("Import .ics", systemImage: "square.and.arrow.down") }
+                            Button { pasting = true } label: { Label("Paste schedule", systemImage: "doc.on.clipboard") }
                         }.buttonStyle(.bordered).controlSize(.small)
                     }
                 } else {
@@ -155,6 +158,9 @@ struct WeekGridView: View {
             .navigationDestination(item: $editing) { ClassEditor(session: $0) }
             .navigationDestination(item: $importBatch) { ClassImportView(drafts: $0.drafts) }
             .sheet(item: $planningDay) { PlanDaySheet(date: $0.date) }
+            .sheet(isPresented: $pasting) {
+                PasteScheduleView { batch in pasting = false; importBatch = batch }
+            }
             .alert("Couldn't import", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
                 Button("OK", role: .cancel) { importError = nil }
             } message: { Text(importError ?? "") }
@@ -775,5 +781,84 @@ struct ClassImportView: View {
             }
         }
         dismiss()
+    }
+}
+
+// MARK: - Paste a schedule (free text → AI → classes)
+
+/// Paste a copied timetable / registrar schedule / email and let the local model pull the
+/// weekly classes out of it, then hand them to the same review sheet the .ics import uses.
+struct PasteScheduleView: View {
+    @Environment(\.dismiss) private var dismiss
+    /// Called with the extracted drafts; the parent opens the review sheet.
+    let onExtracted: (ClassImportBatch) -> Void
+
+    @State private var text = ""
+    @State private var extracting = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubHeader("Paste Schedule") { }
+            Divider()
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                Text("Paste your class schedule — a copied timetable, a registrar \"detailed schedule\", or an email. StudyBar's assistant will pull out the classes for you to review.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextEditor(text: $text)
+                    .font(.callout.monospaced())
+                    .frame(minHeight: 200)
+                    .padding(6)
+                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.separator, lineWidth: 0.5))
+                if !AIConfig.isReady {
+                    Label("This needs the local AI engine. Start Ollama (or set an API key in Settings), then try again.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }.padding(14)
+            Divider()
+            HStack {
+                Button { if let s = NSPasteboard.general.string(forType: .string) { text = s } } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                }.controlSize(.small)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button {
+                    extract()
+                } label: {
+                    if extracting { ProgressView().controlSize(.small) } else { Text("Extract classes") }
+                }
+                .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                .disabled(extracting || !AIConfig.isReady || text.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+            }.padding(12)
+        }
+        .frame(minWidth: 440, minHeight: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+    }
+
+    private func extract() {
+        guard !extracting else { return }
+        error = nil
+        extracting = true
+        let provider = AIConfig.isReady ? AIService.makeProvider() : nil
+        let input = text
+        Task {
+            let drafts = await ClassImport.fromPasted(input, provider: provider)
+            await MainActor.run {
+                extracting = false
+                if drafts.isEmpty {
+                    error = "Couldn't find any classes in that text. Try including the days and times (e.g. \"MWF 9:35–10:25 LIT 109\")."
+                } else {
+                    onExtracted(ClassImportBatch(drafts: drafts))
+                }
+            }
+        }
     }
 }
