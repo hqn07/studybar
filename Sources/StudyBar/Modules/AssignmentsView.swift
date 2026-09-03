@@ -10,6 +10,7 @@ struct AssignmentsView: View {
     @State private var showDone = false
     @State private var editing: Assignment?
     @State private var classifying = false
+    @State private var deduping = false
     @State private var quickAdd = ""
     @State private var selectedID: UUID?
     @FocusState private var quickFocused: Bool
@@ -49,6 +50,8 @@ struct AssignmentsView: View {
                     }
                     Button { state.selectedModuleID = "board" } label: { Image(systemName: "rectangle.split.3x1") }
                         .help("Board view — same assignments")
+                    Button { deduping = true } label: { Image(systemName: "square.on.square") }
+                        .help("Find duplicate assignments")
                     if anyRanked {
                         Menu {
                             ForEach(AssignmentSort.allCases) { s in
@@ -94,6 +97,7 @@ struct AssignmentsView: View {
             }
             .navigationDestination(item: $editing) { AssignmentEditor(assignment: $0) }
             .navigationDestination(isPresented: $classifying) { ClassifyView() }
+            .navigationDestination(isPresented: $deduping) { DuplicateReviewView() }
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
         }
