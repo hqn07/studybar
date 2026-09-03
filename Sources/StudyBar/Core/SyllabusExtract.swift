@@ -57,8 +57,15 @@ enum SyllabusExtract {
             user = "SYLLABUS:\n" + focus(text)
         }
         Diagnostics.info(.ai, "Syllabus extract (\(datesOnly ? "dates" : "full")): sending \(user.count) chars…")
+        let msgs = [AIMessage(role: .user, text: user)]
         do {
-            let out = try await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: user)])
+            // Non-streaming for Ollama — streaming truncated the long reply mid-array.
+            let out: String
+            if let ollama = provider as? OllamaProvider {
+                out = try await ollama.completePlainOnce(system: sys, messages: msgs)
+            } else {
+                out = try await provider.completePlain(system: sys, messages: msgs)
+            }
             let draft = datesOnly ? parseDates(out) : parse(out)
             Diagnostics.log(.ai, draft == nil ? .warn : .info,
                             "Syllabus extract: got \(out.count) chars, parsed \(draft == nil ? "NOTHING (bad JSON?)" : "ok")")

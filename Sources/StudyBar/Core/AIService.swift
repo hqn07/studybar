@@ -321,6 +321,32 @@ struct OllamaProvider: AIProvider {
         try await completePlainStreaming(system: system, messages: messages) { _ in }
     }
 
+    /// Non-streaming free-form completion — one whole response, no `format:json`. Streaming a
+    /// long reply (e.g. a syllabus's 60 dates) can truncate; this returns the full body at once.
+    func completePlainOnce(system: String, messages: [AIMessage], numCtx: Int = 8192) async throws -> String {
+        let base = host.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let url = URL(string: "\(base)/api/chat") else { throw AIError.badResponse }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 300
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
+        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        let body: [String: Any] = [
+            "model": model, "messages": msgs, "stream": false,
+            "keep_alive": AIConfig.ollamaKeepAlive,
+            "options": ["temperature": 0.2, "num_ctx": numCtx],
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else { throw AIError.http(code, "Is Ollama running? Start it, then `ollama pull \(model)`.") }
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let text = (obj?["message"] as? [String: Any])?["content"] as? String ?? ""
+        guard !text.isEmpty else { throw AIError.badResponse }
+        return text
+    }
+
     /// Streaming free-form variant (no `format:json`): feeds the growing text to `onReply`
     /// as tokens arrive, so the UI can show notes forming instead of a blind spinner.
     func completePlainStreaming(system: String, messages: [AIMessage], numCtx: Int = 8192,
