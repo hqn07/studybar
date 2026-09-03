@@ -8,9 +8,7 @@ struct DuplicateReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var groups: [DupGroup] = []
     @State private var keepChoice: [UUID: UUID] = [:]
-    @State private var ranDeterministic = false
-    @State private var scanning = false
-    @State private var scanStart: Date?
+    @State private var ran = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,21 +17,14 @@ struct DuplicateReviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.m) {
                     if groups.isEmpty {
-                        EmptyState(symbol: ranDeterministic && !scanning ? "checkmark.circle" : "square.on.square",
-                                   title: scanning ? "Scanning…" : (ranDeterministic ? "No duplicates found" : "Checking…"),
-                                   subtitle: "Assignments in the same course with the same due date and a similar title are grouped here.")
-                        if scanning, let s = scanStart {
-                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                Text("AI deep scan… \(max(0, Int(ctx.date.timeIntervalSince(s))))s (1–2 min on a local model)")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
+                        EmptyState(symbol: ran ? "checkmark.circle" : "square.on.square",
+                                   title: ran ? "No duplicates found" : "Checking…",
+                                   subtitle: "Assignments in the same course with the same due date and a similar title are grouped here for review.")
                     } else {
                         Text("\(groups.count) possible duplicate group\(groups.count == 1 ? "" : "s"). Pick which to keep — merging removes the rest (undo with ⌘Z).")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         ForEach(groups) { groupCard($0) }
                     }
-                    aiScanButton
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(DS.Space.l)
@@ -42,9 +33,9 @@ struct DuplicateReviewView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
         .task {
-            if !ranDeterministic {
+            if !ran {
                 groups = DuplicateFinder.find(state.data.assignments)
-                ranDeterministic = true
+                ran = true
                 seedChoices()
             }
         }
@@ -83,14 +74,6 @@ struct DuplicateReviewView: View {
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
-    private var aiScanButton: some View {
-        Button { runAIScan() } label: {
-            Label(scanning ? "Scanning…" : "AI deep scan (find reworded duplicates)", systemImage: "sparkles").font(.caption)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-        .disabled(scanning || !AIConfig.isReady)
-    }
-
     private func sourceLabel(_ a: Assignment) -> String {
         var parts: [String] = []
         if a.canvasID != nil || a.sourceUID != nil { parts.append("imported") } else { parts.append("added here") }
@@ -109,18 +92,5 @@ struct DuplicateReviewView: View {
             state.data.assignments.removeAll { remove.contains($0.id) }
         }
         groups.removeAll { $0.id == g.id }
-    }
-
-    private func runAIScan() {
-        scanning = true; scanStart = Date()
-        let assignments = state.data.assignments
-        let provider = AIService.makeProvider()
-        Task { @MainActor in
-            let found = await DuplicateFinder.aiScan(assignments, provider: provider) ?? []
-            scanning = false; scanStart = nil
-            let existing = Set(groups.flatMap { $0.items.map(\.id) })
-            for g in found where !g.items.allSatisfy({ existing.contains($0.id) }) { groups.append(g) }
-            seedChoices()
-        }
     }
 }
