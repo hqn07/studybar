@@ -5,6 +5,11 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.8.5] — 2026-09-02
+
+- **Diagnostics panel** — a new **Settings ▸ Diagnostics** tab: health checks (data, mic and speech permissions, Whisper models, Ollama, disk), an environment summary, a filterable log of recent technical events, and detection of an unexpected quit. One tap copies or saves a **redacted** report to send with a bug report — it never includes your note text or transcripts.
+- **Voice: reliable live streaming** — with Whisper, the transcript now streams steadily while you record. Fixed chunks that occasionally came back blank, the first seconds being dropped while the model loaded, and tuned the chunk size so the text stays close to live (smaller/faster models stream almost instantly).
+
 ## [1.8.4] — 2026-09-02
 
 - **Schedule shows your deadlines** — the Week view now marks each day with dots for what's due that week (red for exams and quizzes), and the day planner draws a line at each assignment's due time, so you can plan around them instead of holding them in your head.
