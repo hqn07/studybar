@@ -5,6 +5,19 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-03
+
+- **Notes open to read, not just edit** — opening an existing note now shows it rendered (Markdown + math) in a clean reading view; click the page to edit. New notes still open ready to type. The reading view puts the title at the top and sets the text in a comfortable column.
+- **A clearer Notes list** — each note now shows a course-color edge, when it was last edited and its length, and the list groups into **Pinned**, then **Today / This week / Earlier**. Row previews no longer leak raw Markdown symbols, and an empty note reads as "empty" instead of "No content".
+- **Undo & redo buttons in Notes** — plus tag autocomplete that suggests tags you've already used, so you don't end up with three spellings of the same one.
+- **Fixed: a deleted note could reappear** — a note deleted right after editing could come back once (needing a second delete) when syncing through iCloud. Deletes are now honored on the first try, and the note is still recoverable from Trash.
+- **Plan any day from the schedule** — tap a day in the Week view to get AI-suggested study blocks for that date, the same way *Plan my day* works for today.
+- **Paste a schedule to import classes** — paste a copied timetable, a registrar schedule or an email and StudyBar pulls out your weekly classes for review — like the .ics import, but from plain text. Imported classes auto-match an existing course by its code.
+- **Your calendar on the day planner** — events from macOS Calendar now appear alongside your classes and study blocks (read-only, and only if you've already granted Calendar access), so you plan around real commitments.
+- **A weekly study goal** — set a target number of hours per week and track it with a ring on Today and in Insights.
+- **Wrap up your day** — when a planned study block's time has passed, Today offers to check it off or roll it to tomorrow.
+- **Easier bug reports** — Settings ▸ Diagnostics can now email a privacy-safe report in one tap.
+
 ## [1.8.6] — 2026-09-03
 
 - **Syllabus, attached to the course** — open a course and **Attach syllabus**: the file is kept and re-openable, and **Extract details with AI** pulls out the grading breakdown, key dates, policies, office hours and textbooks. Review every extracted date in a checkable list (uncheck any that look wrong) before **Apply** — grade rows fill your Grade section and the checked, dated items become assignments. There's a **Dates only (faster)** mode when you just want the whole semester's due dates.

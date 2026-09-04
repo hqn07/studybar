@@ -18,7 +18,7 @@ packages:
     from: "0.18.0"
 settings:
   base:
-    MARKETING_VERSION: "1.8.6"
+    MARKETING_VERSION: "1.9.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_LANGUAGE: en
