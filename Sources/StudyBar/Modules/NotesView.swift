@@ -724,7 +724,7 @@ struct NoteEditor: View {
             let msgs = [AIMessage(role: .user, text: action.user(scope.text))]
             let out: String?
             if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in aiText = p }
+                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs, temperature: action.temperature) { p in aiText = p }
             } else {
                 out = try? await provider.completePlain(system: sys, messages: msgs)
             }

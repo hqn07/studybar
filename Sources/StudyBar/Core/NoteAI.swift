@@ -57,6 +57,18 @@ enum NoteAI: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Sampling temperature tuned to the action: near-0 where fidelity matters (proofread),
+    /// higher where some rephrasing/generation is wanted (rewrite, continue).
+    var temperature: Double {
+        switch self {
+        case .proofread:       return 0.1
+        case .keyPoints:       return 0.2
+        case .summarize:       return 0.3
+        case .rewrite:         return 0.5
+        case .continueWriting: return 0.7
+        }
+    }
+
     func system() -> String {
         """
         You are a writing assistant working inside a student's study note. Rules:
