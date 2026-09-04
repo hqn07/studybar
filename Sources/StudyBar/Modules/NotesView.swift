@@ -721,7 +721,7 @@ struct NoteEditor: View {
         aiTask?.cancel()
         aiTask = Task {
             let sys = action.system()
-            let msgs = [AIMessage(role: .user, text: scope.text)]
+            let msgs = [AIMessage(role: .user, text: action.user(scope.text))]
             let out: String?
             if let ollama = provider as? OllamaProvider {
                 out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in aiText = p }

@@ -91,7 +91,7 @@ struct AITextMenu: View {
         action = a; out = ""; done = false; start = Date(); reviewing = true
         task?.cancel()
         task = Task {
-            let msgs = [AIMessage(role: .user, text: text)]
+            let msgs = [AIMessage(role: .user, text: a.user(text))]
             let r: String?
             if let ollama = provider as? OllamaProvider {
                 r = try? await ollama.completePlainStreaming(system: a.system(), messages: msgs) { p in out = p }
