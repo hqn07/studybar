@@ -31,13 +31,18 @@ func merge3<T: Equatable>(_ base: T, _ mine: T, _ theirs: T) -> T {
 
 /// 3-way merge two edited copies of an id-keyed collection given their ancestor `base`.
 /// Order: `mine`'s order preserved; remote-only additions appended.
-func mergeLists<T: MergeItem>(base: [T], mine: [T], theirs: [T]) -> [T] where T.ID: Hashable {
+/// `deletedByMine` are ids the local side just moved to trash (a deliberate local delete). They
+/// win over a merely-differing remote copy, so a delete made right after an edit isn't resurrected
+/// by an autosave-version copy still on disk (e.g. an iCloud-touched file). The item stays in the
+/// merged trash, so it's still recoverable — this honors the delete without losing it.
+func mergeLists<T: MergeItem>(base: [T], mine: [T], theirs: [T], deletedByMine: Set<T.ID> = []) -> [T] where T.ID: Hashable {
     let baseByID = Dictionary(base.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     let mineByID = Dictionary(mine.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     let theirsByID = Dictionary(theirs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
     /// Resolve the fate of one id across all three sides. `nil` = drop it.
     func decide(_ id: T.ID) -> T? {
+        if deletedByMine.contains(id) { return nil }   // an explicit local delete wins over a differing remote copy
         let b = baseByID[id], m = mineByID[id], t = theirsByID[id]
         switch (m, t) {
         case let (m?, t?):
@@ -71,8 +76,8 @@ func mergeLists<T: MergeItem>(base: [T], mine: [T], theirs: [T]) -> [T] where T.
 
 /// Optional-array variant (decode-tolerant fields). Stays `nil` only when nothing exists
 /// on either edited side, so we don't rewrite `nil` into `[]` for older data files.
-func mergeOptLists<T: MergeItem>(base: [T]?, mine: [T]?, theirs: [T]?) -> [T]? where T.ID: Hashable {
-    let merged = mergeLists(base: base ?? [], mine: mine ?? [], theirs: theirs ?? [])
+func mergeOptLists<T: MergeItem>(base: [T]?, mine: [T]?, theirs: [T]?, deletedByMine: Set<T.ID> = []) -> [T]? where T.ID: Hashable {
+    let merged = mergeLists(base: base ?? [], mine: mine ?? [], theirs: theirs ?? [], deletedByMine: deletedByMine)
     if merged.isEmpty && mine == nil && theirs == nil { return nil }
     return merged
 }
@@ -82,28 +87,31 @@ extension AppData {
     /// in-memory copy; `theirs` the newer on-disk copy.
     static func merged(base: AppData, mine: AppData, theirs: AppData) -> AppData {
         var r = mine
-        r.courses     = mergeLists(base: base.courses,     mine: mine.courses,     theirs: theirs.courses)
-        r.notes       = mergeLists(base: base.notes,       mine: mine.notes,       theirs: theirs.notes)
-        r.clips       = mergeLists(base: base.clips,       mine: mine.clips,       theirs: theirs.clips)
-        r.snippets    = mergeLists(base: base.snippets,    mine: mine.snippets,    theirs: theirs.snippets)
-        r.assignments = mergeLists(base: base.assignments, mine: mine.assignments, theirs: theirs.assignments)
-        r.todos       = mergeLists(base: base.todos,       mine: mine.todos,       theirs: theirs.todos)
-        r.links       = mergeLists(base: base.links,       mine: mine.links,       theirs: theirs.links)
-        r.timeEntries = mergeLists(base: base.timeEntries, mine: mine.timeEntries, theirs: theirs.timeEntries)
-        r.references  = mergeLists(base: base.references,  mine: mine.references,  theirs: theirs.references)
-        r.decks       = mergeLists(base: base.decks,       mine: mine.decks,       theirs: theirs.decks)
-        r.flashcards  = mergeLists(base: base.flashcards,  mine: mine.flashcards,  theirs: theirs.flashcards)
-        r.reading     = mergeLists(base: base.reading,     mine: mine.reading,     theirs: theirs.reading)
+        // Ids the local side just deleted (now tombstoned in trash) — honor the delete over a
+        // differing remote/disk copy so a delete made right after editing isn't resurrected.
+        let del = Set((mine.trash ?? []).map(\.itemID))
+        r.courses     = mergeLists(base: base.courses,     mine: mine.courses,     theirs: theirs.courses,     deletedByMine: del)
+        r.notes       = mergeLists(base: base.notes,       mine: mine.notes,       theirs: theirs.notes,       deletedByMine: del)
+        r.clips       = mergeLists(base: base.clips,       mine: mine.clips,       theirs: theirs.clips,       deletedByMine: del)
+        r.snippets    = mergeLists(base: base.snippets,    mine: mine.snippets,    theirs: theirs.snippets,    deletedByMine: del)
+        r.assignments = mergeLists(base: base.assignments, mine: mine.assignments, theirs: theirs.assignments, deletedByMine: del)
+        r.todos       = mergeLists(base: base.todos,       mine: mine.todos,       theirs: theirs.todos,       deletedByMine: del)
+        r.links       = mergeLists(base: base.links,       mine: mine.links,       theirs: theirs.links,       deletedByMine: del)
+        r.timeEntries = mergeLists(base: base.timeEntries, mine: mine.timeEntries, theirs: theirs.timeEntries, deletedByMine: del)
+        r.references  = mergeLists(base: base.references,  mine: mine.references,  theirs: theirs.references,  deletedByMine: del)
+        r.decks       = mergeLists(base: base.decks,       mine: mine.decks,       theirs: theirs.decks,       deletedByMine: del)
+        r.flashcards  = mergeLists(base: base.flashcards,  mine: mine.flashcards,  theirs: theirs.flashcards,  deletedByMine: del)
+        r.reading     = mergeLists(base: base.reading,     mine: mine.reading,     theirs: theirs.reading,     deletedByMine: del)
         r.readingLog  = mergeLists(base: base.readingLog,  mine: mine.readingLog,  theirs: theirs.readingLog)
-        r.classes     = mergeLists(base: base.classes,     mine: mine.classes,     theirs: theirs.classes)
-        r.readingList = mergeLists(base: base.readingList, mine: mine.readingList, theirs: theirs.readingList)
+        r.classes     = mergeLists(base: base.classes,     mine: mine.classes,     theirs: theirs.classes,     deletedByMine: del)
+        r.readingList = mergeLists(base: base.readingList, mine: mine.readingList, theirs: theirs.readingList, deletedByMine: del)
         r.icsFeeds    = mergeLists(base: base.icsFeeds,    mine: mine.icsFeeds,    theirs: theirs.icsFeeds)
         r.folders     = mergeLists(base: base.folders,     mine: mine.folders,     theirs: theirs.folders)
         r.gradeItems  = mergeOptLists(base: base.gradeItems, mine: mine.gradeItems, theirs: theirs.gradeItems)
         r.rssFeeds    = mergeOptLists(base: base.rssFeeds,   mine: mine.rssFeeds,   theirs: theirs.rssFeeds)
         r.fileRefs    = mergeOptLists(base: base.fileRefs,   mine: mine.fileRefs,   theirs: theirs.fileRefs)
         r.trash       = mergeOptLists(base: base.trash,      mine: mine.trash,      theirs: theirs.trash)
-        r.timeBlocks  = mergeOptLists(base: base.timeBlocks, mine: mine.timeBlocks, theirs: theirs.timeBlocks)
+        r.timeBlocks  = mergeOptLists(base: base.timeBlocks, mine: mine.timeBlocks, theirs: theirs.timeBlocks, deletedByMine: del)
         // Scalars.
         r.scratchpad  = merge3(base.scratchpad, mine.scratchpad, theirs.scratchpad)
         r.termName    = merge3(base.termName,   mine.termName,   theirs.termName)
@@ -260,6 +268,23 @@ enum MergeSelfTest {
             var big = AppData(); big.todos = (0..<30).map { TodoItem(text: "t\($0)") }
             check("trash: bulk delete skipped", AppData.deletionTrash(before: big, after: AppData()).isEmpty)
             check("trash: no deletion → empty", AppData.deletionTrash(before: before, after: before).isEmpty)
+        }
+
+        // 17. Local delete wins over a differing remote copy — the "delete, reappears, delete
+        //     twice" bug. Deleting right after editing left the disk copy differing from base,
+        //     which used to resurrect the note on the next iCloud merge.
+        do {
+            let x = Note(title: "Draft")
+            var base = AppData(); base.notes = [x]
+            var mine = base
+            mine.notes = []                                              // local: delete X
+            mine.trash = AppData.deletionTrash(before: base, after: mine) // tombstone X
+            var theirs = base
+            var xDisk = x; xDisk.title = "Draft "; xDisk.updatedAt = Date(timeIntervalSince1970: 1)
+            theirs.notes = [xDisk]                                        // disk copy differs from base
+            let m = AppData.merged(base: base, mine: mine, theirs: theirs)
+            check("delete not resurrected by a differing remote copy", !m.notes.contains { $0.id == x.id })
+            check("deleted note still recoverable in trash", (m.trash ?? []).contains { $0.itemID == x.id })
         }
 
         print(failures == 0 ? "MERGE SELFTEST: ALL PASS" : "MERGE SELFTEST: \(failures) FAILURE(S)")

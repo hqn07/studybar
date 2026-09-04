@@ -550,6 +550,9 @@ struct NoteEditor: View {
     private var formatBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 11) {
+                fmtBtn("arrow.uturn.backward", "Undo (⌘Z)") { editor.undo() }
+                fmtBtn("arrow.uturn.forward", "Redo (⇧⌘Z)") { editor.redo() }
+                sep
                 fmtBtn("bold", "Bold") { editor.toggleTrait(.boldFontMask) }
                 fmtBtn("italic", "Italic") { editor.toggleTrait(.italicFontMask) }
                 fmtBtn("underline", "Underline") { editor.toggleAttribute(.underlineStyle) }
