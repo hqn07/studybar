@@ -58,6 +58,55 @@ struct RootView: View {
             .onChange(of: appearance) { _, _ in applyAppearanceSetting() }
     }
 
+    /// Persistent recording control, pinned below every module on both surfaces (outside the
+    /// per-module `.id` swap) — so a lecture keeps recording while you take notes, check the
+    /// schedule, etc., and Stop / the live clock are always one tap away.
+    @ViewBuilder private var recordingBar: some View {
+        let v = state.voice
+        switch v.status {
+        case .recording:
+            Divider()
+            HStack(spacing: 10) {
+                Circle().fill(.red).frame(width: 9, height: 9)
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(recElapsed(v.startedAt)).font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.red).contentTransition(.numericText())
+                }
+                LevelMeter(levels: v.waveform).frame(width: 44, height: 16)
+                Text("Recording").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open") { openVoice() }.buttonStyle(.borderless).font(.caption)
+                Button { v.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
+                    .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(Color.red.opacity(0.06))
+            .contentShape(Rectangle()).onTapGesture { openVoice() }
+            .help("Recording — tap to open Voice, or Stop to finish")
+        case .transcribing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Transcribing your recording…").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open") { openVoice() }.buttonStyle(.borderless).font(.caption)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(.tint.opacity(0.05))
+            .contentShape(Rectangle()).onTapGesture { openVoice() }
+        default:
+            EmptyView()
+        }
+    }
+    private func recElapsed(_ start: Date?) -> String {
+        let s = max(0, Int(Date().timeIntervalSince(start ?? Date())))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+    private func openVoice() {
+        state.selectedModuleID = "voice"
+        if surface == .popover { WindowOpener.routeToWindow?("voice") }
+    }
+
     private var shell: some View {
         VStack(spacing: 0) {
             dataSafetyBanner
@@ -70,6 +119,7 @@ struct RootView: View {
                 Divider()
                 windowBody
             }
+            recordingBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(baseFill)

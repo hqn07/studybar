@@ -123,6 +123,9 @@ final class AppState: ObservableObject {
 
     // Live/ephemeral module state
     @Published var pomodoro = PomodoroEngine()
+    /// App-lifetime voice recorder — owned here (not by VoiceView) so recording survives
+    /// switching modules; a persistent bar + menu-bar clock control it from anywhere.
+    @Published var voice = VoiceService()
     @Published var breaks = BreakReminders()
     var clipboard: ClipboardMonitor!
 
@@ -258,6 +261,9 @@ final class AppState: ObservableObject {
 
         // Forward nested engine changes so views observing AppState re-render each tick.
         pomodoro.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        voice.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 

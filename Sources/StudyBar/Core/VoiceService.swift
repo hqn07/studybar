@@ -19,6 +19,9 @@ final class VoiceService: ObservableObject {
     @Published var prepProgress: Double = 0
     @Published var lastEngine = ""
     @Published private(set) var loadedModel: String?
+    /// When the current recording began — nil when not recording. Drives the persistent
+    /// recording bar + menu-bar elapsed clock so recording is visible/controllable from any module.
+    @Published private(set) var startedAt: Date?
     var vocabPrompt: String?
     private var lastMeter = Date.distantPast
 
@@ -165,7 +168,7 @@ final class VoiceService: ObservableObject {
         guard installTap() else { return }
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
-        emptyStreak = 0; everGotResult = false; recordingStart = Date()
+        emptyStreak = 0; everGotResult = false; recordingStart = Date(); startedAt = Date()
         startSegment()
         // 1s timer: watchdog for a silent/dead mic, and rotate before SFSpeech's ~60s wall.
         rotateTimer?.invalidate()
@@ -279,7 +282,7 @@ final class VoiceService: ObservableObject {
         }
         engine.prepare()
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
-        status = .recording
+        status = .recording; startedAt = Date()
         Diagnostics.info(.voice, "Whisper recording started · model \(whisperModel) · sr \(Int(sampleRate))")
         chunkTimer?.invalidate()
         chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -360,7 +363,7 @@ final class VoiceService: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         let recorded = totalFrames
         cutChunk(final: true)             // flush + enqueue the final chunk
-        status = .transcribing
+        status = .transcribing; startedAt = nil
         Task { @MainActor in
             _ = await transcribeChain?.value   // let the queue drain
             if case .unavailable = status { return }
@@ -513,6 +516,7 @@ final class VoiceService: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil; request = nil
         chunkLock.lock(); chunkFile = nil; chunkURL = nil; chunkLock.unlock()
+        startedAt = nil
         if status == .recording { status = .idle }
     }
 

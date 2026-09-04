@@ -8,7 +8,9 @@ struct MenuBarLabel: View {
     var body: some View {
         switch mode {
         case .smart:
-            if state.pomodoro.running {
+            if state.voice.status == .recording {
+                recordingLabel
+            } else if state.pomodoro.running {
                 Label(state.pomodoro.mmss, systemImage: "timer").labelStyle(.titleAndIcon).monospacedDigit()
             } else if let next = state.nextClassToday, next.minutesUntil <= 60 {
                 Label(next.minutesUntil == 0 ? "now" : mins(next.minutesUntil), systemImage: "clock").labelStyle(.titleAndIcon)
@@ -30,7 +32,9 @@ struct MenuBarLabel: View {
                 Image(systemName: "graduationcap.fill")
             }
         case .timer:
-            if state.pomodoro.running {
+            if state.voice.status == .recording {
+                recordingLabel
+            } else if state.pomodoro.running {
                 Label(state.pomodoro.mmss, systemImage: "timer")
                     .labelStyle(.titleAndIcon)
                     .monospacedDigit()
@@ -50,4 +54,17 @@ struct MenuBarLabel: View {
     }
 
     private func mins(_ m: Int) -> String { m < 60 ? "\(m)m" : "\(m / 60)h\(m % 60)m" }
+
+    /// Live recording clock in the menu bar — takes priority over the pomodoro timer since a
+    /// recording in progress is the most time-sensitive thing to keep visible.
+    private var recordingLabel: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            Label(recMMSS, systemImage: "record.circle")
+                .labelStyle(.titleAndIcon).monospacedDigit().foregroundStyle(.red)
+        }
+    }
+    private var recMMSS: String {
+        let s = max(0, Int(Date().timeIntervalSince(state.voice.startedAt ?? Date())))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
 }

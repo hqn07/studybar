@@ -4,7 +4,9 @@ import UniformTypeIdentifiers
 /// Voice Note: record a memo, transcribe it on-device, save it as a note.
 struct VoiceView: View {
     @EnvironmentObject var state: AppState
-    @StateObject private var voice = VoiceService()
+    /// The recorder now lives on AppState (app-lifetime) so recording survives leaving this
+    /// module — the view just observes and drives it.
+    private var voice: VoiceService { state.voice }
     @State private var courseID: UUID?
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
