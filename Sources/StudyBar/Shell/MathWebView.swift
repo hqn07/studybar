@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import PDFKit
 
 /// (E1) System-wide LaTeX. `RichText` renders Markdown + math: if the string
 /// contains `$…$` / `$$…$$` / `\(…\)` / `\[…\]` it renders through a KaTeX
@@ -303,5 +304,110 @@ enum MathMarkdown {
     private static func rx(_ s: String, _ pattern: String, _ template: String) -> String {
         guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
         return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
+    }
+}
+
+// MARK: - A note as a printable document (PDF / print)
+
+/// Export as Rich Text carries LaTeX as source and Markdown carries no formatting at all, so
+/// neither is what you hand a classmate. This lays the note out for paper with its math
+/// *rendered* — `installingMath()` turns every `$…$` span into the same drawn attachment the
+/// editor shows — and prints it or writes a paginated PDF.
+///
+/// It deliberately does NOT print the KaTeX web view. WebKit's print pagination did not
+/// terminate on a long note: it produced a 2.7 GB PDF and was still growing when it was
+/// killed. The text system paginates the same way Print in the editor already does.
+@MainActor
+enum NoteDocument {
+
+    static func writePDF(title: String, attributed: NSAttributedString, to url: URL) -> Bool {
+        let info = printInfo()
+        info.jobDisposition = .save
+        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+        let op = NSPrintOperation(view: page(title: title, attributed: attributed, info: info), printInfo: info)
+        op.showsPrintPanel = false
+        op.showsProgressPanel = false
+        return op.run()
+    }
+
+    static func print(title: String, attributed: NSAttributedString) {
+        let info = printInfo()
+        let op = NSPrintOperation(view: page(title: title, attributed: attributed, info: info), printInfo: info)
+        op.showsPrintPanel = true
+        op.showsProgressPanel = true
+        op.run()
+    }
+
+    private static func printInfo() -> NSPrintInfo {
+        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+        info.topMargin = 54; info.bottomMargin = 54; info.leftMargin = 54; info.rightMargin = 54
+        info.isHorizontallyCentered = false; info.isVerticallyCentered = false
+        return info
+    }
+
+    /// The note as a text view sized to the printable column.
+    private static func page(title: String, attributed: NSAttributedString, info: NSPrintInfo) -> NSTextView {
+        let width = max(200, info.paperSize.width - info.leftMargin - info.rightMargin)
+        let doc = NSMutableAttributedString()
+        if !title.trimmingCharacters(in: .whitespaces).isEmpty {
+            doc.append(NSAttributedString(string: title + "\n\n",
+                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 20),
+                                                       .foregroundColor: NSColor.black]))
+        }
+        // .black, not .labelColor: on paper a dark-mode label color is white on white.
+        doc.append(attributed.installingMath(defaultColor: .black))
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainerInset = .zero
+        tv.backgroundColor = .white
+        tv.drawsBackground = true
+        tv.textStorage?.setAttributedString(doc)
+        tv.sizeToFit()
+        return tv
+    }
+}
+
+// MARK: - PDF export self-test (StudyBar --pdf-selftest)
+
+/// Guards the export against the failure that WebKit printing produced: a PDF that never
+/// stops growing. Asserts a bounded page count and file size for a long note with math.
+@MainActor
+enum PDFSelfTest {
+    static func run() -> Int32 {
+        var pass = 0, fail = 0
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+            if ok { Swift.print("  ok   \(name) \(detail)"); pass += 1 }
+            else { Swift.print("  FAIL \(name) \(detail)"); fail += 1 }
+        }
+
+        var body = ""
+        for i in 1...120 { body += "Line \(i): flux is $\\Phi_E = \\oint \\vec{E}\\cdot d\\vec{A}$ through the surface.\n" }
+        body += "\n$$\\frac{Q}{\\epsilon_0}$$\n"
+        let attr = NSAttributedString(string: body, attributes: [.font: NSFont.systemFont(ofSize: 13)])
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sb-pdf-selftest.pdf")
+        try? FileManager.default.removeItem(at: url)
+
+        let ok = NoteDocument.writePDF(title: "Weeks 3 — Gauss's Law", attributed: attr, to: url)
+        check("writePDF returns true", ok)
+        let bytes = (try? Data(contentsOf: url).count) ?? 0
+        check("file is written", bytes > 1_000, "(\(bytes) bytes)")
+        check("file is bounded", bytes < 20_000_000, "(\(bytes) bytes < 20MB)")
+        if let doc = PDFDocument(url: url) {
+            check("pages are bounded", doc.pageCount >= 1 && doc.pageCount <= 40, "(\(doc.pageCount) pages)")
+            let text = doc.string ?? ""
+            check("text is present", text.contains("flux is"))
+            check("title is present", text.contains("Gauss"))
+            check("no LaTeX source left", !text.contains("\\oint") && !text.contains("$$"))
+        } else {
+            check("PDF is readable", false)
+        }
+        try? FileManager.default.removeItem(at: url)
+
+        Swift.print(fail == 0 ? "PDF SELFTEST: ALL PASS (\(pass))" : "PDF SELFTEST: \(fail) FAILED")
+        return fail == 0 ? 0 : 1
     }
 }

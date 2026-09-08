@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Fixed: Export as Rich Text saved an empty file** — exporting (or printing) a note you had opened to *read* rather than edit produced a file with nothing in it, silently. Exports now come from the note itself rather than the editor window, so they work from either view.
+- **Send a note as a PDF** — **Export as PDF** writes the note the way the reading view shows it, equations rendered as equations, which is the version to hand a classmate. Markdown and Rich Text carry the LaTeX as source.
 - **Fixed: Spotlight showed note markup** — note results in Spotlight used the raw body, so headings, bullet markers and LaTeX delimiters showed up in the preview line. They now use the same cleaned text the notes list does.
 - **Fixed: AI-written math showed as raw LaTeX** — notes organized by AI (and anything pasted from a model, Wikipedia or Overleaf) used `\(…\)` and `\[…\]`, which StudyBar rendered as plain text instead of equations. Both styles now render, in the reading view and in list previews, and AI output is converted to StudyBar's `$…$` on arrival so it renders in the editor too. Existing notes are fixed on sight — nothing was rewritten on disk.
 

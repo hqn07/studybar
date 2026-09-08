@@ -925,8 +925,9 @@ struct NoteEditor: View {
                 Spacer()
                 Menu {
                     Button { duplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-                    Button { editor.printNote() } label: { Label("Print…", systemImage: "printer") }
+                    Button { printNote() } label: { Label("Print…", systemImage: "printer") }
                     Divider()
+                    Button { exportPDF() } label: { Label("Export as PDF", systemImage: "arrow.down.doc.fill") }
                     Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
                     Button { exportNote(markdown: false) } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
                 } label: { Image(systemName: "square.and.arrow.up") }
@@ -1176,6 +1177,22 @@ struct NoteEditor: View {
         onNavigate(copy.id)
     }
 
+    /// The note's text, whether or not the rich editor is mounted. Export and Print are
+    /// reachable from the reading view, where `RichTextEditor` never mounts — so
+    /// `editor.attributedString` is empty there, which is how Export as Rich Text came to
+    /// write a file with nothing in it. Fall back to the stored RTFD, then to the plaintext
+    /// mirror, so every path has real content.
+    private func exportAttributed() -> NSAttributedString {
+        let live = editor.attributedString
+        if live.length > 0 { return live.expandingMath().expandingFolds() }
+        if let data = draft.rich, let stored = NSAttributedString.fromRTFD(data), stored.length > 0 {
+            return stored          // persist() already expanded math/folds before storing it
+        }
+        return NSAttributedString(string: draft.body,
+                                  attributes: [.font: NSFont.systemFont(ofSize: 13),
+                                               .foregroundColor: NSColor.labelColor])
+    }
+
     private func exportNote(markdown: Bool) {
         persist()
         let panel = NSSavePanel()
@@ -1183,14 +1200,50 @@ struct NoteEditor: View {
         panel.nameFieldStringValue = name + (markdown ? ".md" : ".rtf")
         panel.allowedContentTypes = markdown ? [.plainText] : [.rtf]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if markdown {
-            try? markdownExport(draft.body).data(using: .utf8)?.write(to: url)
-        } else {
-            let attr = editor.attributedString.expandingMath().expandingFolds()
-            let data = try? attr.data(from: NSRange(location: 0, length: attr.length),
-                                      documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
-            try? data?.write(to: url)
+        do {
+            if markdown {
+                let text = markdownExport(exportAttributed().string)
+                try Data(text.utf8).write(to: url)
+            } else {
+                let attr = exportAttributed()
+                let data = try attr.data(from: NSRange(location: 0, length: attr.length),
+                                         documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+                try data.write(to: url)
+            }
+        } catch {
+            // Was `try?` on both the encode and the write, so a failure left the file the
+            // save panel had already created — empty, with no word of it anywhere.
+            Diagnostics.log(.data, .error, "note export failed (\(markdown ? "md" : "rtf")): \(error.localizedDescription)")
         }
+    }
+
+    /// PDF is the format to hand a classmate: it renders the math instead of shipping `$…$`
+    /// source, and it opens anywhere. Goes through the same Markdown + KaTeX page the
+    /// reading view uses.
+    private func exportPDF() {
+        persist()
+        let panel = NSSavePanel()
+        let name = draft.title.isEmpty ? "Note" : draft.title
+        panel.nameFieldStringValue = name + ".pdf"
+        panel.allowedContentTypes = [.pdf]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if NoteDocument.writePDF(title: draft.title, attributed: exportAttributed(), to: url) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            Diagnostics.log(.data, .error, "note PDF export failed")
+        }
+    }
+
+    /// `RichTextController.printNote()` prints the live `NSTextView`, which doesn't exist in
+    /// the reading view — printing from there did nothing at all. Fall back to the rendered
+    /// document, which also prints math as math.
+    private func printNote() {
+        persist()
+        if editor.attributedString.length > 0, !showPreview {
+            editor.printNote()
+            return
+        }
+        NoteDocument.print(title: draft.title, attributed: exportAttributed())
     }
 
     /// Turn the editor's plaintext mirror into portable Markdown (its list markers → md).
