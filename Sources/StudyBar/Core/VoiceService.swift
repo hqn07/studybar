@@ -23,7 +23,8 @@ final class VoiceService: ObservableObject {
     /// recording bar + menu-bar elapsed clock so recording is visible/controllable from any module.
     @Published private(set) var startedAt: Date?
     var vocabPrompt: String?
-    private var lastMeter = Date.distantPast
+    private nonisolated let meterLock = NSLock()
+    private nonisolated(unsafe) var lastMeterAt = Date.distantPast
 
     static let locales: [(id: String, label: String)] = [
         ("en-US", "English (US)"), ("en-GB", "English (UK)"), ("es-ES", "Spanish"),
@@ -73,15 +74,21 @@ final class VoiceService: ObservableObject {
     private var chunkStart = Date()
     private var chunkSettings: [String: Any] = [:]
     private var sampleRate: Double = 48_000
-    private var lastLoudAt = Date()
+    private let activity = VoiceActivityTracker()
     private var chunkTimer: Timer?
+    // Per-recording chunk tally, logged on finish so the chunker's behaviour is measurable
+    // instead of inferred (there was no per-chunk logging at all before).
+    private var chunksSent = 0
+    private var chunksDroppedSilent = 0
+    private var chunksEmptyResult = 0
     private var transcribeChain: Task<Void, Never>?
     private var whisperCommitted = ""
     private var chunkLang: String?        // language detected on the first chunk, reused after
     private let minChunkSec = 8.0         // small enough that each transcribes fast (text stays current)
     private let maxChunkSec = 18.0        // hard cut, so text never lags too far behind live
-    private let pauseGapSec = 0.4         // prefer cutting at a natural pause
-    private let silenceRMS: Float = 0.035
+    // 0.4s sat inside a normal gap between words, so a "pause" was often mid-sentence —
+    // exactly where Whisper does worst. This is closer to a real sentence boundary.
+    private let pauseGapSec = 0.7
     // Autosave draft — crash-safe raw transcript.
     private var lastDraftSave = Date.distantPast
     static var draftURL: URL { AppState.localDir.appendingPathComponent("voice-draft.txt") }
@@ -268,7 +275,9 @@ final class VoiceService: ObservableObject {
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return }
         chunkSettings = format.settings; sampleRate = format.sampleRate
-        whisperCommitted = ""; transcript = ""; totalFrames = 0; lastLoudAt = Date(); chunkLang = nil
+        whisperCommitted = ""; transcript = ""; totalFrames = 0; chunkLang = nil
+        activity.resetAll()
+        chunksSent = 0; chunksDroppedSilent = 0; chunksEmptyResult = 0
         guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
@@ -277,8 +286,7 @@ final class VoiceService: ObservableObject {
             self.chunkFrames += AVAudioFramePosition(buf.frameLength)
             self.totalFrames += AVAudioFramePosition(buf.frameLength)
             self.chunkLock.unlock()
-            self.meter(buf)
-            self.trackLoud(buf)
+            self.observe(buf)
         }
         engine.prepare()
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
@@ -294,24 +302,58 @@ final class VoiceService: ObservableObject {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vchunk-\(UUID().uuidString).caf")
         guard let f = try? AVAudioFile(forWriting: url, settings: chunkSettings) else { return false }
         chunkLock.lock(); chunkFile = f; chunkURL = url; chunkFrames = 0; chunkStart = Date(); chunkLock.unlock()
+        activity.beginChunk()
         return true
     }
 
-    /// Note the last time the mic heard real sound, so a chunk can be cut at a pause.
-    nonisolated private func trackLoud(_ buf: AVAudioPCMBuffer) {
-        guard let ch = buf.floatChannelData?[0] else { return }
-        let n = Int(buf.frameLength); guard n > 0 else { return }
-        var sum: Float = 0; for i in 0..<n { let s = ch[i]; sum += s * s }
-        if (sum / Float(n)).squareRoot() > silenceRMS {
-            let now = Date(); Task { @MainActor in self.lastLoudAt = now }
-        }
+    nonisolated private static func rms(_ buf: AVAudioPCMBuffer) -> Float? {
+        guard let ch = buf.floatChannelData?[0] else { return nil }
+        let n = Int(buf.frameLength); guard n > 0 else { return nil }
+        var sum: Float = 0
+        for i in 0..<n { let s = ch[i]; sum += s * s }
+        return (sum / Float(n)).squareRoot()
+    }
+
+    /// One pass over each buffer: RMS once, fed to both the detector and the level meter.
+    /// Runs on the audio thread and stays there — the previous code spawned a main-actor
+    /// `Task` per buffer (~47 a second) in each of two functions, and the meter then threw
+    /// most of them away with a throttle *inside* the hop.
+    nonisolated private func observe(_ buf: AVAudioPCMBuffer) {
+        guard let r = Self.rms(buf) else { return }
+        activity.consume(rms: r)
+        meter(rms: r)
     }
 
     private func maybeCutChunk() {
         guard status == .recording, wantsRecording else { return }
         let dur = Date().timeIntervalSince(chunkStart)
-        let paused = Date().timeIntervalSince(lastLoudAt) >= pauseGapSec
+        let s = activity.snapshot()
+
+        // Never hand Whisper a chunk with no speech in it. It hallucinates on silence
+        // ("Thank you.", "you"), and that text is not empty, so it used to pass the
+        // `!text.isEmpty` guard downstream and land in the transcript.
+        guard s.chunkHadSpeech else {
+            // Recycle rather than accumulate: a lecturer who steps out for ten minutes
+            // shouldn't leave a ten-minute file of silence on disk.
+            if dur >= maxChunkSec { recycleChunk() }
+            return
+        }
+
+        let quietFor = Date().timeIntervalSince(s.lastSpeechAt)
+        let paused = !s.isSpeech && quietFor >= pauseGapSec
         if dur >= maxChunkSec || (dur >= minChunkSec && paused) { cutChunk(final: false) }
+    }
+
+    /// Drop the current chunk unheard and start a fresh one — silence only, nothing to
+    /// transcribe. Keeps the learned noise floor.
+    private func recycleChunk() {
+        chunkLock.lock()
+        let url = chunkURL
+        chunkFile = nil; chunkURL = nil
+        chunkLock.unlock()
+        if let url { try? FileManager.default.removeItem(at: url) }
+        chunksDroppedSilent += 1
+        openNewChunk()
     }
 
     /// Close the current chunk (flushing it to disk) and enqueue it, then open the next.
@@ -320,9 +362,16 @@ final class VoiceService: ObservableObject {
         let url = chunkURL; let frames = chunkFrames
         chunkFile = nil; chunkURL = nil          // dropping the ref flushes + closes the file
         chunkLock.unlock()
+        let hadSpeech = activity.snapshot().chunkHadSpeech
         if let url {
-            if frames > AVAudioFramePosition(sampleRate * 0.4) { enqueueTranscribe(url) }
-            else { try? FileManager.default.removeItem(at: url) }   // < 0.4s of audio — skip
+            if frames > AVAudioFramePosition(sampleRate * 0.4) && hadSpeech {
+                chunksSent += 1
+                enqueueTranscribe(url)
+            } else {
+                // Too short to be worth a pass, or silence only.
+                if !hadSpeech { chunksDroppedSilent += 1 }
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         if !final { openNewChunk() }
     }
@@ -338,6 +387,8 @@ final class VoiceService: ObservableObject {
                 whisperCommitted = join(whisperCommitted, text)
                 transcript = whisperCommitted
                 saveDraft()
+            } else {
+                chunksEmptyResult += 1
             }
         }
     }
@@ -377,7 +428,7 @@ final class VoiceService: ObservableObject {
             } else {
                 lastEngine = "Whisper (\(loadedModel ?? whisperModel))"
                 status = .idle
-                Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s")
+                Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s · chunks: \(chunksSent) sent, \(chunksDroppedSilent) silent-dropped, \(chunksEmptyResult) empty")
             }
             saveDraft()
         }
@@ -476,22 +527,22 @@ final class VoiceService: ObservableObject {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
             self.request?.append(buf)
-            self.meter(buf)
+            if let r = Self.rms(buf) { self.meter(rms: r) }
         }
         engine.prepare()
         return true
     }
 
-    nonisolated private func meter(_ buf: AVAudioPCMBuffer) {
-        guard let ch = buf.floatChannelData?[0] else { return }
-        let n = Int(buf.frameLength); guard n > 0 else { return }
-        var sum: Float = 0
-        for i in 0..<n { let s = ch[i]; sum += s * s }
-        let rms = (sum / Float(n)).squareRoot()
+    /// Throttled *before* the hop, not inside it.
+    nonisolated private func meter(rms: Float) {
+        let now = Date()
+        meterLock.lock()
+        let due = now.timeIntervalSince(lastMeterAt) > 0.033
+        if due { lastMeterAt = now }
+        meterLock.unlock()
+        guard due else { return }
         let level = max(0, min(1, (20 * log10(max(rms, 1e-7)) + 50) / 50))
         Task { @MainActor in
-            guard Date().timeIntervalSince(self.lastMeter) > 0.033 else { return }
-            self.lastMeter = Date()
             var w = self.waveform; w.removeFirst(); w.append(level); self.waveform = w
         }
     }
