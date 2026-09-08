@@ -206,6 +206,9 @@ enum MathMarkdown {
           blockquote{margin:.3em 0;padding-left:.6em;border-left:2px solid currentColor;opacity:.7;}
           a{color:#0a84ff;text-decoration:none;}
           .katex{font-size:1.05em;} .katex-display{margin:.4em 0;overflow-x:auto;overflow-y:hidden;}
+          table{border-collapse:collapse;margin:.5em 0;font-size:.94em;display:block;overflow-x:auto;}
+          th,td{border:1px solid currentColor;border-color:color-mix(in srgb,currentColor 25%,transparent);padding:3px 7px;text-align:left;}
+          th{font-weight:600;background:color-mix(in srgb,currentColor 8%,transparent);}
         </style></head><body><div id="c">\(body)</div>
         <script>
           function post(){try{if(window.webkit&&webkit.messageHandlers.h){webkit.messageHandlers.h.postMessage(document.body.scrollHeight);}}catch(e){}}
@@ -227,9 +230,29 @@ enum MathMarkdown {
         var html = ""
         var inList = false
         func closeList() { if inList { html += "</ul>"; inList = false } }
-        for rawLine in md.components(separatedBy: "\n") {
+        let lines = md.components(separatedBy: "\n")
+        var i = 0
+        while i < lines.count {
+            let rawLine = lines[i]
+            i += 1
             let t = rawLine.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { closeList(); continue }
+            // A pipe table: a row followed by a |---|---| rule. Models reach for these
+            // constantly (amortization schedules, comparisons), and without this they came
+            // out as a wall of pipes in the reading view and in print.
+            if t.hasPrefix("|"), i < lines.count, isTableRule(lines[i]) {
+                closeList()
+                var rows = [cells(t)]
+                var j = i + 1
+                while j < lines.count {
+                    let row = lines[j].trimmingCharacters(in: .whitespaces)
+                    guard row.hasPrefix("|") else { break }
+                    rows.append(cells(row)); j += 1
+                }
+                html += tableHTML(rows)
+                i = j
+                continue
+            }
             if t.hasPrefix("### ") { closeList(); html += "<h3>\(inlineHTML(String(t.dropFirst(4))))</h3>"; continue }
             if t.hasPrefix("## ")  { closeList(); html += "<h2>\(inlineHTML(String(t.dropFirst(3))))</h2>"; continue }
             if t.hasPrefix("# ")   { closeList(); html += "<h1>\(inlineHTML(String(t.dropFirst(2))))</h1>"; continue }
@@ -250,6 +273,60 @@ enum MathMarkdown {
         }
         closeList()
         return html
+    }
+
+    /// `|---|:--:|` — the rule that turns the line above it into a header row.
+    private static func isTableRule(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("|"), t.contains("-") else { return false }
+        return t.allSatisfy { "|-: \t".contains($0) }
+    }
+
+    private static func cells(_ row: String) -> [String] {
+        var parts = row.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        if parts.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { parts.removeFirst() }
+        if parts.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { parts.removeLast() }
+        return parts.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private static func tableHTML(_ rows: [[String]]) -> String {
+        guard let header = rows.first else { return "" }
+        var html = "<table><thead><tr>"
+        html += header.map { "<th>\(inlineHTML($0))</th>" }.joined()
+        html += "</tr></thead><tbody>"
+        for row in rows.dropFirst() {
+            html += "<tr>" + row.map { "<td>\(inlineHTML($0))</td>" }.joined() + "</tr>"
+        }
+        return html + "</tbody></table>"
+    }
+
+    /// The note laid out for paper: the same Markdown conversion the reading view renders,
+    /// imported through the HTML reader, with `$…$` spans drawn as math attachments. Export
+    /// and Print used the plaintext mirror, so a PDF of an AI-written note was a page of
+    /// `##` and `**` and raw LaTeX — the source, not the note.
+    @MainActor
+    static func printable(_ md: String) -> NSAttributedString? {
+        let body = convert(MathSupport.normalized(md))
+        let html = """
+        <!doctype html><html><head><meta charset="utf-8"><style>
+          body{font:11pt -apple-system,"SF Pro Text",system-ui,sans-serif;line-height:1.45;color:#000;}
+          h1{font-size:17pt;margin:0 0 8pt;} h2{font-size:14pt;margin:12pt 0 4pt;} h3{font-size:12pt;margin:10pt 0 3pt;}
+          p{margin:0 0 5pt;} ul{margin:2pt 0 5pt 0;} li{margin:1pt 0;}
+          table{border-collapse:collapse;margin:6pt 0;}
+          th,td{border:1px solid #999;padding:3pt 6pt;font-size:10pt;text-align:left;}
+          th{background:#f0f0f0;font-weight:600;}
+          code{font-family:ui-monospace,Menlo,monospace;font-size:10pt;}
+          blockquote{margin:4pt 0 4pt 10pt;color:#444;}
+        </style></head><body>\(body)</body></html>
+        """
+        guard let data = html.data(using: .utf8),
+              let attr = try? NSMutableAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.html,
+                          .characterEncoding: String.Encoding.utf8.rawValue],
+                documentAttributes: nil)
+        else { return nil }
+        return attr.installingMath(defaultColor: .black)
     }
 
     /// Balance a line's `\(…\)` so a common typo (a bare `)` meant as `\)`, or a stray extra
@@ -345,6 +422,16 @@ enum NoteDocument {
         return info
     }
 
+    /// Is this note's text Markdown source (AI-written, pasted) rather than text the user
+    /// styled in the editor? Those two want opposite treatment on paper: the first has to be
+    /// rendered, the second already carries its formatting (and its images) in the RTFD.
+    private static func isMarkdown(_ s: String) -> Bool {
+        s.range(of: #"(?m)^\s{0,3}#{1,3}\s"#, options: .regularExpression) != nil
+            || s.range(of: #"(?m)^\s{0,3}[-*]\s"#, options: .regularExpression) != nil
+            || s.range(of: #"(?m)^\s*\|.*\|"#, options: .regularExpression) != nil
+            || s.contains("**")
+    }
+
     /// The note as a text view sized to the printable column.
     private static func page(title: String, attributed: NSAttributedString, info: NSPrintInfo) -> NSTextView {
         let width = max(200, info.paperSize.width - info.leftMargin - info.rightMargin)
@@ -354,8 +441,13 @@ enum NoteDocument {
                                           attributes: [.font: NSFont.boldSystemFont(ofSize: 20),
                                                        .foregroundColor: NSColor.black]))
         }
-        // .black, not .labelColor: on paper a dark-mode label color is white on white.
-        doc.append(attributed.installingMath(defaultColor: .black))
+        let plain = attributed.string
+        if isMarkdown(plain), let rendered = MathMarkdown.printable(plain) {
+            doc.append(rendered)
+        } else {
+            // .black, not .labelColor: on paper a dark-mode label color is white on white.
+            doc.append(attributed.installingMath(defaultColor: .black))
+        }
 
         let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
         tv.isVerticallyResizable = true
@@ -384,9 +476,14 @@ enum PDFSelfTest {
             else { Swift.print("  FAIL \(name) \(detail)"); fail += 1 }
         }
 
-        var body = ""
-        for i in 1...120 { body += "Line \(i): flux is $\\Phi_E = \\oint \\vec{E}\\cdot d\\vec{A}$ through the surface.\n" }
-        body += "\n$$\\frac{Q}{\\epsilon_0}$$\n"
+        // Shaped like a real AI-written note: Markdown source, LaTeX padded against its
+        // delimiters, and a pipe table — the three things that came out as raw source.
+        var body = "# Module Three: Present Value\n\n## Introduction\n"
+        body += "- **Key Concepts**: the time value of money.\n"
+        body += "- **Present Value (PV)**: \\( PV = \\frac{FV}{(1 + i)^N} \\)\n\n"
+        body += "| Year | Total Due | Payment |\n|------|----------|---------|\n"
+        body += "| 0 | $1,000 | $0 |\n| 1 | $1,080 | $580 |\n\n"
+        for i in 1...100 { body += "Line \(i): flux is $\\Phi_E = \\oint \\vec{E}\\cdot d\\vec{A}$ through the surface.\n" }
         let attr = NSAttributedString(string: body, attributes: [.font: NSFont.systemFont(ofSize: 13)])
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sb-pdf-selftest.pdf")
         try? FileManager.default.removeItem(at: url)
@@ -401,7 +498,9 @@ enum PDFSelfTest {
             let text = doc.string ?? ""
             check("text is present", text.contains("flux is"))
             check("title is present", text.contains("Gauss"))
-            check("no LaTeX source left", !text.contains("\\oint") && !text.contains("$$"))
+            check("no LaTeX source left", !text.contains("\\oint") && !text.contains("\\frac") && !text.contains("$$"))
+            check("Markdown is rendered, not printed", !text.contains("##") && !text.contains("**"))
+            check("table cells survive", text.contains("Total Due") && text.contains("$1,080"))
         } else {
             check("PDF is readable", false)
         }

@@ -1698,13 +1698,32 @@ enum MathSupport {
 
     /// `\(x\)` → `$x$`, `\[x\]` → `$$x$$`. A no-op (and an early return) for text that has
     /// neither, so the common path costs one `contains`.
+    ///
+    /// The inner text is trimmed, which is the whole point of doing this by hand instead of
+    /// with a replacement template: models write `\( PV = \frac{FV}{(1+i)^N} \)` with spaces
+    /// against the delimiters, and `inlineRE` requires a non-space right after the `$` (that
+    /// is what keeps "$5 and $10" from being read as math). A template-rewritten `$ PV … $`
+    /// therefore still didn't match, and still rendered as source — every inline span in a
+    /// real store was padded like that.
     static func normalized(_ s: String) -> String {
         guard s.contains("\\(") || s.contains("\\[") else { return s }
-        var out = s
-        out = bracketDisplayRE.stringByReplacingMatches(
-            in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "\\$\\$$1\\$\\$")
-        out = parenInlineRE.stringByReplacingMatches(
-            in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "\\$$1\\$")
+        var out = rewrite(s, bracketDisplayRE, "$$")
+        out = rewrite(out, parenInlineRE, "$")
+        return out
+    }
+
+    private static func rewrite(_ s: String, _ re: NSRegularExpression, _ delim: String) -> String {
+        let ns = s as NSString
+        var out = ""
+        var cursor = 0
+        for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: cursor, length: m.range.location - cursor))
+            let inner = ns.substring(with: m.range(at: 1))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            out += inner.isEmpty ? "" : delim + inner + delim
+            cursor = m.range.location + m.range.length
+        }
+        out += ns.substring(from: cursor)
         return out
     }
 
@@ -1737,7 +1756,13 @@ enum MathSelfTest {
         check("display bracket", MathSupport.normalized(#"\[x^2\]"#), "$$x^2$$")
         check("multiline display",
               MathSupport.normalized("  \\[\n  \\oint x\n  \\]"),
-              "  $$\n  \\oint x\n  $$")
+              "  $$\\oint x$$")
+        // What every span in a real store looks like: padded against the delimiters. Left
+        // padded, `$ PV … $` fails inlineRE's non-space guard and renders as source.
+        check("padded inline is trimmed",
+              MathSupport.normalized(#"\( PV = \frac{FV}{(1 + i)^N} \)"#),
+              #"$PV = \frac{FV}{(1 + i)^N}$"#)
+        check("padded display is trimmed", MathSupport.normalized(#"\[ x^2 \]"#), "$$x^2$$")
         check("two inline spans", MathSupport.normalized(#"\(a\) and \(b\)"#), "$a$ and $b$")
         check("dollars untouched", MathSupport.normalized("$E=mc^2$ and $$y$$"), "$E=mc^2$ and $$y$$")
         check("prose untouched", MathSupport.normalized("no math, costs $5 and $10"), "no math, costs $5 and $10")
@@ -1748,6 +1773,12 @@ enum MathSelfTest {
         check("unpaired opener untouched", MathSupport.normalized(#"a \( dangling"#), #"a \( dangling"#)
 
         // The normalized form must then be what the renderers actually match on.
+        let padded = MathSupport.normalized(#"see \( E = mc^2 \) here"#)
+        let pns = padded as NSString
+        let inlineHits = MathSupport.inlineRE.numberOfMatches(in: padded, range: NSRange(location: 0, length: pns.length))
+        inlineHits == 1 ? { print("  ok   inlineRE matches a padded span once normalized"); pass += 1 }()
+                        : { print("  FAIL inlineRE matched \(inlineHits) spans, want 1"); fail += 1 }()
+
         let norm = MathSupport.normalized(#"\[\frac{Q}{\epsilon_0}\]"#)
         let ns = norm as NSString
         let hits = MathSupport.displayRE.numberOfMatches(in: norm, range: NSRange(location: 0, length: ns.length))
