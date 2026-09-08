@@ -1687,6 +1687,27 @@ enum MathSupport {
     // "$E=mc^2$" is.
     static let inlineRE  = try! NSRegularExpression(pattern: #"(?<![\\\d])\$(?=\S)([^$\n]*?\S)\$(?!\d)"#)
 
+    // LaTeX arrives in two delimiter styles: TeX's `$…$` / `$$…$$`, and the LaTeX2e /
+    // MathJax `\(…\)` / `\[…\]` that language models, Wikipedia and Overleaf emit. Only the
+    // first was ever matched — and because `MathMarkdown.hasMath` *did* count the second,
+    // `RichText` routed those notes to the native renderer, which found no math, rendered the
+    // LaTeX as prose and reported success, so the KaTeX fallback never fired to catch it.
+    // Everything that reads math source normalizes through here first.
+    static let bracketDisplayRE = try! NSRegularExpression(pattern: #"\\\[([\s\S]+?)\\\]"#)
+    static let parenInlineRE    = try! NSRegularExpression(pattern: #"\\\(([\s\S]+?)\\\)"#)
+
+    /// `\(x\)` → `$x$`, `\[x\]` → `$$x$$`. A no-op (and an early return) for text that has
+    /// neither, so the common path costs one `contains`.
+    static func normalized(_ s: String) -> String {
+        guard s.contains("\\(") || s.contains("\\[") else { return s }
+        var out = s
+        out = bracketDisplayRE.stringByReplacingMatches(
+            in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "\\$\\$$1\\$\\$")
+        out = parenInlineRE.stringByReplacingMatches(
+            in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "\\$$1\\$")
+        return out
+    }
+
     /// Is the caret strictly inside a `$…$` / `$$…$$` source span (i.e. being edited)?
     static func caretInsideMath(_ s: String, _ caret: Int) -> Bool {
         let ns = s as NSString
@@ -1696,6 +1717,49 @@ enum MathSupport {
             }
         }
         return false
+    }
+}
+
+// MARK: - Delimiter normalization self-test (StudyBar --math-selftest)
+
+/// Locks down the rule that a note's math renders whichever delimiters it arrived in. The
+/// regression this guards: a model emitted `\[…\]`, `hasMath` counted it, the native
+/// renderer didn't, and 72 spans across the store rendered as raw LaTeX.
+enum MathSelfTest {
+    static func run() -> Int32 {
+        var pass = 0, fail = 0
+        func check(_ name: String, _ got: String, _ want: String) {
+            if got == want { print("  ok   \(name)"); pass += 1 }
+            else { print("  FAIL \(name): got \(got.debugDescription) want \(want.debugDescription)"); fail += 1 }
+        }
+
+        check("inline paren", MathSupport.normalized(#"see \(E = mc^2\) here"#), "see $E = mc^2$ here")
+        check("display bracket", MathSupport.normalized(#"\[x^2\]"#), "$$x^2$$")
+        check("multiline display",
+              MathSupport.normalized("  \\[\n  \\oint x\n  \\]"),
+              "  $$\n  \\oint x\n  $$")
+        check("two inline spans", MathSupport.normalized(#"\(a\) and \(b\)"#), "$a$ and $b$")
+        check("dollars untouched", MathSupport.normalized("$E=mc^2$ and $$y$$"), "$E=mc^2$ and $$y$$")
+        check("prose untouched", MathSupport.normalized("no math, costs $5 and $10"), "no math, costs $5 and $10")
+        check("idempotent", MathSupport.normalized(MathSupport.normalized(#"\(a\)"#)), "$a$")
+        // The regression that the old ReadingView.mathify had: four unpaired string swaps, so
+        // a lone closer became a stray `$` that swallowed text up to the next one.
+        check("unpaired closer untouched", MathSupport.normalized(#"cost is 5\) here"#), #"cost is 5\) here"#)
+        check("unpaired opener untouched", MathSupport.normalized(#"a \( dangling"#), #"a \( dangling"#)
+
+        // The normalized form must then be what the renderers actually match on.
+        let norm = MathSupport.normalized(#"\[\frac{Q}{\epsilon_0}\]"#)
+        let ns = norm as NSString
+        let hits = MathSupport.displayRE.numberOfMatches(in: norm, range: NSRange(location: 0, length: ns.length))
+        hits == 1 ? { print("  ok   displayRE matches the normalized form"); pass += 1 }()
+                  : { print("  FAIL displayRE matched \(hits) spans, want 1"); fail += 1 }()
+
+        // And a list row must show the source, not the delimiters.
+        let note = Note(body: #"Flux is \(\Phi_E\) through \[S\]"#)
+        check("previewText strips both", note.previewText, "Flux is \\Phi_E through S")
+
+        print(fail == 0 ? "MATH SELFTEST: ALL PASS (\(pass))" : "MATH SELFTEST: \(fail) FAILED")
+        return fail == 0 ? 0 : 1
     }
 }
 

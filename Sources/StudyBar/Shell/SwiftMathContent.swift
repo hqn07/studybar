@@ -28,8 +28,8 @@ enum SwiftMathRender {
     }
 }
 
-/// Renders `text` (markdown + `$…$` / `$$…$$`) with native math; if any expression fails
-/// to parse, the whole block falls back to KaTeX so nothing is ever dropped.
+/// Renders `text` (markdown + `$…$` / `$$…$$` / `\(…\)` / `\[…\]`) with native math; if any
+/// expression fails to parse, the whole block falls back to KaTeX so nothing is ever dropped.
 struct SwiftMathContent: View {
     let text: String
     @Environment(\.colorScheme) private var scheme
@@ -51,7 +51,10 @@ struct SwiftMathContent: View {
 /// Builds the row views. Returns nil if any math span can't be rendered natively → caller
 /// falls back to KaTeX.
 private enum MathRows {
-    static func build(_ text: String, color: NSColor) -> [AnyView]? {
+    static func build(_ raw: String, color: NSColor) -> [AnyView]? {
+        // `\(…\)` / `\[…\]` → `$…$` / `$$…$$` before anything matches, so LaTeX pasted from
+        // a model, Wikipedia or Overleaf renders instead of showing up as prose.
+        let text = MathSupport.normalized(raw)
         let ns = text as NSString
         var rows: [AnyView] = []
         var cursor = 0

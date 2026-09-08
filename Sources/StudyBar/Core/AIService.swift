@@ -1082,7 +1082,8 @@ enum AIActionRunner {
             return "Added task “\(text.prefix(40))”."
 
         case "add_note":
-            guard let text = a.str("text"), !text.isEmpty else { return "Skipped: empty note." }
+            guard let raw = a.str("text"), !raw.isEmpty else { return "Skipped: empty note." }
+            let text = MathSupport.normalized(raw)      // `\(…\)` → `$…$`, as everywhere else
             let title = a.str("title") ?? String(text.prefix(60))
             var note = Note(title: title, body: text, courseID: AppActions.courseID(named: a.str("course")))
             note.updatedAt = .now

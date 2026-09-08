@@ -789,7 +789,7 @@ struct GenerateCardsView: View {
         guard !text.isEmpty else { return [] }
 
         func clean(_ t: String) -> String {
-            t.trimmingCharacters(in: .whitespaces)
+            MathSupport.normalized(t).trimmingCharacters(in: .whitespaces)
                 .replacingOccurrences(of: #"^\s*(\d+[.)]|[-•*])\s*"#, with: "", options: .regularExpression)
                 .replacingOccurrences(of: #"(?i)^\s*(front|back|q(?:uestion)?|a(?:nswer)?)\s*[:.)\-]\s*"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)

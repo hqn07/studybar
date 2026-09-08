@@ -5,6 +5,9 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Fixed: Spotlight showed note markup** — note results in Spotlight used the raw body, so headings, bullet markers and LaTeX delimiters showed up in the preview line. They now use the same cleaned text the notes list does.
+- **Fixed: AI-written math showed as raw LaTeX** — notes organized by AI (and anything pasted from a model, Wikipedia or Overleaf) used `\(…\)` and `\[…\]`, which StudyBar rendered as plain text instead of equations. Both styles now render, in the reading view and in list previews, and AI output is converted to StudyBar's `$…$` on arrival so it renders in the editor too. Existing notes are fixed on sight — nothing was rewritten on disk.
+
 ## [1.9.0] — 2026-09-03
 
 - **Notes open to read, not just edit** — opening an existing note now shows it rendered (Markdown + math) in a clean reading view; click the page to edit. New notes still open ready to type. The reading view puts the title at the top and sets the text in a comfortable column.

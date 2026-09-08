@@ -56,8 +56,8 @@ enum HighlightCards {
         else { return [] }
         var out: [CardDraft] = []
         for (n, o) in arr.enumerated() {
-            let front = (o["front"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let back  = (o["back"]  as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let front = MathSupport.normalized((o["front"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let back  = MathSupport.normalized((o["back"]  as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !front.isEmpty, !back.isEmpty else { continue }
             let i = (o["i"] as? Int) ?? n
             let page = hls.indices.contains(i) ? hls[i].page : 0

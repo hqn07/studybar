@@ -18,8 +18,11 @@ enum SpotlightIndexer {
 
         for n in data.notes {
             let attr = CSSearchableItemAttributeSet(contentType: .text)
-            attr.title = n.title.isEmpty ? String(n.body.prefix(40)) : n.title
-            attr.contentDescription = String(n.body.prefix(200))
+            // previewText, not the raw body — otherwise Spotlight results show markup and
+            // LaTeX delimiters instead of the sentence.
+            let preview = n.previewText
+            attr.title = n.title.isEmpty ? String(preview.prefix(40)) : n.title
+            attr.contentDescription = String(preview.prefix(200))
             attr.keywords = n.tags
             items.append(CSSearchableItem(uniqueIdentifier: "note:\(n.id.uuidString)",
                                           domainIdentifier: "studybar.note", attributeSet: attr))

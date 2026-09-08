@@ -74,6 +74,8 @@ extension Note {
         (try! NSRegularExpression(pattern: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#), ""),
         (try! NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#), "$1"),        // wikilinks
         (try! NSRegularExpression(pattern: #"\$\$?([^$]+?)\$\$?"#), "$1"),      // math → source
+        (try! NSRegularExpression(pattern: #"\\\[([\s\S]+?)\\\]"#), "$1"),        // \[display\] → source
+        (try! NSRegularExpression(pattern: #"\\\(([\s\S]+?)\\\)"#), "$1"),        // \(inline\) → source
         (try! NSRegularExpression(pattern: #"─{3,}"#), ""),                    // dividers
         (try! NSRegularExpression(pattern: #"(?m)^\s*[☐☑]\s*"#), "○ "),        // checkboxes
         (try! NSRegularExpression(pattern: #"(?m)^\s*\d+\.\s+"#), ""),          // numbered

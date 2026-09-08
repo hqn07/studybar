@@ -729,7 +729,12 @@ struct NoteEditor: View {
                 out = try? await provider.completePlain(system: sys, messages: msgs)
             }
             await MainActor.run {
-                aiText = (out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines)
+                // Canonicalize the model's LaTeX delimiters here rather than asking for them
+                // in the prompt: a 7B model complies most of the time, and "most" is what put
+                // unrendered `\[…\]` in the store. Doing it before the card means what you
+                // review is what lands in the note — and it lands as `$…$`, which the editor
+                // renders inline too.
+                aiText = MathSupport.normalized((out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines))
                 aiDone = true
                 if aiText.isEmpty { aiAction = nil }   // failed — close quietly; note untouched
             }

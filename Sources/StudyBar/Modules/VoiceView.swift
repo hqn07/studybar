@@ -306,7 +306,9 @@ struct VoiceView: View {
             }
             await MainActor.run {
                 organizing = false; organizeStream = ""
-                let cleaned = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                // Same reason as the Notes AI card: the system prompt above already asks for
+                // `$…$` and the model still returns `\[…\]`, so normalize deterministically.
+                let cleaned = MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
                 if isPlausibleNotes(cleaned) {
                     rawBeforeOrganize = raw            // keep the original — never lost, revertible
                     voice.transcript = cleaned

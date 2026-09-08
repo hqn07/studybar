@@ -15,7 +15,11 @@ enum AppActions {
     static func addNote(_ text: String, course: String? = nil) -> Bool {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let s = AppState.current, !t.isEmpty else { return false }
-        s.data.notes.append(Note(title: String(t.prefix(60)), body: t, courseID: courseID(named: course)))
+        // Text arriving here is often pasted from a model or a web page, so it carries
+        // `\(…\)` / `\[…\]`. Canonicalize to `$…$` so the editor renders it too, not just
+        // the reading view.
+        let body = MathSupport.normalized(t)
+        s.data.notes.append(Note(title: String(body.prefix(60)), body: body, courseID: courseID(named: course)))
         return true
     }
 

@@ -811,10 +811,10 @@ struct ReadingDetailView: View {
     /// or ending in sentence punctuation — are left untouched.
     private func mathify(_ raw: String) -> String {
         // Normalize the \[ \] and \( \) delimiters many models emit (qwen does) to StudyBar's
-        // $$ / $, which SwiftMath understands.
-        let text = raw
-            .replacingOccurrences(of: "\\[", with: "$$").replacingOccurrences(of: "\\]", with: "$$")
-            .replacingOccurrences(of: "\\(", with: "$").replacingOccurrences(of: "\\)", with: "$")
+        // $$ / $. This used to be four unpaired `replacingOccurrences`, which would happily
+        // turn a lone `\)` into a stray `$` and swallow text up to the next one; the shared
+        // normalizer only rewrites matched pairs.
+        let text = MathSupport.normalized(raw)
         if text.contains("$") { return text }
         return text.components(separatedBy: "\n").map { line -> String in
             let t = line.trimmingCharacters(in: .whitespaces)
