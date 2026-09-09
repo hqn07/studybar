@@ -20,6 +20,15 @@ protocol MergeItem: Identifiable, Equatable {
     var mergeStamp: Date { get }
 }
 
+/// A record that carries its own last-edit time, stamped centrally at save. Before this, a
+/// both-sides-edited conflict on an assignment was decided by `createdAt` — identical on both
+/// copies of the same item, so local always won and the other device's edit was dropped (it
+/// survived only in the .conflict-* backup). Items that predate the field fall back to the old
+/// stamp, so existing stores merge exactly as they did.
+protocol Touchable {
+    var updatedAt: Date? { get set }
+}
+
 /// 3-way merge a scalar: take whichever side changed vs the ancestor; if both changed,
 /// prefer `mine` (the active saver).
 func merge3<T: Equatable>(_ base: T, _ mine: T, _ theirs: T) -> T {
@@ -129,25 +138,25 @@ extension AppData {
 // "edited at" fall back to .distantPast → such a conflict resolves to the local copy
 // (and the remote copy survives in the .conflict-* backup).
 
-extension Course:          MergeItem { var mergeStamp: Date { createdAt } }
+extension Course:          MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }
 extension Note:            MergeItem { var mergeStamp: Date { updatedAt } }
 extension ClipItem:        MergeItem { var mergeStamp: Date { copiedAt } }
-extension Snippet:         MergeItem { var mergeStamp: Date { .distantPast } }
-extension Assignment:      MergeItem { var mergeStamp: Date { createdAt } }
-extension TodoItem:        MergeItem { var mergeStamp: Date { createdAt } }
-extension QuickLink:       MergeItem { var mergeStamp: Date { .distantPast } }
+extension Snippet:         MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
+extension Assignment:      MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }
+extension TodoItem:        MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }
+extension QuickLink:       MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension TimeEntry:       MergeItem { var mergeStamp: Date { date } }
 extension Reference:       MergeItem { var mergeStamp: Date { addedAt } }
-extension Deck:            MergeItem { var mergeStamp: Date { createdAt } }
+extension Deck:            MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }
 extension Flashcard:       MergeItem { var mergeStamp: Date { lastReview ?? .distantPast } }
 extension ReadingItem:     MergeItem { var mergeStamp: Date { updatedAt } }
 extension ReadEvent:       MergeItem { var mergeStamp: Date { date } }
-extension ClassSession:    MergeItem { var mergeStamp: Date { .distantPast } }
+extension ClassSession:    MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension ReadingListItem: MergeItem { var mergeStamp: Date { addedAt } }
 extension ICSFeed:         MergeItem { var mergeStamp: Date { lastSynced ?? .distantPast } }
-extension FolderRef:       MergeItem { var mergeStamp: Date { .distantPast } }
+extension FolderRef:       MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension FileRef:         MergeItem { var mergeStamp: Date { addedAt } }
-extension GradeItem:       MergeItem { var mergeStamp: Date { .distantPast } }
+extension GradeItem:       MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension RSSFeed:         MergeItem { var mergeStamp: Date { .distantPast } }
 extension TrashedItem:     MergeItem { var mergeStamp: Date { deletedAt } }
 extension TimeBlock:       MergeItem { var mergeStamp: Date { updatedAt } }
@@ -287,7 +296,44 @@ enum MergeSelfTest {
             check("deleted note still recoverable in trash", (m.trash ?? []).contains { $0.itemID == x.id })
         }
 
+        // The conflict this stamp exists for: the same assignment edited on two devices.
+        // With createdAt as the stamp both sides tied, `>=` picked local, and the other
+        // device's edit was dropped.
+        do {
+            let id = UUID()
+            let made = Date(timeIntervalSince1970: 1_000_000)
+            var base = Assignment(title: "Problem set 3"); base.id = id; base.createdAt = made
+            var mine = base; mine.title = "Problem set 3 (started)"
+            mine.updatedAt = made.addingTimeInterval(60)
+            var theirs = base; theirs.title = "Problem set 3 — due Friday"
+            theirs.updatedAt = made.addingTimeInterval(120)      // the newer edit
+
+            let merged = mergeLists(base: [base], mine: [mine], theirs: [theirs])
+            check("newer remote edit wins", merged.first?.title == "Problem set 3 — due Friday")
+
+            var mineNewer = mine; mineNewer.updatedAt = made.addingTimeInterval(300)
+            let merged2 = mergeLists(base: [base], mine: [mineNewer], theirs: [theirs])
+            check("newer local edit wins", merged2.first?.title == "Problem set 3 (started)")
+
+            // Records written before the field existed keep the old behaviour exactly.
+            var oldMine = base; oldMine.title = "local"
+            var oldTheirs = base; oldTheirs.title = "remote"
+            let merged3 = mergeLists(base: [base], mine: [oldMine], theirs: [oldTheirs])
+            check("unstamped records still resolve to local", merged3.first?.title == "local")
+        }
+
         print(failures == 0 ? "MERGE SELFTEST: ALL PASS" : "MERGE SELFTEST: \(failures) FAILURE(S)")
         return failures == 0 ? 0 : 1
     }
 }
+
+
+extension Course:       Touchable {}
+extension Assignment:   Touchable {}
+extension TodoItem:     Touchable {}
+extension Deck:         Touchable {}
+extension Snippet:      Touchable {}
+extension QuickLink:    Touchable {}
+extension ClassSession: Touchable {}
+extension GradeItem:    Touchable {}
+extension FolderRef:    Touchable {}

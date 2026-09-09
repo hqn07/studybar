@@ -4,6 +4,9 @@ import SwiftUI
 // MARK: - Course (feeds every module that has a course picker)
 
 struct Course: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var name: String
     var code: String = ""
@@ -108,6 +111,9 @@ struct ClipItem: Identifiable, Codable, Hashable {
 // MARK: - Snippets (6)
 
 struct Snippet: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var keyword: String = ""
     var title: String = ""
@@ -131,6 +137,9 @@ struct ChecklistItem: Identifiable, Codable, Hashable {
 }
 
 struct Assignment: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var title: String
     var courseID: UUID? = nil
@@ -195,6 +204,9 @@ extension Assignment {
 // MARK: - To-do (43)
 
 struct TodoItem: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var text: String
     var done: Bool = false
@@ -213,6 +225,9 @@ struct TodoItem: Identifiable, Codable, Hashable {
 // MARK: - Quick Links (21) & per-course groups (22)
 
 struct QuickLink: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var title: String
     var url: String
@@ -325,6 +340,9 @@ struct Reference: Identifiable, Codable, Hashable {
 // MARK: - Flashcards & Quiz (35, 36)
 
 struct Deck: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var name: String = ""
     var courseID: UUID? = nil
@@ -423,6 +441,9 @@ struct ReadEvent: Identifiable, Codable, Hashable {
 // MARK: - Class schedule (19)
 
 struct ClassSession: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var courseID: UUID? = nil
     var title: String = ""            // e.g. "Lecture", "Lab"
@@ -484,6 +505,9 @@ struct ICSFeed: Identifiable, Codable, Hashable {
 // MARK: - Folder bookmark (25 recent files, 32 PDF search)
 
 struct FolderRef: Identifiable, Codable, Hashable, Sendable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var name: String = ""
     var bookmark: Data = Data()      // security-scoped bookmark
@@ -530,6 +554,9 @@ struct RSSFeed: Identifiable, Codable, Hashable {
 
 /// One weighted grade component for a course (e.g. "Midterm — 25% — 88").
 struct GradeItem: Identifiable, Codable, Hashable {
+    /// Last local edit, stamped at save time by diffing against the previous save.
+    /// Optional so older stores decode; merge falls back to the old stamp when absent.
+    var updatedAt: Date? = nil
     var id = UUID()
     var courseID: UUID? = nil
     var name: String = ""

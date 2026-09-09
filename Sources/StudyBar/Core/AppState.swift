@@ -320,6 +320,7 @@ final class AppState: ObservableObject {
             Diagnostics.error(.sync, "Refused to overwrite a non-empty store (\(disk.contentCount) records) with an empty one — backed up the disk copy")
             return
         }
+        stampEdits()
         guard let raw = try? JSONEncoder.studybar.encode(data) else {
             Diagnostics.error(.sync, "Save skipped: could not encode the store")
             return
@@ -332,6 +333,54 @@ final class AppState: ObservableObject {
             // leave loadedMtime/baseData so a later save retries the merge check
             Diagnostics.error(.sync, "Save failed writing \(raw.count) bytes: \(error.localizedDescription)")
         }
+    }
+
+    /// Stamp `updatedAt` on records that changed since the last save.
+    ///
+    /// Done here, by diffing against `baseData`, rather than at every mutation site: there are
+    /// hundreds of those and one forgotten `touch()` silently reintroduces the bug it fixes.
+    /// The stamp decides both-sides-edited conflicts in `mergeLists` — without it an
+    /// assignment's stamp was its creation date, identical on both copies, so the local edit
+    /// always won and the other device's was dropped.
+    private func stampEdits() {
+        let now = Date()
+        var d = data
+        var changed = false
+
+        func stamp<T: Touchable & Identifiable & Equatable>(_ items: inout [T], since old: [T])
+        where T.ID: Hashable {
+            guard !items.isEmpty else { return }
+            let previous = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for i in items.indices {
+                // An unchanged record compares equal — both sides carry the stamp written last
+                // time — so only real edits and new records are touched.
+                if previous[items[i].id] != items[i] {
+                    items[i].updatedAt = now
+                    changed = true
+                }
+            }
+        }
+        func stamp<T: Touchable & Identifiable & Equatable>(_ items: inout [T]?, since old: [T]?)
+        where T.ID: Hashable {
+            guard var list = items else { return }
+            stamp(&list, since: old ?? [])
+            items = list
+        }
+
+        stamp(&d.assignments, since: baseData.assignments)
+        stamp(&d.courses,     since: baseData.courses)
+        stamp(&d.todos,       since: baseData.todos)
+        stamp(&d.decks,       since: baseData.decks)
+        stamp(&d.snippets,    since: baseData.snippets)
+        stamp(&d.links,       since: baseData.links)
+        stamp(&d.classes,     since: baseData.classes)
+        stamp(&d.gradeItems,  since: baseData.gradeItems)
+        stamp(&d.folders,     since: baseData.folders)
+
+        guard changed else { return }
+        suppressSave = true     // writing the stamps back must not schedule another save
+        data = d
+        suppressSave = false
     }
 
     /// If the on-disk file is newer than our last sync point, back it up and return the

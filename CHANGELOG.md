@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Edits from a second device stop being dropped** — when the same assignment, course, class, to-do, deck, snippet, link, grade row or file group is changed in two places, the newer change now wins. Previously the comparison used the record's creation date, which is identical on both copies, so whichever device saved last kept its own version and the other edit survived only in a backup file.
+
 - **Autocomplete holds the model for two minutes, not five** — the local model now stays warm across pauses in a writing session and hands its ~4.7 GB back shortly after you stop, instead of inheriting Ollama's default five-minute window.
 - **Autocomplete no longer depends on the assistant's engine** — grey suggestions while typing always run on your local Ollama model, so pointing the assistant at DeepSeek or Claude doesn't silently switch them off. Settings ▸ Intelligence ▸ Smart typing names the model it uses and can check that it's actually running.
 
