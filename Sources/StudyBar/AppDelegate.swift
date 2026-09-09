@@ -70,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--vad-selftest") {
             exit(VADSelfTest.run())
         }
+        if CommandLine.arguments.contains("--week-selftest") {
+            exit(WeekSelfTest.run())
+        }
         if CommandLine.arguments.contains("--math-selftest") {
             exit(MathSelfTest.run())
         }

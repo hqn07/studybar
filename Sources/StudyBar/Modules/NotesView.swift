@@ -65,6 +65,26 @@ struct NotesView: View {
         let rest = all.filter { !$0.pinned }
         var out: [(String, String?, [Note])] = []
         if !pinned.isEmpty { out.append(("pinned", "Pinned", pinned)) }
+        // Inside a course, lecture notes are kept per class session, so the week of the term
+        // is the axis that matches how they were written — "Week 3" beside the three notes
+        // the user titled that by hand. Outside a course (All / Untagged) the soft date
+        // buckets stay, since weeks from different courses interleave meaninglessly.
+        if case .course = scope, sort == .updated, state.data.termStart != nil {
+            var buckets: [Int: [Note]] = [:]
+            var undated: [Note] = []
+            for n in rest {
+                if let w = SemesterWeek.number(for: n.createdAt, termStart: state.data.termStart) {
+                    buckets[w, default: []].append(n)
+                } else {
+                    undated.append(n)
+                }
+            }
+            for w in buckets.keys.sorted(by: >) {
+                out.append(("week-\(w)", "Week \(w)", buckets[w] ?? []))
+            }
+            if !undated.isEmpty { out.append(("before", "Before the term", undated)) }
+            return out
+        }
         if sort == .updated {
             let cal = Calendar.current
             let weekAgo = cal.date(byAdding: .day, value: -7, to: .now) ?? .now
@@ -240,7 +260,13 @@ struct NotesView: View {
     }
     private func newNote(split: Bool) {
         var n = Note()
-        if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
+        if case .course(let id) = scope {
+            n.courseID = id                                   // inherit the active course tab
+            // …and the week, which is what the title would have started with anyway.
+            if let prefix = SemesterWeek.noteTitlePrefix(termStart: state.data.termStart) {
+                n.title = prefix
+            }
+        }
         if split { newDraft = n; selection = n.id }   // editor inserts it on first edit
         else { editing = OpenNote(note: n, preview: false) }   // new note → start editing
     }
@@ -398,9 +424,14 @@ struct NoteEditor: View {
         self.onNavigate = onNavigate
         _draft = State(initialValue: note)
         _tagText = State(initialValue: note.tags.joined(separator: ", "))
-        startedEmpty = note.title.isEmpty && note.body.isEmpty && note.rich == nil
+        startedEmpty = (note.title.isEmpty || SemesterWeek.isBarePrefix(note.title))
+            && note.body.isEmpty && note.rich == nil
         // Read-first: an existing note opens rendered; a brand-new/empty note opens ready to type.
-        _showPreview = State(initialValue: startInPreview && !(note.title.isEmpty && note.body.isEmpty && note.rich == nil))
+        // A brand-new note opens ready to type, including one that arrives carrying only the
+        // generated "Week 3 — " title.
+        let blank = (note.title.isEmpty || SemesterWeek.isBarePrefix(note.title))
+            && note.body.isEmpty && note.rich == nil
+        _showPreview = State(initialValue: startInPreview && !blank)
         _liveWords = State(initialValue: note.wordCount)
         if let data = note.rich, let a = NSAttributedString.fromRTFD(data) {
             initialAttributed = a
@@ -1148,7 +1179,10 @@ struct NoteEditor: View {
         }
         draft.tags = tagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         draft.updatedAt = .now
-        let empty = draft.title.trimmingCharacters(in: .whitespaces).isEmpty
+        // A new note in a course opens with "Week 3 — " already in the title. That is the
+        // app's typing, not the user's, so it must not keep an untouched note alive.
+        let titleText = draft.title.trimmingCharacters(in: .whitespaces)
+        let empty = (titleText.isEmpty || SemesterWeek.isBarePrefix(draft.title))
             && draft.body.trimmingCharacters(in: .whitespaces).isEmpty && draft.imagePath.isEmpty
         if empty {
             state.data.notes.removeAll { $0.id == draft.id }   // discard blank
