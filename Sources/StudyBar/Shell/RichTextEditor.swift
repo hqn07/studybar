@@ -1789,6 +1789,39 @@ enum MathSelfTest {
         let note = Note(body: #"Flux is \(\Phi_E\) through \[S\]"#)
         check("previewText strips both", note.previewText, "Flux is \\Phi_E through S")
 
+        // The table out of a real note: indented, six columns, separator rule. It rendered
+        // as raw pipes because the reading view took the native row path, which has no table
+        // case — detection is what routes it to the web view instead.
+        let realTable = """
+            | Year | Total Due | Payment |
+            |------|----------|---------|
+            | 0    | $1,000   | $0      |
+        """
+        check("table detected", MathMarkdown.hasTable(realTable) ? "yes" : "no", "yes")
+        check("prose is not a table", MathMarkdown.hasTable("a | b\nc | d") ? "yes" : "no", "no")
+        let tableHTML = MathMarkdown.html(realTable, dark: false)
+        check("table becomes a <table>", tableHTML.contains("<table>") && tableHTML.contains("<th>Year</th>") ? "yes" : "no", "yes")
+
+        // SB_DUMP_HTML=<path> writes the reading view's actual HTML for a sample carrying
+        // both real shapes (padded LaTeX, a six-column table) so it can be rendered and
+        // looked at, rather than asserted about.
+        if let out = ProcessInfo.processInfo.environment["SB_DUMP_HTML"] {
+            let sample = """
+            ## Introduction
+            - **Present Value (PV)**: \\( PV = \\frac{FV}{(1 + i)^N} \\)
+            - **Interest Rate (I)**: \\( I = \\left( \\frac{FV}{PV} \\right)^{\\frac{1}{N}} - 1 \\)
+            - **Table**:
+
+                | Year | Total Due | Interest Accrued | Principal Owed | Payment | Total Left After Payments |
+                |------|----------|-----------------|---------------|---------|--------------------------|
+                | 0    | $1,000   | $0              | $1,000        | $0      | $1,000                   |
+                | 1    | $1,080   | $80             | $1,000        | $580    | $500                     |
+                | 2    | $540     | $40             | $500          | $540    | $0                       |
+            """
+            try? MathMarkdown.html(sample, dark: false).write(toFile: out, atomically: true, encoding: .utf8)
+            print("  wrote \(out)")
+        }
+
         print(fail == 0 ? "MATH SELFTEST: ALL PASS (\(pass))" : "MATH SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }

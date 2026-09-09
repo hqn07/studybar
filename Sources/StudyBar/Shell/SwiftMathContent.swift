@@ -55,6 +55,9 @@ private enum MathRows {
         // `\(…\)` / `\[…\]` → `$…$` / `$$…$$` before anything matches, so LaTeX pasted from
         // a model, Wikipedia or Overleaf renders instead of showing up as prose.
         let text = MathSupport.normalized(raw)
+        // Tables are laid out by the web view only; this builder emits one row per line, so
+        // it would render the pipes verbatim. Hand the whole block over instead.
+        if MathMarkdown.hasTable(text) { return nil }
         let ns = text as NSString
         var rows: [AnyView] = []
         var cursor = 0

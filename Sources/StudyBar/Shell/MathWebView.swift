@@ -10,9 +10,10 @@ struct RichText: View {
     let text: String
 
     var body: some View {
-        if MathMarkdown.hasMath(text) {
+        if MathMarkdown.hasMath(text) || MathMarkdown.hasTable(text) {
             // Native SwiftMath (matches the editor); SwiftMathContent falls back to the
-            // bundled KaTeX web view only for expressions SwiftMath can't parse.
+            // bundled KaTeX web view for expressions SwiftMath can't parse — and for
+            // tables, which only the web view lays out.
             SwiftMathContent(text: text)
         } else {
             MarkdownText(text: text)
@@ -186,6 +187,17 @@ enum MathMarkdown {
         return s.contains("\\(") || s.contains("\\[")
     }
 
+    /// A Markdown table: a `|`-delimited row directly above a `|---|` rule. Only the web
+    /// view lays these out — the native row builder renders line by line, which is why a
+    /// table in a note showed as its pipes.
+    static func hasTable(_ s: String) -> Bool {
+        let lines = s.components(separatedBy: "\n")
+        for (i, line) in lines.enumerated() where line.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+            if i + 1 < lines.count, isTableRule(lines[i + 1]) { return true }
+        }
+        return false
+    }
+
     static func html(_ md: String, dark: Bool) -> String {
         page(body: convert(md), dark: dark)
     }
@@ -276,7 +288,7 @@ enum MathMarkdown {
     }
 
     /// `|---|:--:|` — the rule that turns the line above it into a header row.
-    private static func isTableRule(_ line: String) -> Bool {
+    static func isTableRule(_ line: String) -> Bool {
         let t = line.trimmingCharacters(in: .whitespaces)
         guard t.hasPrefix("|"), t.contains("-") else { return false }
         return t.allSatisfy { "|-: \t".contains($0) }
