@@ -58,6 +58,12 @@ content.**
   prose the student would submit as their own.
 - **The test:** *Would a professor count this as the student's own work?* If the output is
   something you'd **submit**, it's homework — refuse.
+- **Explaining is not submitting (2026-09-08).** The line is gradeable output, not learning.
+  **Ask this note** — asking a question while reading a lecture note — answers it, including
+  when the answer isn't in the note: reading about coleus and wondering how scallions differ
+  is studying. The operator surface (the command bar, the action tools) still refuses to
+  teach, because there the model is driving the app rather than talking to a student. Both
+  surfaces still refuse the essay, the problem set and the lab answer.
 - **Enforcement is architecture, not trust.** A small local model can't police itself, so
   the *design* draws the line: every AI write-tool is an organize-verb (`create_flashcard`,
   `schedule`, `tag`, `add_citation`). None emits submittable prose. **The tool catalog is

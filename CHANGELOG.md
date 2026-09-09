@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Ask this note** — while reading a lecture note, ask a question about it. Answers use the note where it covers the ground and go past it where it doesn't, so a note on one plant can still answer a question about another. Follow-ups keep the thread, answers render Markdown and math, and you can insert one under its question or copy it. StudyBar still won't write what you'd hand in.
+
 - **Recordings only discard silence once the detector is sure** — a stretch judged to contain no speech is skipped rather than transcribed, but never before the recorder has recognized speech at least once in that recording, and never for more than a few stretches in a row. If the room fools it, you get an odd stray line in the transcript instead of a missing minute.
 
 ## [2.0.0] — 2026-09-08

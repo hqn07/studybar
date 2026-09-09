@@ -395,6 +395,12 @@ struct NoteEditor: View {
     @State private var aiAction: NoteAI?
     @State private var aiText = ""
     @State private var aiDone = false
+    @State private var asking = false
+    @State private var askQuestion = ""
+    @State private var askThread: [NoteQA.Turn] = []
+    @State private var askLoading = false
+    @State private var askTask: Task<Void, Never>?
+    @FocusState private var askFocused: Bool
     @State private var aiStart: Date?
     @State private var aiRange = NSRange(location: 0, length: 0)
     @State private var aiTask: Task<Void, Never>?
@@ -475,6 +481,7 @@ struct NoteEditor: View {
             }
             if let defineResult { defineCard(defineResult) }
             if aiAction != nil { aiCard }
+            else if asking { askPanel }
             else if showProactiveChip { proactiveChip }
             editorOrPreview
             if editor.slashQuery != nil { Divider(); slashBar }
@@ -658,6 +665,8 @@ struct NoteEditor: View {
                             Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
                         }
                     }
+                    Divider()
+                    Button { openAsk() } label: { Label("Ask this note…", systemImage: "questionmark.bubble") }
                 } else {
                     Button("Turn on AI in Settings ▸ Intelligence") {}.disabled(true)
                 }
@@ -722,6 +731,143 @@ struct NoteEditor: View {
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
         .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    // MARK: Ask this note
+    //
+    // The one place StudyBar's AI explains instead of only reorganizing: the note is context
+    // for a question that may go past it. Sits on the note, like every other AI surface here,
+    // rather than sending you to a chat module.
+
+    private var askPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "questionmark.bubble").foregroundStyle(.tint)
+                Text("Ask this note").font(.caption.weight(.semibold))
+                if askLoading { ProgressView().controlSize(.small) }
+                Spacer()
+                Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
+                if !askThread.isEmpty {
+                    Button { askThread = [] } label: { Image(systemName: "arrow.counterclockwise") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Start a new thread")
+                }
+                Button { closeAsk() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Close")
+            }
+
+            if !askThread.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(askThread) { turn in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(turn.question).font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary).textSelection(.enabled)
+                                if turn.answer.isEmpty {
+                                    Text("Thinking…").font(.callout).foregroundStyle(.secondary)
+                                } else {
+                                    RichText(text: turn.answer)     // Markdown + math, same as the reading view
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }.frame(maxHeight: 260)
+
+                if let last = askThread.last, !last.answer.isEmpty, !askLoading {
+                    HStack(spacing: 8) {
+                        Button { insertAnswer(last) } label: { Label("Insert into note", systemImage: "text.insert") }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        Button { copyAnswer(last) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        Spacer()
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                TextField(askThread.isEmpty ? "Ask about this lecture — or something it didn't cover"
+                                            : "Follow up…", text: $askQuestion, axis: .vertical)
+                    .textFieldStyle(.plain).font(.callout).lineLimit(1...4)
+                    .focused($askFocused)
+                    .onSubmit { ask() }
+                Button { ask() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) }
+                    .buttonStyle(.plain).foregroundStyle(.tint)
+                    .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty || askLoading)
+            }
+            .padding(8)
+            .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(10)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
+        .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    private func openAsk() {
+        persist()                       // ask about what is actually in the note, not a stale draft
+        asking = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { askFocused = true }
+    }
+
+    private func closeAsk() {
+        askTask?.cancel(); askTask = nil
+        asking = false; askLoading = false; askQuestion = ""; askThread = []
+    }
+
+    private func ask() {
+        let q = askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !askLoading, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        persist()
+        askQuestion = ""
+        let body = draft.body
+        let title = draft.title.isEmpty ? "Untitled note" : draft.title
+        let course = state.course(draft.courseID).map { $0.code.isEmpty ? $0.name : $0.code }
+        let msgs = NoteQA.messages(thread: askThread, question: q, noteTitle: title, noteBody: body)
+        let sys = NoteQA.system(noteTitle: title, courseName: course)
+
+        askThread.append(NoteQA.Turn(question: q, answer: ""))
+        let idx = askThread.count - 1
+        askLoading = true
+        askTask?.cancel()
+        askTask = Task {
+            let out: String?
+            if let ollama = provider as? OllamaProvider {
+                // Prose, so completePlain* — never the format:json path, which returns `{}`.
+                out = try? await ollama.completePlainStreaming(
+                    system: sys, messages: msgs,
+                    numCtx: NoteQA.contextTokens(noteBody: body), temperature: 0.4) { p in
+                        if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
+                    }
+            } else {
+                out = try? await provider.completePlain(system: sys, messages: msgs)
+            }
+            await MainActor.run {
+                askLoading = false
+                guard askThread.indices.contains(idx) else { return }
+                let final = (out ?? askThread[idx].answer).trimmingCharacters(in: .whitespacesAndNewlines)
+                askThread[idx].answer = final.isEmpty
+                    ? "No answer came back — try rephrasing, or a stronger engine in Settings ▸ Intelligence."
+                    : MathSupport.normalized(final)
+            }
+        }
+    }
+
+    /// Answers land in the note only when asked for, under the question that produced them.
+    private func insertAnswer(_ turn: NoteQA.Turn) {
+        let block = "\n\n**\(turn.question)**\n\n\(turn.answer)\n"
+        if editor.attributedString.length > 0, !showPreview {
+            editor.insertPlain(block, at: editor.attributedString.length)
+        } else {
+            draft.body += block
+            draft.rich = nil                 // the plaintext mirror is now ahead of the RTFD
+        }
+        scheduleAutosave()
+    }
+
+    private func copyAnswer(_ turn: NoteQA.Turn) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(turn.answer, forType: .string)
     }
 
     // Opt-in ambient suggestion (Settings ▸ Intelligence ▸ Inline AI). Gentle, dismissible,
@@ -872,6 +1018,14 @@ struct NoteEditor: View {
             Image(systemName: "book").font(.caption2)
             Text("Reading").font(.caption2.weight(.semibold))
             Spacer()
+            if AIConfig.isReady {
+                Button { openAsk() } label: {
+                    Label("Ask", systemImage: "questionmark.bubble").font(.caption2)
+                }
+                .buttonStyle(.plain).foregroundStyle(.tint)
+                .help("Ask a question about this lecture — or about something it didn't cover")
+                Text("·").font(.caption2)
+            }
             Label("Click anywhere to edit", systemImage: "pencil").font(.caption2)
         }
         .foregroundStyle(.secondary)
