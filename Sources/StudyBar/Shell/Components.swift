@@ -15,8 +15,14 @@ struct ModulePane<Content: View, Bar: View>: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            // Opaque, and above the content in z-order: scrolled rows have to pass *under* a
+            // solid bar. Without this the first visible row reads as sliced in half — the
+            // divider alone is nearly invisible on a dark ground.
+            .background(.sbSurface)
+            .zIndex(1)
             Divider()
             content()
+                .clipped()
         }
     }
 }
@@ -96,10 +102,14 @@ struct EmptyState: View {
 /// Small colored dot + course name.
 struct CourseChip: View {
     let course: Course?
+    /// Rows that already show the course colour — a leading dot, a coloured spine — pass
+    /// `false`, otherwise the same 7pt dot is drawn twice a line apart and reads as a
+    /// rendering fault rather than as identity.
+    var showsDot: Bool = true
     var body: some View {
         if let course {
             HStack(spacing: 4) {
-                Circle().fill(course.color).frame(width: 7, height: 7)
+                if showsDot { Circle().fill(course.color).frame(width: 7, height: 7) }
                 Text(course.code.isEmpty ? course.name : course.code)
                     .font(.caption).foregroundStyle(.secondary)
             }

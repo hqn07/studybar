@@ -257,7 +257,7 @@ struct TodayView: View {
                 Circle().fill(state.course(a.courseID)?.color ?? Color.secondary).frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(a.title.isEmpty ? "Untitled" : a.title).font(.callout.weight(.medium)).lineLimit(1)
-                    CourseChip(course: state.course(a.courseID))
+                    CourseChip(course: state.course(a.courseID), showsDot: false)
                 }
                 Spacer(minLength: DS.Space.s)
                 if TodayFocus.weight(a.title) >= 0.9 { Chip("project", .tag) }
