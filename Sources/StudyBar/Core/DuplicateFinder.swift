@@ -158,12 +158,41 @@ enum DuplicateFinder {
     /// quarter of their words.
     static let scanLimit = 120
 
+    /// What a scan actually did, not just what it found. `deepScan` returns only the groups, so
+    /// "the model judged 120 pairs and cleared them all" and "the engine was never reachable"
+    /// both arrived as an empty array — and an empty array satisfies every assertion about
+    /// false positives. Callers that need to trust a clean result take the report instead.
+    struct ScanReport {
+        /// Candidate pairs sent to the model, already capped at `scanLimit`.
+        let pairs: Int
+        let batches: Int
+        /// Batches whose reply held no readable verdicts. Indistinguishable from "no duplicates"
+        /// unless it is reported, which is how a truncation bug hid for a week.
+        let unreadable: Int
+        let groups: [DupGroup]
+        /// False when no engine is configured for `.judge`. Only meaningful when `pairs > 0`.
+        let engineReady: Bool
+        /// At least one batch came back with verdicts the parser could read.
+        var judged: Bool { batches > unreadable }
+    }
+
     @MainActor
     static func deepScan(_ assignments: [Assignment]) async -> [DupGroup] {
+        await deepScanReport(assignments).groups
+    }
+
+    @MainActor
+    static func deepScanReport(_ assignments: [Assignment]) async -> ScanReport {
         let cands = Array(candidates(assignments).prefix(scanLimit))
-        guard !cands.isEmpty, let provider = AIService.makeProvider(for: .judge) else { return [] }
+        guard !cands.isEmpty else {
+            return ScanReport(pairs: 0, batches: 0, unreadable: 0, groups: [], engineReady: true)
+        }
+        guard let provider = AIService.makeProvider(for: .judge) else {
+            return ScanReport(pairs: cands.count, batches: 0, unreadable: 0, groups: [], engineReady: false)
+        }
         var found: [DupGroup] = []
         var unreadable = 0
+        var batches = 0
         for chunk in stride(from: 0, to: cands.count, by: scanBatch).map({ Array(cands[$0..<min($0 + scanBatch, cands.count)]) }) {
             let msgs = [AIMessage(role: .user, text: deepScanUserPrompt(chunk))]
             let reply: String?
@@ -172,6 +201,7 @@ enum DuplicateFinder {
             } else {
                 reply = try? await provider.completePlain(system: deepScanSystemPrompt(), messages: msgs)
             }
+            batches += 1
             let verdicts = parseDeepScan(reply ?? "", count: chunk.count)
             // A reply with no verdicts in it looks exactly like "no duplicates found", which is
             // how the syllabus extractor hid a truncation bug for a week. Say so instead.
@@ -185,7 +215,8 @@ enum DuplicateFinder {
         Diagnostics.log(.ai, unreadable > 0 ? .warn : .info,
                         "Duplicate deep scan: \(cands.count) pairs, \(found.count) flagged"
                         + (unreadable > 0 ? ", \(unreadable) batch(es) returned nothing usable" : ""))
-        return found
+        return ScanReport(pairs: cands.count, batches: batches, unreadable: unreadable,
+                          groups: found, engineReady: true)
     }
 
     static func normalize(_ s: String) -> String {
