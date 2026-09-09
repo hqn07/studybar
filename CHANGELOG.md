@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-09
+
 - **Edits from a second device stop being dropped** — when the same assignment, course, class, to-do, deck, snippet, link, grade row or file group is changed in two places, the newer change now wins. Previously the comparison used the record's creation date, which is identical on both copies, so whichever device saved last kept its own version and the other edit survived only in a backup file.
 
 - **Autocomplete holds the model for two minutes, not five** — the local model now stays warm across pauses in a writing session and hands its ~4.7 GB back shortly after you stop, instead of inheriting Ollama's default five-minute window.
