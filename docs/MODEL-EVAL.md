@@ -6,9 +6,9 @@ Questions are asked about real lecture notes; scoring is mechanical (facts prese
 
 | Engine | Recall | Invented quotes | Math format | Tables | Raw LaTeX | Median |
 |---|---|---|---|---|---|---|
-| `qwen2.5:7b (local)` | 100% | 1 | 6/10 | 10/10 | 4 | 15.6s |
-| `llama3.1:8b (local)` | 100% | 0 | 8/10 | 10/10 | 0 | 14.1s |
-| `deepseek-v4-pro` | 100% | 0 | 8/10 | 10/10 | 3 | 14.8s |
+| `qwen2.5:7b (local)` | 100% | 2 | 6/10 | 10/10 | 3 | 13.1s |
+| `llama3.1:8b (local)` | 86% | 0 | 8/10 | 10/10 | 1 | 11.0s |
+| `deepseek-v4-pro` | 100% | 0 | 9/10 | 10/10 | 2 | 14.9s |
 
 ## What each column means
 

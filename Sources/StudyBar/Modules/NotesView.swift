@@ -401,6 +401,7 @@ struct NoteEditor: View {
     @State private var askLoading = false
     @State private var askExtras: [UUID] = []      // notes attached by hand, in the order added
     @State private var askPicking = false
+    @State private var askBlocked: String?      // the question the guard stopped, for the method offer
     @State private var askTask: Task<Void, Never>?
     @FocusState private var askFocused: Bool
     @State private var aiStart: Date?
@@ -776,7 +777,16 @@ struct NoteEditor: View {
                     }
                 }.frame(maxHeight: 260)
 
-                if let last = askThread.last, !last.answer.isEmpty, !askLoading {
+                if let blocked = askBlocked, !askLoading {
+                    HStack(spacing: 8) {
+                        Button {
+                            askBlocked = nil
+                            ask(HomeworkGuard.methodQuestion(from: blocked))
+                        } label: { Label("Explain the method instead", systemImage: "figure.walk") }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                        Spacer()
+                    }
+                } else if let last = askThread.last, !last.answer.isEmpty, !askLoading {
                     HStack(spacing: 8) {
                         Button { insertAnswer(last) } label: { Label("Insert into note", systemImage: "text.insert") }
                             .buttonStyle(.bordered).controlSize(.small)
@@ -912,13 +922,23 @@ struct NoteEditor: View {
     private func closeAsk() {
         askTask?.cancel(); askTask = nil
         asking = false; askLoading = false; askQuestion = ""; askThread = []
-        askExtras = []; askPicking = false
+        askExtras = []; askPicking = false; askBlocked = nil
     }
 
-    private func ask() {
-        let q = askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func ask(_ override: String? = nil) {
+        let q = (override ?? askQuestion).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !askLoading, AIConfig.isReady(for: .ask),
               let provider = AIService.makeProvider(for: .ask) else { return }
+
+        // Before the model, not in its prompt. Two of three engines wrote the homework when
+        // only asked not to; this is the same refusal made structural.
+        if override == nil, case .submission = HomeworkGuard.check(q) {
+            askQuestion = ""
+            askThread.append(NoteQA.Turn(question: q, answer: HomeworkGuard.message))
+            askBlocked = q
+            return
+        }
+        askBlocked = nil
         persist()
         askQuestion = ""
         let title = draft.title.isEmpty ? "Untitled note" : draft.title

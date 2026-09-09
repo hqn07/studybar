@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Homework requests are refused by StudyBar, not by the model** — asking Ask this note to write something you'd hand in ("write my homework answer exactly as I should submit it") is now stopped before any model is called, with a one-tap **Explain the method instead**. Asking how something works, or what your note says, is untouched.
+
 - **Use any OpenAI-compatible provider** — Settings ▸ Intelligence ▸ ChatGPT now has an **API base URL** field, so the same engine can point at DeepSeek, Alibaba's Qwen, Together, Groq, Fireworks or OpenRouter with their own key and model name. Leave it alone for OpenAI itself.
 - **A different engine for asking questions** — *Ask this note* can run on its own engine, separate from everything else: a paid model for questions that need reasoning, your local one for organizing, summarizing and extracting. Settings ▸ Intelligence ▸ Asking questions about a note.
 

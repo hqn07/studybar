@@ -81,6 +81,20 @@ def engines():
         out.append((model, anthropic(os.environ["ANTHROPIC_KEY"], model)))
     return out
 
+# Mirrors HomeworkGuard in the app. The app gate is authoritative — this is here so the eval
+# reports what a user would actually get, which is the guard's refusal, not the model's answer.
+GUARD = [r"(?i)\b(?:as|exactly as|the way)\s+i\s+(?:should\s+)?(?:submit|turn\s+it\s+in|hand\s+it\s+in)",
+         r"(?i)\b(?:write|do|complete|finish|answer)\s+(?:my|the)\s+(?:homework|assignment|problem\s*set|worksheet|lab\s*report|discussion\s*post|essay|paper)\b",
+         r"(?i)\bwrite\s+(?:my|the)\s+(?:answer|solution|response)\b",
+         r"(?i)\b(?:solve|answer|do)\s+(?:problem|question|exercise|q)\s*#?\s*\d+\s+for\s+me\b",
+         r"(?i)\bdo\s+(?:this|these|it)\s+for\s+me\b",
+         r"(?i)\b(?:submit|turn\s+in|hand\s+in)\s+(?:this|it|that)\b",
+         r"(?i)\bjust\s+(?:give|tell)\s+me\s+the\s+(?:final\s+)?answer\b",
+         r"(?i)\bwrite\s+(?:me\s+)?(?:an?|the)\s+\\d*\s*(?:page|paragraph|word)?\s*essay\b"]
+
+def blocked_by_guard(q):
+    return any(re.search(p, q) for p in GUARD)
+
 def grade(case, answer, note):
     low, hits = answer.lower(), 0
     for m in case["must"]:
@@ -104,11 +118,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", action="store_true", help="write docs/MODEL-EVAL.md and eval/results.json")
     ap.add_argument("--show", action="store_true", help="print every answer in full")
+    ap.add_argument("--review", action="store_true",
+                    help="only the cases whose correctness needs a person, printed grouped by case")
     args = ap.parse_args()
 
     notes = {n["title"]: n["body"] for n in json.load(open(STORE))["notes"]}
     spec = json.load(open(CASES))
     cases = [c for c in spec["cases"] if c["note"] in notes]
+    if args.review:
+        cases = [c for c in cases if c.get("human_check")]
     missing = [c["id"] for c in spec["cases"] if c["note"] not in notes]
     if missing:
         print(f"skipping {len(missing)} case(s) whose note isn't in the store: {', '.join(missing)}\n")
@@ -117,6 +135,13 @@ def main():
     for name, call in engines():
         print(f"\n{name}")
         for c in cases:
+            if c["kind"] == "boundary" and blocked_by_guard(c["q"]):
+                print(f"  {c['id']:18} {c['kind']:8} stopped by HomeworkGuard before the model — no request sent")
+                results.append({"case": c["id"], "kind": c["kind"], "engine": name, "secs": 0.0,
+                                "recall": 0, "recall_of": 0, "invented": 0, "math_ok": True,
+                                "raw_latex": False, "table_ok": True, "words": 0,
+                                "needs_human": None, "answer": "[blocked by HomeworkGuard]"})
+                continue
             body = notes[c["note"]][:24000]
             t = time.time()
             try:
@@ -158,8 +183,18 @@ def main():
         print(f"{row['engine']:26} recall {row['recall']:3}% · invented {row['invented']} · "
               f"math {row['math']} · tables {row['table']} · median {row['median_s']}s")
 
-    if reviews:
-        print(f"\n{len(reviews)} answer(s) need a human eye — run with --show to read them:")
+    if reviews and args.review:
+        by_case = {}
+        for r in reviews:
+            by_case.setdefault(r["case"], []).append(r)
+        for cid, rs in by_case.items():
+            case = next(c for c in cases if c["id"] == cid)
+            print(f"\n{'='*78}\n{cid} · {case['kind']} · note: {case['note']}\nQ: {case['q']}\nLooking for: {case['human_check']}\n{'='*78}")
+            for r in rs:
+                print(f"\n--- {r['engine']} ({r['words']}w, {r['secs']}s) ---")
+                print(r["answer"].strip())
+    elif reviews:
+        print(f"\n{len(reviews)} answer(s) need a human eye — re-run with --review to read them:")
         for r in reviews:
             print(f"  {r['engine']:26} {r['case']:18} {r['needs_human']}")
 
@@ -167,7 +202,7 @@ def main():
         os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         payload = {"generated": stamp, "cases": len(cases), "summary": rows,
-                   "detail": [{k: v for k, v in r.items() if k != "answer"} for r in results]}
+                   "detail": results}
         with open(os.path.join(ROOT, "eval", "results.json"), "w") as f:
             json.dump(payload, f, indent=2)
         md = [f"# Model evaluation — Ask this note\n",
