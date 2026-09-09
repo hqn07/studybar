@@ -399,6 +399,8 @@ struct NoteEditor: View {
     @State private var askQuestion = ""
     @State private var askThread: [NoteQA.Turn] = []
     @State private var askLoading = false
+    @State private var askExtras: [UUID] = []      // notes attached by hand, in the order added
+    @State private var askPicking = false
     @State private var askTask: Task<Void, Never>?
     @FocusState private var askFocused: Bool
     @State private var aiStart: Date?
@@ -785,6 +787,8 @@ struct NoteEditor: View {
                 }
             }
 
+            askContextRow
+
             HStack(spacing: 6) {
                 TextField(askThread.isEmpty ? "Ask about this lecture — or something it didn't cover"
                                             : "Follow up…", text: $askQuestion, axis: .vertical)
@@ -804,6 +808,101 @@ struct NoteEditor: View {
         .padding(.horizontal, 10).padding(.vertical, 6)
     }
 
+    /// The note being read, then the ones attached by hand — order matters, the question is
+    /// about the first one.
+    private var askSources: [NoteQA.Source] {
+        var out = [NoteQA.Source(id: draft.id,
+                                 title: draft.title.isEmpty ? "Untitled note" : draft.title,
+                                 body: draft.body)]
+        for id in askExtras {
+            guard let n = state.data.notes.first(where: { $0.id == id }) else { continue }
+            out.append(NoteQA.Source(id: n.id, title: n.title.isEmpty ? "Untitled note" : n.title, body: n.body))
+        }
+        return out
+    }
+
+    private var askChars: Int { min(NoteQA.totalCharLimit, askSources.reduce(0) { $0 + $1.body.count }) }
+
+    /// Other notes worth attaching: this course first (that's what "add week 1 and 2" means),
+    /// then everything else, newest first.
+    private var askCandidates: [Note] {
+        let others = state.data.notes.filter { $0.id != draft.id && !askExtras.contains($0.id) }
+        let sameCourse = others.filter { $0.courseID != nil && $0.courseID == draft.courseID }
+        let rest = others.filter { !($0.courseID != nil && $0.courseID == draft.courseID) }
+        let byDate: (Note, Note) -> Bool = { $0.createdAt > $1.createdAt }
+        return sameCourse.sorted(by: byDate) + rest.sorted(by: byDate)
+    }
+
+    private var askContextRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.doc").font(.caption2).foregroundStyle(.secondary)
+                Text("\(askSources.count) note\(askSources.count == 1 ? "" : "s") · ~\(askChars / 4)k".replacingOccurrences(of: "~0k", with: "~1k"))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .help("Roughly how much of the model's context window this fills")
+                Spacer()
+                if !askCandidates.isEmpty {
+                    Button { withAnimation(.snappy(duration: 0.18)) { askPicking.toggle() } } label: {
+                        Label(askPicking ? "Done" : "Add notes", systemImage: askPicking ? "checkmark" : "plus")
+                            .font(.caption2)
+                    }.buttonStyle(.plain).foregroundStyle(.tint)
+                }
+            }
+            if !askExtras.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(askExtras, id: \.self) { id in
+                            if let n = state.data.notes.first(where: { $0.id == id }) {
+                                Button { askExtras.removeAll { $0 == id } } label: {
+                                    Chip("\(n.title.isEmpty ? "Untitled" : n.title)  ✕", .tag)
+                                }
+                                .buttonStyle(.plain).help("Remove from the question's context")
+                            }
+                        }
+                    }
+                }
+            }
+            if askPicking { askPicker }
+        }
+    }
+
+    private var askPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let cid = draft.courseID, let c = state.course(cid) {
+                let mine = state.data.notes.filter { $0.courseID == cid && $0.id != draft.id }
+                if mine.count > 1, !mine.allSatisfy({ askExtras.contains($0.id) }) {
+                    Button {
+                        for n in mine where !askExtras.contains(n.id) { askExtras.append(n.id) }
+                    } label: {
+                        Text("Add all of \(c.code.isEmpty ? c.name : c.code) (\(mine.count) notes)")
+                            .font(.caption2)
+                    }.buttonStyle(.plain).foregroundStyle(.tint)
+                }
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(askCandidates) { n in
+                        Button { askExtras.append(n.id) } label: {
+                            HStack(spacing: 6) {
+                                if let c = state.course(n.courseID) {
+                                    Circle().fill(c.color).frame(width: 6, height: 6)
+                                }
+                                Text(n.title.isEmpty ? "Untitled" : n.title).font(.caption).lineLimit(1)
+                                Spacer()
+                                Text("~\(max(1, n.body.count / 4))").font(.caption2).foregroundStyle(.tertiary)
+                                    .help("Approximate tokens")
+                            }
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 120)
+        }
+        .padding(6)
+        .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private func openAsk() {
         persist()                       // ask about what is actually in the note, not a stale draft
         asking = true
@@ -813,6 +912,7 @@ struct NoteEditor: View {
     private func closeAsk() {
         askTask?.cancel(); askTask = nil
         asking = false; askLoading = false; askQuestion = ""; askThread = []
+        askExtras = []; askPicking = false
     }
 
     private func ask() {
@@ -820,11 +920,11 @@ struct NoteEditor: View {
         guard !q.isEmpty, !askLoading, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
         persist()
         askQuestion = ""
-        let body = draft.body
         let title = draft.title.isEmpty ? "Untitled note" : draft.title
         let course = state.course(draft.courseID).map { $0.code.isEmpty ? $0.name : $0.code }
-        let msgs = NoteQA.messages(thread: askThread, question: q, noteTitle: title, noteBody: body)
-        let sys = NoteQA.system(noteTitle: title, courseName: course)
+        let sources = askSources
+        let msgs = NoteQA.messages(thread: askThread, question: q, sources: sources)
+        let sys = NoteQA.system(noteTitle: title, courseName: course, extraNotes: sources.count - 1)
 
         askThread.append(NoteQA.Turn(question: q, answer: ""))
         let idx = askThread.count - 1
@@ -836,7 +936,7 @@ struct NoteEditor: View {
                 // Prose, so completePlain* — never the format:json path, which returns `{}`.
                 out = try? await ollama.completePlainStreaming(
                     system: sys, messages: msgs,
-                    numCtx: NoteQA.contextTokens(noteBody: body), temperature: 0.4) { p in
+                    numCtx: NoteQA.contextTokens(chars: askChars), temperature: 0.4) { p in
                         if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
                     }
             } else {
