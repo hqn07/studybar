@@ -185,25 +185,40 @@ enum AIError: LocalizedError {
 protocol AIProvider {
     func complete(system: String, messages: [AIMessage]) async throws -> String
 
+    /// Free-form prose. A *requirement*, not an extension-only helper: Ollama overrides it to
+    /// avoid `format:json`, and a method that only exists in a protocol extension is
+    /// statically dispatched — the override would be skipped and the reply would come back as
+    /// a JSON object.
+    func completePlain(system: String, messages: [AIMessage]) async throws -> String
+
     /// Prose, delivered as it arrives. Declared here rather than in an extension so the
-    /// concrete implementations actually get dispatched to: every call site used to test
-    /// `provider as? OllamaProvider` and silently fall back to a blocking call for anything
-    /// else, which is why a hosted engine showed nothing for twenty seconds.
+    /// concrete implementations actually get dispatched to.
     func streamPlain(system: String, messages: [AIMessage], numCtx: Int, temperature: Double,
                      onReply: @MainActor @escaping (String) -> Void) async throws -> String
 }
 
 extension AIProvider {
     /// Providers that can't stream answer in one piece; the caller's UI works either way.
-    func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int, temperature: Double,
                      onReply: @MainActor @escaping (String) -> Void) async throws -> String {
         let out = try await completePlain(system: system, messages: messages)
         await MainActor.run { onReply(out) }
         return out
     }
+
+    /// Convenience for callers that don't care about a local model's context size. It forwards
+    /// to the requirement above so dispatch reaches the provider's own implementation —
+    /// putting the defaults on the extension method instead bound calls to the extension and
+    /// sent every inline action through the JSON-forcing path.
+    func streamPlain(system: String, messages: [AIMessage], temperature: Double = 0.4,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        try await streamPlain(system: system, messages: messages, numCtx: 8192,
+                              temperature: temperature, onReply: onReply)
+    }
 }
 
 extension AIProvider {
+    /// Default for providers that return prose from `complete` anyway (the cloud ones).
     /// Free-form prose completion (NOT the JSON tool-protocol). Defaults to `complete` —
     /// cloud providers already return prose. Ollama overrides it to drop the `format:json`
     /// grammar constraint, which would otherwise force a JSON blob (e.g. reshaping a

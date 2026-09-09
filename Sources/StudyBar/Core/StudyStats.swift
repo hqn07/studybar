@@ -91,6 +91,18 @@ enum StudyStats {
         data.assignments.filter { $0.completedAt.map(isThisWeek) ?? false }.count
     }
 
+    /// Everything ever finished, dated or not. Completion times only exist from the release
+    /// that started recording them, so a store can hold plenty of finished work with no
+    /// timestamps at all — and telling that student "nothing checked off yet" is a lie.
+    static func completedTotal(_ data: AppData) -> Int {
+        data.assignments.filter { $0.status == .done }.count
+    }
+
+    /// Finished, but before completion times were recorded.
+    static func completedUndated(_ data: AppData) -> Int {
+        data.assignments.filter { $0.status == .done && $0.completedAt == nil }.count
+    }
+
     static func completedToday(_ data: AppData) -> Int {
         data.assignments.filter { $0.completedAt.map { cal.isDateInToday($0) } ?? false }.count
     }

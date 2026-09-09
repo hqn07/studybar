@@ -788,7 +788,7 @@ struct ReadingDetailView: View {
         askTask?.cancel()
         askTask = Task {
             let out: String?
-            out = try? await provider.streamPlain(system: sys, messages: msgs, numCtx: 16384) { p in
+            out = try? await provider.streamPlain(system: sys, messages: msgs, numCtx: 16384, temperature: 0.4) { p in
                 if askThread.indices.contains(turnIdx) { askThread[turnIdx].answer = p }
             }
             await MainActor.run {

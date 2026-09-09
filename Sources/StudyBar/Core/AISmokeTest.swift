@@ -114,26 +114,38 @@ enum AISmokeTest {
                     groups.prefix(3).map { $0.items.map(\.title).joined(separator: " ⇄ ") }.joined(separator: "\n"))
         }
 
-        // 6. Inline text actions — prose in, prose out, no JSON.
-        await measure("Inline ✨ summarize", .main) {
-            guard let p = AIService.makeProvider() else { return (false, "no main engine", "") }
-            let out = (try? await p.completePlain(
-                system: "Summarize the student's text in two sentences. Reply with the summary only.",
-                messages: [AIMessage(role: .user, text: noteBody)])) ?? ""
-            let clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            if clean.isEmpty { return (false, "empty reply", "") }
-            if clean.hasPrefix("{") { return (false, "returned JSON — the format:json path leaked", clean) }
-            return (true, "\(clean.split(separator: " ").count) words", clean)
+        // 6. Inline ✨ actions — the app's own prompt, not an approximation of it. An earlier
+        //    version of this test wrote its own and caught the model answering in JSON; the
+        //    real prompt forbids that explicitly, and testing a paraphrase tests nothing.
+        for action in [NoteAI.summarize, NoteAI.keyPoints] {
+            await measure("Inline ✨ \(action.label.lowercased())", .main) {
+                guard let p = AIService.makeProvider() else { return (false, "no main engine", "") }
+                let out = (try? await p.streamPlain(system: action.system(),
+                                                    messages: [AIMessage(role: .user, text: action.user(String(noteBody.prefix(2500))))],
+                                                    temperature: action.temperature) { _ in }) ?? ""
+                let clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                if clean.isEmpty { return (false, "empty reply", "") }
+                if clean.hasPrefix("{") || clean.hasPrefix("[") {
+                    return (false, "answered in JSON despite the prompt forbidding it", clean)
+                }
+                if clean.hasPrefix("```") { return (false, "wrapped in a code fence", clean) }
+                return (true, "\(clean.split(separator: " ").count) words", clean)
+            }
         }
 
-        // 7. Flashcard generation — the parser must find cards.
+        // 7. Flashcard generation — front|back lines the deck importer can read.
         await measure("Flashcards from note", .main) {
             guard let p = AIService.makeProvider() else { return (false, "no main engine", "") }
-            let out = (try? await p.completePlain(
-                system: "Write 3 flashcards from the student's notes. One per line, exactly: front | back",
-                messages: [AIMessage(role: .user, text: noteBody)])) ?? ""
-            let cards = out.split(separator: "\n").filter { $0.contains("|") }
-            return (cards.count >= 2, "\(cards.count) parseable cards", out)
+            let out = (try? await p.streamPlain(
+                system: "Write 5 study flashcards from the student's notes. Output ONLY lines of the form "
+                      + "front | back — no numbering, no preamble, no JSON, no code fences.",
+                messages: [AIMessage(role: .user, text: String(noteBody.prefix(2500)))],
+                temperature: 0.3) { _ in }) ?? ""
+            let cards = out.split(separator: "\n").filter { $0.contains("|") && !$0.contains("---") }
+            if out.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") {
+                return (false, "answered in JSON instead of front|back lines", out)
+            }
+            return (cards.count >= 3, "\(cards.count) parseable cards", out)
         }
 
         // 8. Structured extraction — the long-output path that has failed before.

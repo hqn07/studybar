@@ -19,7 +19,11 @@ struct InsightsView: View {
     private var doneByCourse: [(courseID: UUID?, count: Int)] { StudyStats.completedThisWeekByCourse(state.data) }
     private var notesWeek: (notes: Int, words: Int) { StudyStats.notesThisWeek(state.data) }
     private var load: (overdue: Int, week: Int, open: Int) { StudyStats.workload(state.data) }
-    private var everCompleted: Bool { state.data.assignments.contains { $0.completedAt != nil } }
+    /// Anything ever finished — including the work completed before completion times were
+    /// recorded, which is most of it in a store upgraded from an earlier version.
+    private var everCompleted: Bool { StudyStats.completedTotal(state.data) > 0 }
+    private var undatedCompletions: Int { StudyStats.completedUndated(state.data) }
+    private var hasDatedCompletions: Bool { !StudyStats.completionDays(state.data).isEmpty }
     private var tracksTime: Bool { !state.data.timeEntries.isEmpty }
 
     var body: some View {
@@ -54,7 +58,9 @@ struct InsightsView: View {
 
     private var thisWeekCard: some View {
         HStack(spacing: DS.Space.l) {
-            metric("\(doneWeek)", doneWeek == 1 ? "finished" : "finished", "checkmark.circle.fill")
+            metric("\(doneWeek)", "finished this week", "checkmark.circle.fill")
+            Divider().frame(height: 30)
+            metric("\(StudyStats.completedTotal(state.data))", "finished in total", "tray.full.fill")
             Divider().frame(height: 30)
             metric("\(StudyStats.completionStreak(state.data))", "day streak", "flame.fill")
             Divider().frame(height: 30)
@@ -72,16 +78,14 @@ struct InsightsView: View {
     /// rather than drawing a flat line and implying a week of nothing.
     @ViewBuilder private var completionsChart: some View {
         if everCompleted {
-            Chart {
-                ForEach(done7, id: \.day) { d in
-                    BarMark(x: .value("Day", dayLabel(d.day)), y: .value("Finished", d.count))
-                        .foregroundStyle(Calendar.current.isDateInToday(d.day)
-                                         ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.45)))
-                        .cornerRadius(3)
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                if !hasDatedCompletions {
+                    Label("\(undatedCompletions) finished before StudyBar started recording *when* — this fills in from your next one.",
+                          systemImage: "clock.arrow.circlepath")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+                chartBody
             }
-            .chartYAxis { AxisMarks(values: .automatic(desiredCount: 3)) }
-            .frame(height: 120)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Nothing checked off yet").font(.callout.weight(.medium))
@@ -93,6 +97,21 @@ struct InsightsView: View {
             .padding(DS.Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        }
+    }
+
+    private var chartBody: some View {
+        Group {
+            Chart {
+                ForEach(done7, id: \.day) { d in
+                    BarMark(x: .value("Day", dayLabel(d.day)), y: .value("Finished", d.count))
+                        .foregroundStyle(Calendar.current.isDateInToday(d.day)
+                                         ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.45)))
+                        .cornerRadius(3)
+                }
+            }
+            .chartYAxis { AxisMarks(values: .automatic(desiredCount: 3)) }
+            .frame(height: 120)
         }
     }
 
