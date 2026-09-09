@@ -5,6 +5,7 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Autocomplete holds the model for two minutes, not five** — the local model now stays warm across pauses in a writing session and hands its ~4.7 GB back shortly after you stop, instead of inheriting Ollama's default five-minute window.
 - **Autocomplete no longer depends on the assistant's engine** — grey suggestions while typing always run on your local Ollama model, so pointing the assistant at DeepSeek or Claude doesn't silently switch them off. Settings ▸ Intelligence ▸ Smart typing names the model it uses and can check that it's actually running.
 
 - **Quotations are checked against your notes** — if an answer puts words in quotation marks that aren't in the note it was given, the marks come off and the answer says so. The sentence stays; the claim that you wrote it doesn't.

@@ -113,6 +113,13 @@ enum AIConfig {
     /// after each answer — kinder on a full 16 GB Mac — while still surviving a quick follow-up.
     static let ollamaKeepAlive = "30s"
 
+    /// Autocomplete is a stream of requests, not one answer, so it gets its own window.
+    /// Without it the requests inherit Ollama's default and pin ~4.7 GB for five minutes after
+    /// the last keystroke; at 30s the model would be evicted between paragraphs and every
+    /// resumption would stall on a cold load. Two minutes covers thinking pauses and hands the
+    /// memory back soon after you actually stop.
+    static let ollamaAutocompleteKeepAlive = "2m"
+
     static func hasKey(_ mode: AIMode) -> Bool {
         guard let acct = mode.keyAccount else { return false }
         return Keychain.get(account: acct).map { !$0.isEmpty } ?? false

@@ -78,6 +78,9 @@ enum NoteAutocomplete {
             "system": system,
             "prompt": trimmed,
             "stream": false,
+            // Explicit, not Ollama's five-minute default: the model stays warm across the
+            // pauses in a writing session and is released shortly after one ends.
+            "keep_alive": AIConfig.ollamaAutocompleteKeepAlive,
             // A few words, low-temperature, single-line — a hint, not an essay.
             "options": ["temperature": 0.2, "num_predict": 12, "stop": ["\n", ". ", "! ", "? "]],
         ]
