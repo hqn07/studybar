@@ -70,6 +70,7 @@ struct KanbanView: View {
     private func addCard(_ status: AssignmentStatus) {
         var a = Assignment(title: "", due: nil)
         a.status = status
+        if status == .done { a.setDone(true) } else if a.completedAt != nil { a.setDone(false); a.status = status }
         state.data.assignments.append(a)
         editing = a
     }
@@ -78,6 +79,8 @@ struct KanbanView: View {
             guard let uuid = UUID(uuidString: id),
                   let i = state.data.assignments.firstIndex(where: { $0.id == uuid }) else { continue }
             state.data.assignments[i].status = status
+            if status == .done { state.data.assignments[i].setDone(true) }
+            else if state.data.assignments[i].completedAt != nil { state.data.assignments[i].setDone(false); state.data.assignments[i].status = status }
         }
     }
 }

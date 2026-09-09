@@ -11,16 +11,34 @@ struct InsightsView: View {
     private var byCourse: [(courseID: UUID?, seconds: Int)] { StudyStats.weekByCourse(state.data) }
     private var weekTotal: Int { StudyStats.secondsThisWeek(state.data) }
 
+    // What the store can actually answer. Time entries only exist if the Pomodoro timer gets
+    // used and reading stats only if books are tracked, so those sections are shown when there
+    // is something in them rather than standing there empty implying you did nothing.
+    private var done7: [(day: Date, count: Int)] { StudyStats.completionsLast7(state.data) }
+    private var doneWeek: Int { StudyStats.completedThisWeek(state.data) }
+    private var doneByCourse: [(courseID: UUID?, count: Int)] { StudyStats.completedThisWeekByCourse(state.data) }
+    private var notesWeek: (notes: Int, words: Int) { StudyStats.notesThisWeek(state.data) }
+    private var load: (overdue: Int, week: Int, open: Int) { StudyStats.workload(state.data) }
+    private var everCompleted: Bool { state.data.assignments.contains { $0.completedAt != nil } }
+    private var tracksTime: Bool { !state.data.timeEntries.isEmpty }
+
     var body: some View {
         ModulePane(title: "Insights") { EmptyView() } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     if AIConfig.isReady { weeklyReviewCard }
-                    weeklyGoalCard
-                    todayCard
-                    streakCard
-                    section("Last 7 days", nil, "chart.bar.fill") { barChart }
-                    section("This week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
+                    thisWeekCard
+                    section("Work finished", nil, "checkmark.circle") { completionsChart }
+                    if !doneByCourse.isEmpty {
+                        section("Finished this week by course", doneByCourse.count, "checklist") { doneCourseBars }
+                    }
+                    section("What's ahead", nil, "tray.full") { workloadCard }
+                    if tracksTime {
+                        weeklyGoalCard
+                        streakCard
+                        section("Study time, last 7 days", nil, "chart.bar.fill") { barChart }
+                        section("Time this week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
+                    }
                     if !state.data.flashcards.isEmpty {
                         section("Flashcard retention", nil, "brain.head.profile") { retentionCard }
                     }
@@ -30,6 +48,90 @@ struct InsightsView: View {
                 }.padding(DS.Space.l)
             }
         }
+    }
+
+    // MARK: - The week, in what the app actually knows
+
+    private var thisWeekCard: some View {
+        HStack(spacing: DS.Space.l) {
+            metric("\(doneWeek)", doneWeek == 1 ? "finished" : "finished", "checkmark.circle.fill")
+            Divider().frame(height: 30)
+            metric("\(StudyStats.completionStreak(state.data))", "day streak", "flame.fill")
+            Divider().frame(height: 30)
+            metric("\(notesWeek.notes)", notesWeek.notes == 1 ? "note written" : "notes written", "note.text")
+            Divider().frame(height: 30)
+            metric(notesWeek.words >= 1000 ? "\(notesWeek.words / 1000)k" : "\(notesWeek.words)", "words", "text.alignleft")
+            Spacer()
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    /// Completions per day. Empty until something is checked off, so it says how to fill it
+    /// rather than drawing a flat line and implying a week of nothing.
+    @ViewBuilder private var completionsChart: some View {
+        if everCompleted {
+            Chart {
+                ForEach(done7, id: \.day) { d in
+                    BarMark(x: .value("Day", dayLabel(d.day)), y: .value("Finished", d.count))
+                        .foregroundStyle(Calendar.current.isDateInToday(d.day)
+                                         ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.45)))
+                        .cornerRadius(3)
+                }
+            }
+            .chartYAxis { AxisMarks(values: .automatic(desiredCount: 3)) }
+            .frame(height: 120)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Nothing checked off yet").font(.callout.weight(.medium))
+                Text("Mark an assignment done and this fills in — Assignments ▸ This week is the short list.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Open this week") { state.selectedModuleID = "assignments" }
+                    .buttonStyle(.borderedProminent).controlSize(.small).padding(.top, 2)
+            }
+            .padding(DS.Space.l)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        }
+    }
+
+    private var doneCourseBars: some View {
+        let top = max(1, doneByCourse.map(\.count).max() ?? 1)
+        return VStack(alignment: .leading, spacing: DS.Space.s) {
+            ForEach(doneByCourse, id: \.courseID) { row in
+                HStack(spacing: DS.Space.m) {
+                    if let c = state.course(row.courseID) {
+                        Circle().fill(c.color).frame(width: 7, height: 7)
+                        Text(c.code.isEmpty ? c.name : c.code).font(.caption)
+                    } else {
+                        Text("No course").font(.caption).foregroundStyle(.secondary)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.quaternary).frame(height: 6)
+                            Capsule().fill(.tint)
+                                .frame(width: geo.size.width * CGFloat(row.count) / CGFloat(top), height: 6)
+                        }.frame(maxHeight: .infinity, alignment: .center)
+                    }.frame(height: 12)
+                    Text("\(row.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var workloadCard: some View {
+        HStack(spacing: DS.Space.l) {
+            metric("\(load.week)", "due in 7 days", "calendar")
+            Divider().frame(height: 30)
+            metric("\(load.overdue)", "overdue", "exclamationmark.triangle")
+            Divider().frame(height: 30)
+            metric("\(load.open)", "open in total", "tray.full")
+            Spacer()
+        }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Weekly review (AI habit hook)

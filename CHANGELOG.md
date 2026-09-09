@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Insights counts what you actually did** — the module led with Pomodoro time and reading pace, which stay at zero unless you use those features, so a week of real work looked like a week of nothing. It now opens with assignments finished, a completion streak, and notes written; study-time and reading sections appear only once there's something in them. Finishing an assignment records *when*, so "this week" means this week rather than everything ever.
+
 ## [2.1.0] — 2026-09-09
 
 - **Edits from a second device stop being dropped** — when the same assignment, course, class, to-do, deck, snippet, link, grade row or file group is changed in two places, the newer change now wins. Previously the comparison used the record's creation date, which is identical on both copies, so whichever device saved last kept its own version and the other edit survived only in a backup file.

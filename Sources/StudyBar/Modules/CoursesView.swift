@@ -839,7 +839,7 @@ struct CourseDetailView: View {
     }
     private func toggleDone(_ a: Assignment) {
         guard let i = state.data.assignments.firstIndex(where: { $0.id == a.id }) else { return }
-        state.data.assignments[i].status = .done
+        state.data.assignments[i].setDone(true)
     }
     private func openURL(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"

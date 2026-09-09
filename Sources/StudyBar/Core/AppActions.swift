@@ -64,7 +64,7 @@ enum AppActions {
 
     static func completeAssignment(id: UUID) {
         guard let s = AppState.current, let i = s.data.assignments.firstIndex(where: { $0.id == id }) else { return }
-        s.data.assignments[i].status = .done
+        s.data.assignments[i].setDone(true)
         Notifier.cancel(id: id.uuidString)
     }
 

@@ -416,7 +416,7 @@ struct AssignmentRow: View {
     private func toggleDone() {
         guard let i = state.data.assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
         let nowDone = state.data.assignments[i].status != .done
-        state.data.assignments[i].status = nowDone ? .done : .todo
+        state.data.assignments[i].setDone(nowDone)
         // (12) Recurring: on completion, spawn next week's copy.
         if nowDone, state.data.assignments[i].recurring, let due = state.data.assignments[i].due {
             var next = state.data.assignments[i]

@@ -76,8 +76,71 @@ enum StudyStats {
         }
     }
 
+    // MARK: - Work finished
+    //
+    // What the app can honestly say about a week's studying. Time entries only exist if the
+    // Pomodoro timer is used; reading stats only if books are tracked. Finishing assignments
+    // and writing notes are what actually happen, so they are what gets counted.
+
+    /// Days on which at least one assignment was completed.
+    static func completionDays(_ data: AppData) -> Set<Date> {
+        Set(data.assignments.compactMap { $0.completedAt }.map { cal.startOfDay(for: $0) })
+    }
+
     static func completedThisWeek(_ data: AppData) -> Int {
-        data.assignments.filter { $0.status == .done }.count // approx: no completion date stored
+        data.assignments.filter { $0.completedAt.map(isThisWeek) ?? false }.count
+    }
+
+    static func completedToday(_ data: AppData) -> Int {
+        data.assignments.filter { $0.completedAt.map { cal.isDateInToday($0) } ?? false }.count
+    }
+
+    /// Consecutive days up to today with a completion. Today not counting yet doesn't break it —
+    /// a streak shouldn't die at 00:01.
+    static func completionStreak(_ data: AppData) -> Int {
+        let days = completionDays(data)
+        guard !days.isEmpty else { return 0 }
+        var day = cal.startOfDay(for: Date())
+        if !days.contains(day) { day = cal.date(byAdding: .day, value: -1, to: day) ?? day }
+        var n = 0
+        while days.contains(day) {
+            n += 1
+            day = cal.date(byAdding: .day, value: -1, to: day) ?? day
+        }
+        return n
+    }
+
+    static func completionsLast7(_ data: AppData) -> [(day: Date, count: Int)] {
+        let today = cal.startOfDay(for: Date())
+        return (0..<7).reversed().compactMap { back in
+            guard let day = cal.date(byAdding: .day, value: -back, to: today) else { return nil }
+            let n = data.assignments.filter { $0.completedAt.map { cal.isDate($0, inSameDayAs: day) } ?? false }.count
+            return (day, n)
+        }
+    }
+
+    static func completedThisWeekByCourse(_ data: AppData) -> [(courseID: UUID?, count: Int)] {
+        var tally: [UUID?: Int] = [:]
+        for a in data.assignments where a.completedAt.map(isThisWeek) ?? false {
+            tally[a.courseID, default: 0] += 1
+        }
+        return tally.map { (courseID: $0.key, count: $0.value) }.sorted { $0.count > $1.count }
+    }
+
+    /// Notes touched this week, and how much was written in them — the other thing that
+    /// genuinely happens every week.
+    static func notesThisWeek(_ data: AppData) -> (notes: Int, words: Int) {
+        let recent = data.notes.filter { isThisWeek($0.updatedAt) }
+        let words = recent.reduce(0) { $0 + $1.body.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count }
+        return (recent.count, words)
+    }
+
+    /// Open work, split the way the assignments list splits it.
+    static func workload(_ data: AppData) -> (overdue: Int, week: Int, open: Int) {
+        let open = data.assignments.filter(\.isOpen)
+        return (open.filter(\.isOverdue).count,
+                open.filter { ($0.daysUntilDue ?? 99) >= 0 && ($0.daysUntilDue ?? 99) <= 7 }.count,
+                open.count)
     }
 
     static func pomodorosToday(_ data: AppData) -> Int {

@@ -137,6 +137,10 @@ struct ChecklistItem: Identifiable, Codable, Hashable {
 }
 
 struct Assignment: Identifiable, Codable, Hashable {
+    /// When it was actually finished. `status` alone can't answer "what did I get done this
+    /// week" — Insights used to count every done assignment ever and call it the week's work.
+    /// Optional so older stores decode; set through `setDone` rather than by hand.
+    var completedAt: Date? = nil
     /// Last local edit, stamped at save time by diffing against the previous save.
     /// Optional so older stores decode; merge falls back to the old stamp when absent.
     var updatedAt: Date? = nil
@@ -160,6 +164,14 @@ struct Assignment: Identifiable, Codable, Hashable {
     /// that are past due and were never going to be touched. Optional so old stores decode.
     var archived: Bool? = nil
     var createdAt: Date = .now
+
+    /// Mark finished (or unfinished), keeping `completedAt` honest. Every writer goes through
+    /// here: status is set in six places, and a timestamp maintained by hand in six places is
+    /// a timestamp that is wrong in at least one of them.
+    mutating func setDone(_ done: Bool, at when: Date = Date()) {
+        status = done ? .done : .todo
+        completedAt = done ? (completedAt ?? when) : nil
+    }
 
     var isArchived: Bool { archived == true }
 

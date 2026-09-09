@@ -1231,7 +1231,7 @@ enum AIActionRunner {
             guard let i = matchAssignment(a.str("title"), state) else { return "No matching assignment." }
             if let d = a.int("dueInDays") { state.data.assignments[i].due = Calendar.current.date(byAdding: .day, value: d, to: .now) }
             if let sub = a.args["submitted"] as? Bool { state.data.assignments[i].submitted = sub }
-            if let done = a.args["done"] as? Bool { state.data.assignments[i].status = done ? .done : .todo }
+            if let done = a.args["done"] as? Bool { state.data.assignments[i].setDone(done) }
             return "Updated “\(state.data.assignments[i].title)”."
 
         case "add_reading":
