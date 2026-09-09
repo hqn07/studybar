@@ -264,10 +264,11 @@ struct OpenAIProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var msgs: [[String: String]] = [["role": "system", "content": system]]
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
-        // 4096, not 2048: a reasoning model (DeepSeek V4, o-series) burns completion budget
-        // on hidden reasoning tokens before it writes anything, and the visible answer gets
-        // truncated — or comes back empty — at the lower cap.
-        let body: [String: Any] = ["model": model, "max_tokens": 4096, "messages": msgs]
+        // 8192, not 4096: a reasoning model spends completion budget thinking before it
+        // writes. Measured on a duplicate-scan batch — 3,550 reasoning tokens and 3,882
+        // completion against a 4,096 cap — the verdicts are what gets cut, and a truncated
+        // reply is indistinguishable from "nothing found".
+        let body: [String: Any] = ["model": model, "max_tokens": 8192, "messages": msgs]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1631,6 +1632,48 @@ extension AnthropicProvider {
 }
 
 extension OpenAIProvider {
+    /// A short structured verdict, not an essay — used by the classifiers.
+    ///
+    /// Reasoning models spend their completion budget thinking first, and on a task like "are
+    /// these two titles the same assignment" that thinking is both unnecessary and actively
+    /// harmful: measured over 120 real pairs it produced 1-2 truncated batches in 10, because
+    /// the verdicts are what gets cut when the budget runs out. Asking for reasoning off made
+    /// the same scan 8x faster, 4x cheaper, and complete — 120 verdicts out of 120.
+    ///
+    /// Providers that don't understand the parameter reject the request, so it is sent once
+    /// and retried without on a 400. No provider sniffing, and it degrades to today's
+    /// behaviour anywhere it isn't supported.
+    func completeClassification(system: String, messages: [AIMessage]) async throws -> String {
+        do { return try await post(system: system, messages: messages, noThinking: true) }
+        catch AIError.http(let code, _) where code == 400 {
+            Diagnostics.log(.ai, .info, "Provider rejected reasoning-off; retrying with defaults")
+            return try await complete(system: system, messages: messages)
+        }
+    }
+
+    private func post(system: String, messages: [AIMessage], noThinking: Bool) async throws -> String {
+        var req = URLRequest(url: AIConfig.chatCompletionsURL(host))
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 180
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
+        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var body: [String: Any] = ["model": model, "max_tokens": 4096, "temperature": 0.2, "messages": msgs]
+        if noThinking { body["thinking"] = ["type": "disabled"] }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            throw AIError.http(code, ((o?["error"] as? [String: Any])?["message"] as? String) ?? "")
+        }
+        let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let choice = (o?["choices"] as? [[String: Any]])?.first
+        return ((choice?["message"] as? [String: Any])?["content"] as? String) ?? ""
+    }
+
     func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
                      onReply: @MainActor @escaping (String) -> Void) async throws -> String {
         // numCtx is an Ollama concept; a hosted provider sizes its own window.

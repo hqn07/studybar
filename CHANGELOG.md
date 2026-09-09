@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Deep scan for duplicates** — the duplicate finder can now ask your AI engine about near-miss pairs the exact match can't judge: same course, within a week, partly matching titles, including an assignment re-imported under a shifted date. Findings are labelled as the model's opinion and still need your confirmation before anything merges.
+
 - **Sort imported coursework into work, attendance and admin** — a Canvas feed arrives as one flat list where `L7 section 2.4` sits next to `SEPTEMBER 10 ATTENDANCE`. The new **⧉ Sort by kind** button in Assignments settles the obvious cases itself and asks your AI engine about the rest, then shows you everything before applying. Once sorted, This week and Overdue hide the housekeeping — one click brings it back, and nothing is ever deleted.
 
 - **Insights counts what you actually did** — the module led with Pomodoro time and reading pace, which stay at zero unless you use those features, so a week of real work looked like a week of nothing. It now opens with assignments finished, a completion streak, and notes written; study-time and reading sections appear only once there's something in them. Finishing an assignment records *when*, so "this week" means this week rather than everything ever.

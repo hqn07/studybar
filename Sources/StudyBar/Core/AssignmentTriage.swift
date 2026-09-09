@@ -148,9 +148,13 @@ enum AssignmentTriage {
         for (n, batch) in batches.enumerated() {
             progress(n, batches.count)
             let numbered = batch.enumerated().map { (index: $0.offset + 1, title: $0.element.title) }
-            let reply = try? await provider.completePlain(
-                system: systemPrompt(),
-                messages: [AIMessage(role: .user, text: userPrompt(numbered))])
+            let msgs = [AIMessage(role: .user, text: userPrompt(numbered))]
+            let reply: String?
+            if let openAI = provider as? OpenAIProvider {
+                reply = try? await openAI.completeClassification(system: systemPrompt(), messages: msgs)
+            } else {
+                reply = try? await provider.completePlain(system: systemPrompt(), messages: msgs)
+            }
             for hit in parse(reply ?? "", count: batch.count) {
                 let item = batch[hit.index - 1]
                 proposals.append(Proposal(id: item.id, title: item.title, kind: hit.kind, reason: hit.why))
