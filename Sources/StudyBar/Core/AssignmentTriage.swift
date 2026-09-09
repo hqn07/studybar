@@ -52,7 +52,14 @@ enum AssignmentTriage {
     /// Titles whose kind is not a judgement call. Ordered: the first match wins.
     private static let rules: [(pattern: String, kind: Kind, why: String)] = [
         (#"(?i)\battendance\b"#, .attendance, "Says attendance"),
-        (#"(?i)^\s*[a-z]{3,9}\.?\s*\d{1,2}(st|nd|rd|th)?\s*$"#, .attendance, "A date, not a task"),
+        // Graded work is claimed *before* anything else can mistake it for housekeeping.
+        // The bare-date rule below used to read "any short word then a number", which filed
+        // Exam 1, Homework 2 and Quiz 3 as attendance — the exact failure this feature must
+        // never make, since a hidden exam is worse than a visible attendance check.
+        (#"(?i)^\s*(exam|midterm|final|quiz|test|homework|hw|assignment|lab|project|essay|paper)\b"#, .work, "Graded work"),
+        // A real date: a month name, not just any word. "Aug 26", "September 3rd".
+        (#"(?i)^\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{1,2}(st|nd|rd|th)?\s*$"#,
+         .attendance, "A date, not a task"),
         (#"(?i)\bsyllabus\s+(quiz|acknowledg|agreement)"#, .admin, "Syllabus acknowledgement"),
         (#"(?i)\b(orientation|overview\s+video|getting\s+started|welcome)\b"#, .admin, "Course orientation"),
         (#"(?i)\b(transcript|upload\s+your|photo\s+upload|profile)\b"#, .admin, "Paperwork"),
@@ -168,6 +175,18 @@ enum TriageSelfTest {
         // Real titles out of the live store.
         check("attendance by name", kind("SEPTEMBER 10 ATTENDANCE") == .attendance)
         check("a bare date is a roll call", kind("Aug 26") == .attendance)
+        check("a spelled-out date too", kind("September 3rd") == .attendance)
+
+        // Found by running the rules over the real store: the date rule matched any short
+        // word followed by a number, so exams and homework were being filed as attendance.
+        check("Exam 1 is work", kind("Exam 1") == .work)
+        check("Exam 2 is work", kind("Exam 2") == .work)
+        check("Homework 1 is work", kind("Homework 1") == .work)
+        check("QUIZ 1 is work", kind("QUIZ 1") == .work)
+        check("Quiz 5 is work", kind("Quiz 5") == .work)
+        check("Test 3 is work", kind("Test 3") == .work)
+        check("Lab 2 is work", kind("Lab 2") == .work)
+        check("Project 1 is work", kind("Project 1") == .work)
         check("syllabus quiz is admin", kind("Syllabus Quiz") == .admin)
         check("module-prefixed syllabus quiz too", kind("Module 01: Syllabus Quiz") == .admin)
         check("handbook quiz is admin", kind("Module 01: Handbook Quiz") == .admin)
