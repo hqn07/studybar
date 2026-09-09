@@ -20,24 +20,42 @@ enum HomeworkGuard {
         case submission(trigger: String)
     }
 
-    /// Asking to hand over something gradeable. Each needs an explicit hand-it-in signal or an
-    /// imperative aimed at the artifact itself — "explain", "how", "why" never match.
-    private static let patterns: [(String, String)] = [
+    /// Unambiguous: the words only appear when the student is asking for the artifact they
+    /// hand in. Framing doesn't rescue these — "how do I write it exactly as I submit it" is
+    /// still a request for the submission.
+    private static let handIn: [(String, String)] = [
         (#"(?i)\b(?:as|exactly as|the way)\s+i\s+(?:should\s+)?(?:submit|turn\s+it\s+in|hand\s+it\s+in)"#, "as I should submit it"),
-        (#"(?i)\b(?:write|do|complete|finish|answer)\s+(?:my|the)\s+(?:homework|assignment|problem\s*set|worksheet|lab\s*report|discussion\s*post|essay|paper)\b"#, "write my homework"),
-        (#"(?i)\bwrite\s+(?:my|the)\s+(?:answer|solution|response)\b"#, "write my answer"),
         (#"(?i)\b(?:solve|answer|do)\s+(?:problem|question|exercise|q)\s*#?\s*\d+\s+for\s+me\b"#, "solve problem N for me"),
         (#"(?i)\bdo\s+(?:this|these|it)\s+for\s+me\b"#, "do it for me"),
         (#"(?i)\b(?:submit|turn\s+in|hand\s+in)\s+(?:this|it|that)\b"#, "turn it in"),
         (#"(?i)\bjust\s+(?:give|tell)\s+me\s+the\s+(?:final\s+)?answer\b"#, "just give me the answer"),
+    ]
+
+    /// An imperative aimed at the artifact — "write my homework". Blocked *unless* the
+    /// sentence is asking how it is done, because the same verbs appear in the questions this
+    /// feature exists to answer: "How should I write my answer for problem 2?" is a request
+    /// for method, not for a submission, and refusing it would be the worse failure.
+    private static let imperative: [(String, String)] = [
+        (#"(?i)\b(?:write|do|complete|finish|answer)\s+(?:my|the)\s+(?:homework|assignment|problem\s*set|worksheet|lab\s*report|discussion\s*post|essay|paper)\b"#, "write my homework"),
+        (#"(?i)\bwrite\s+(?:my|the)\s+(?:answer|solution|response)\b"#, "write my answer"),
         (#"(?i)\bwrite\s+(?:me\s+)?(?:an?|the)\s+\d*\s*(?:page|paragraph|word)?\s*essay\b"#, "write an essay"),
     ]
 
+    /// Asking about method rather than demanding output. Deliberately generous — a question
+    /// wrongly answered costs nothing, a question wrongly refused costs the feature.
+    private static let methodFraming =
+        // "do" only counts as a question opener with a following pronoun — otherwise
+        // "Do my assignment" parses as an interrogative and walks straight through.
+        #"(?i)(?:^\s*(?:how|what|why|when|where|which|should|can|could|would|is|are|does|do\s+(?:you|i|we|they))\b|\bhow (?:do|should|would|can) i\b|\bwalk me through\b|\bexplain\b|\bcheck (?:my|how)\b|\bgood way to\b|\bhelp me understand\b)"#
+
     static func check(_ question: String) -> Verdict {
-        for (pattern, label) in patterns {
-            if question.range(of: pattern, options: .regularExpression) != nil {
-                return .submission(trigger: label)
-            }
+        for (pattern, label) in handIn where question.range(of: pattern, options: .regularExpression) != nil {
+            return .submission(trigger: label)
+        }
+        let asksHow = question.range(of: methodFraming, options: .regularExpression) != nil
+        if asksHow { return .allow }
+        for (pattern, label) in imperative where question.range(of: pattern, options: .regularExpression) != nil {
+            return .submission(trigger: label)
         }
         return .allow
     }
@@ -84,6 +102,20 @@ enum HomeworkSelfTest {
         check("Write me a 500 word essay on urbanization", blocked: true)
         check("Can you do this for me?", blocked: true)
         check("Write my lab report", blocked: true)
+
+        // Framing rescues an imperative, but not an explicit hand-in signal.
+        check("How do I write my homework answer exactly as I should submit it?", blocked: true)
+
+        // False positives found by probing the shipped version against realistic questions.
+        check("How should I write my answer for problem 2?", blocked: false)
+        check("What's a good way to write the solution to this kind of problem?", blocked: false)
+        check("How do I write the answer using the present value formula?", blocked: false)
+        check("What did the lecture say I should do the assignment on?", blocked: false)
+        check("Can you check how I did the homework problem?", blocked: false)
+        check("What does the assignment ask for?", blocked: false)
+        check("How long should the essay be?", blocked: false)
+        check("Help me understand my lab report data", blocked: false)
+        check("Do I need to show my working for problem 2?", blocked: false)
 
         // Everything this feature is actually for.
         check("How do I solve problem 2?", blocked: false)

@@ -22,7 +22,6 @@ struct ModulePane<Content: View, Bar: View>: View {
             .zIndex(1)
             Divider()
             content()
-                .clipped()
         }
     }
 }

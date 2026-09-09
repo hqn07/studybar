@@ -836,7 +836,13 @@ struct NoteEditor: View {
         return out
     }
 
-    private var askChars: Int { min(NoteQA.totalCharLimit, askSources.reduce(0) { $0 + $1.body.count }) }
+    private var askChars: Int {
+        var total = draft.body.utf8.count
+        for id in askExtras {
+            total += state.data.notes.first { $0.id == id }?.body.utf8.count ?? 0
+        }
+        return min(NoteQA.totalCharLimit, total)
+    }
 
     /// Other notes worth attaching: this course first (that's what "add week 1 and 2" means),
     /// then everything else, newest first.
