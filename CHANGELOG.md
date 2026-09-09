@@ -5,6 +5,9 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Quotations are checked against your notes** — if an answer puts words in quotation marks that aren't in the note it was given, the marks come off and the answer says so. The sentence stays; the claim that you wrote it doesn't.
+- **Hosted engines stream too** — an answer from DeepSeek, OpenAI or any compatible provider now types itself out as it arrives instead of sitting on "Thinking…" for twenty seconds. Reasoning models' internal deliberation is not shown.
+
 - **Homework requests are refused by StudyBar, not by the model** — asking Ask this note to write something you'd hand in ("write my homework answer exactly as I should submit it") is now stopped before any model is called, with a one-tap **Explain the method instead**. Asking how something works, or what your note says, is untouched.
 
 - **Use any OpenAI-compatible provider** — Settings ▸ Intelligence ▸ ChatGPT now has an **API base URL** field, so the same engine can point at DeepSeek, Alibaba's Qwen, Together, Groq, Fireworks or OpenRouter with their own key and model name. Leave it alone for OpenAI itself.

@@ -402,6 +402,7 @@ struct NoteEditor: View {
     @State private var askExtras: [UUID] = []      // notes attached by hand, in the order added
     @State private var askPicking = false
     @State private var askBlocked: String?      // the question the guard stopped, for the method offer
+    @State private var askUnverified: [UUID: Int] = [:]   // turn id -> quotations that weren't in the notes
     @State private var askTask: Task<Void, Never>?
     @FocusState private var askFocused: Bool
     @State private var aiStart: Date?
@@ -770,6 +771,10 @@ struct NoteEditor: View {
                                 } else {
                                     RichText(text: turn.answer)     // Markdown + math, same as the reading view
                                         .textSelection(.enabled)
+                                    if let n = askUnverified[turn.id] {
+                                        Label(QuoteCheck.notice(n), systemImage: "quote.closing")
+                                            .font(.caption2).foregroundStyle(Color.dsWeek)
+                                    }
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -922,7 +927,7 @@ struct NoteEditor: View {
     private func closeAsk() {
         askTask?.cancel(); askTask = nil
         asking = false; askLoading = false; askQuestion = ""; askThread = []
-        askExtras = []; askPicking = false; askBlocked = nil
+        askExtras = []; askPicking = false; askBlocked = nil; askUnverified = [:]
     }
 
     private func ask(_ override: String? = nil) {
@@ -960,6 +965,12 @@ struct NoteEditor: View {
                     numCtx: NoteQA.contextTokens(chars: askChars), temperature: 0.4) { p in
                         if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
                     }
+            } else if let openAI = provider as? OpenAIProvider {
+                // Hosted engines stream too — without this a DeepSeek answer sat on "Thinking…"
+                // for twenty seconds and then appeared all at once.
+                out = try? await openAI.completePlainStreaming(system: sys, messages: msgs, temperature: 0.4) { p in
+                    if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
+                }
             } else {
                 out = try? await provider.completePlain(system: sys, messages: msgs)
             }
@@ -967,9 +978,15 @@ struct NoteEditor: View {
                 askLoading = false
                 guard askThread.indices.contains(idx) else { return }
                 let final = (out ?? askThread[idx].answer).trimmingCharacters(in: .whitespacesAndNewlines)
-                askThread[idx].answer = final.isEmpty
-                    ? "No answer came back — try rephrasing, or a stronger engine in Settings ▸ Intelligence."
-                    : MathSupport.normalized(final)
+                if final.isEmpty {
+                    askThread[idx].answer = "No answer came back — try rephrasing, or a stronger engine in Settings ▸ Intelligence."
+                } else {
+                    // Quotation marks assert the words are in the note. Check that against the
+                    // notes actually sent, rather than trusting the model not to invent one.
+                    let checked = QuoteCheck.verify(MathSupport.normalized(final), against: sources.map(\.body))
+                    askThread[idx].answer = checked.text
+                    if checked.count > 0 { askUnverified[askThread[idx].id] = checked.count }
+                }
             }
         }
     }

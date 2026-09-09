@@ -201,7 +201,7 @@ struct AnthropicProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 2048,
+            "max_tokens": 4096,
             "system": system,
             "messages": messages.map { ["role": $0.role.rawValue, "content": $0.text] },
         ]
@@ -1566,7 +1566,7 @@ extension AnthropicProvider {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         let body: [String: Any] = [
-            "model": model, "max_tokens": 2048, "system": system,
+            "model": model, "max_tokens": 4096, "system": system,
             "tools": tools, "messages": messages,
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1601,6 +1601,53 @@ extension AnthropicProvider {
 }
 
 extension OpenAIProvider {
+    /// Server-sent-events streaming, so a hosted engine types its answer out like the local
+    /// one does. Every provider on the OpenAI-compatible list supports `stream: true`.
+    ///
+    /// Reasoning models (DeepSeek V4, o-series) interleave a `reasoning_content` delta with
+    /// the visible `content` delta. Only the latter is surfaced — the thinking is not the
+    /// answer, and showing it would leak a wall of deliberation into a study note.
+    func completePlainStreaming(system: String, messages: [AIMessage], temperature: Double = 0.4,
+                                onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        var req = URLRequest(url: AIConfig.chatCompletionsURL(host))
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 300
+        var msgs: [[String: String]] = [["role": "system", "content": system]]
+        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model, "max_tokens": 4096, "temperature": temperature,
+            "stream": true, "messages": msgs,
+        ])
+
+        let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            Diagnostics.log(.net, .error, "OpenAI-compatible stream failed (\(code)) at \(host)")
+            throw AIError.http(code, "")
+        }
+
+        var full = ""
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { break }
+            guard let data = payload.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choice = (obj["choices"] as? [[String: Any]])?.first,
+                  let delta = choice["delta"] as? [String: Any],
+                  let piece = delta["content"] as? String, !piece.isEmpty
+            else { continue }        // reasoning_content deltas land here and are dropped
+            full += piece
+            let snapshot = full
+            await MainActor.run { onReply(snapshot) }
+        }
+        return full
+    }
+}
+
+extension OpenAIProvider {
     struct ToolUse { let id: String; let name: String; let input: [String: Any] }
 
     /// One tool-enabled round-trip. `messages` are OpenAI chat messages. Returns the raw
@@ -1611,7 +1658,7 @@ extension OpenAIProvider {
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": model, "max_tokens": 2048, "messages": messages, "tools": tools]
+        let body: [String: Any] = ["model": model, "max_tokens": 4096, "messages": messages, "tools": tools]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
