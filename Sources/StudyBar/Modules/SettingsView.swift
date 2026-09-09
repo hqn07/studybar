@@ -57,6 +57,13 @@ struct SettingsView: View {
     @State private var aiHasKey = false
     @State private var aiModel = ""
     @State private var aiHost = ""
+    /// The Ollama section's own model field. It used to share `aiModel` with the credentials
+    /// section, which was safe only because the two could never render together.
+    @State private var ollamaModel = ""
+    /// Same reason: the local sections need their own result line and spinner, or a cloud
+    /// engine's 400 appears under "Ollama" as though the local server had rejected something.
+    @State private var localStatus = ""
+    @State private var localTesting = false
     @State private var aiStatus = ""
     @State private var aiTesting = false
     @State private var starterStatus = ""
@@ -553,7 +560,9 @@ struct SettingsView: View {
                 Text("Same as above").tag("")
                 ForEach(AIMode.allCases.filter { $0 != .off }) { Text($0.title).tag($0.rawValue) }
             }
-            .onChange(of: aiAskMode) { _, m in AIConfig.askMode = AIMode(rawValue: m) }
+            .onChange(of: aiAskMode) { _, m in
+                AIConfig.askMode = AIMode(rawValue: m); credentialsFor = nil; loadAI()
+            }
 
             Text(aiMode.subtitle).font(.caption).foregroundStyle(.secondary)
             if aiMode == .onDevice && !AIConfig.onDeviceAvailable {
@@ -562,13 +571,19 @@ struct SettingsView: View {
             }
         }
 
-        if credentialsMode.needsKey {
+        if !keyedEngines.isEmpty {
             Section(credentialsMode == .claude ? "Anthropic" : (presets.first { aiOpenAIHost.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name ?? "OpenAI-compatible provider")) {
+                if keyedEngines.count > 1 {
+                    Picker("Key for", selection: Binding(get: { credentialsMode },
+                                                         set: { credentialsFor = $0; loadAI() })) {
+                        ForEach(keyedEngines) { Text($0.title).tag($0) }
+                    }
+                }
                 if credentialsMode != aiMode {
                     Label("Editing the engine that answers questions about a note. Your main engine stays \(aiMode.title).",
                           systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
                 }
-                if aiMode == .openai {
+                if credentialsMode == .openai {
                     HStack {
                         Text("Provider")
                         Spacer()
@@ -595,50 +610,54 @@ struct SettingsView: View {
                     Button("Save") { saveAIKey() }.disabled(aiKey.isEmpty)
                     Button("Test") {
                         saveAIModel()
-                        if aiMode == .openai { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
-                        Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
+                        if credentialsMode == .openai { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
+                        let m = credentialsMode
+                        Task { aiTesting = true; aiStatus = await AIService.test(mode: m); aiTesting = false }
                     }.disabled(aiTesting || !aiHasKey)
                     if aiTesting { ProgressView().controlSize(.small) }
                     Spacer()
                     if aiHasKey {
                         Button("Remove", role: .destructive) {
-                            if let acct = aiMode.keyAccount { Keychain.delete(account: acct) }
+                            if let acct = credentialsMode.keyAccount { Keychain.delete(account: acct) }
                             aiHasKey = false; aiStatus = ""
                         }
                     }
                 }
-                if !aiStatus.isEmpty { statusLine }
-                Text(aiMode == .claude
+                if !aiStatus.isEmpty { statusLine(aiStatus) }
+                Text(credentialsMode == .claude
                      ? "A Claude Pro/Max subscription is not an API key — create a pay-as-you-go key at console.anthropic.com. Stored in your Keychain."
                      : "A ChatGPT Plus subscription is not an API key — and this engine is not ChatGPT-only: it is the OpenAI request format, which the providers above all speak. Each uses its own key and model name. Stored in your Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-        } else if aiMode == .ollama {
+        }
+
+        if aiMode == .ollama {
             Section("Ollama") {
-                TextField("Model", text: $aiModel).onSubmit { saveAIModel() }
+                TextField("Model", text: $ollamaModel).onSubmit { saveOllamaModel() }
                 TextField("Server", text: $aiHost).onSubmit { AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces) }
                 HStack(spacing: DS.Space.s) {
                     Button("Test") {
-                        saveAIModel(); AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces)
-                        Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
-                    }.disabled(aiTesting)
-                    if aiTesting { ProgressView().controlSize(.small) }
+                        saveOllamaModel(); AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces)
+                        Task { localTesting = true; localStatus = await AIService.test(mode: .ollama); localTesting = false }
+                    }.disabled(localTesting)
+                    if localTesting { ProgressView().controlSize(.small) }
                     Spacer()
                 }
-                if !aiStatus.isEmpty { statusLine }
-                Text("Runs on this Mac — no key, nothing leaves. `ollama pull \(aiModel.isEmpty ? "qwen2.5:7b" : aiModel)` installs the model.")
+                if !localStatus.isEmpty { statusLine(localStatus) }
+                Text("Runs on this Mac — no key, nothing leaves. `ollama pull \(ollamaModel.isEmpty ? "qwen2.5:7b" : ollamaModel)` installs the model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
 
-        } else if aiMode == .onDevice {
+        if aiMode == .onDevice {
             Section("On-device") {
                 HStack(spacing: DS.Space.s) {
-                    Button("Test") { Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false } }
-                        .disabled(aiTesting || !AIConfig.onDeviceAvailable)
-                    if aiTesting { ProgressView().controlSize(.small) }
+                    Button("Test") { Task { localTesting = true; localStatus = await AIService.test(mode: .onDevice); localTesting = false } }
+                        .disabled(localTesting || !AIConfig.onDeviceAvailable)
+                    if localTesting { ProgressView().controlSize(.small) }
                     Spacer()
                 }
-                if !aiStatus.isEmpty { statusLine }
+                if !localStatus.isEmpty { statusLine(localStatus) }
             }
         }
 
@@ -683,14 +702,32 @@ struct SettingsView: View {
         }
     }
 
-    private var statusLine: some View {
-        Text(aiStatus).font(.caption)
-            .foregroundStyle(aiStatus.hasPrefix("✓") ? Color.dsDone
-                             : (aiStatus.hasPrefix("✗") ? Color.dsNow : Color.secondary))
+    private func statusLine(_ text: String) -> some View {
+        Text(text).font(.caption)
+            .foregroundStyle(text.hasPrefix("✓") ? Color.dsDone
+                             : (text.hasPrefix("✗") ? Color.dsNow : Color.secondary))
     }
 
-    /// The engine whose key and model the credentials section edits.
-    private var credentialsMode: AIMode { credentialsFor ?? aiMode }
+    /// The ask-engine override as the picker currently has it, if it names a real engine.
+    private var askEngine: AIMode? { AIMode(rawValue: aiAskMode) }
+
+    /// Every engine in play that needs a key. This is what the credentials section can edit —
+    /// gating it on the main engine alone meant a local-first setup with a cloud ask engine had
+    /// nowhere to type that key, short of pointing the whole app at the paid API first.
+    private var keyedEngines: [AIMode] {
+        var out: [AIMode] = []
+        if aiMode.needsKey { out.append(aiMode) }
+        if let ask = askEngine, ask.needsKey, !out.contains(ask) { out.append(ask) }
+        return out
+    }
+
+    /// The engine whose key and model the credentials section edits: an explicit choice, else
+    /// the main engine when it takes a key, else whichever engine actually needs one.
+    private var credentialsMode: AIMode {
+        if let c = credentialsFor, keyedEngines.contains(c) { return c }
+        if aiMode.needsKey { return aiMode }
+        return keyedEngines.first ?? aiMode
+    }
 
     private func loadAI() {
         aiMode = AIConfig.mode
@@ -702,7 +739,15 @@ struct SettingsView: View {
         default:      aiModel = AIConfig.claudeModel
         }
         aiHost = AIConfig.ollamaHost
+        ollamaModel = AIConfig.ollamaModel
+        aiOpenAIHost = AIConfig.openaiHost
         aiStatus = ""
+        localStatus = ""
+    }
+    private func saveOllamaModel() {
+        let m = ollamaModel.trimmingCharacters(in: .whitespaces)
+        guard !m.isEmpty else { return }
+        AIConfig.ollamaModel = m
     }
     private func saveAIModel() {
         let m = aiModel.trimmingCharacters(in: .whitespaces)

@@ -296,29 +296,144 @@ struct OpenAIProvider: AIProvider {
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
         // 8192, not 4096: a reasoning model spends completion budget thinking before it
         // writes. Measured on a duplicate-scan batch — 3,550 reasoning tokens and 3,882
         // completion against a 4,096 cap — the verdicts are what gets cut, and a truncated
         // reply is indistinguishable from "nothing found".
-        let body: [String: Any] = ["model": model, "max_tokens": 8192, "messages": msgs]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw AIError.http(code, errorText(data)) }
-        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let choices = obj?["choices"] as? [[String: Any]] ?? []
-        let text = (choices.first?["message"] as? [String: Any])?["content"] as? String ?? ""
-        guard !text.isEmpty else { throw AIError.badResponse }
-        return text
+        let base = req
+        return try await adapting { shape in
+            var req = base
+            req.httpBody = try JSONSerialization.data(withJSONObject:
+                chatBody(shape, system: system, messages: asDicts(messages),
+                         maxTokens: 8192, temperature: nil))
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else { throw AIError.http(code, errorText(data)) }
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let choices = obj?["choices"] as? [[String: Any]] ?? []
+            let text = (choices.first?["message"] as? [String: Any])?["content"] as? String ?? ""
+            guard !text.isEmpty else { throw AIError.badResponse }
+            return text
+        }
     }
 
     private func errorText(_ data: Data) -> String {
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let err = obj?["error"] as? [String: Any]
         return (err?["message"] as? String) ?? (String(data: data, encoding: .utf8) ?? "")
+    }
+}
+
+
+// MARK: - Request shape
+
+extension OpenAIProvider {
+
+    /// Reasoning-off has three spellings in the wild and no host takes more than one:
+    /// DeepSeek-style hosts want `thinking: {type: "disabled"}`; OpenAI's
+    /// `/chat/completions` wants a flat `reasoning_effort: "none"`; the nested
+    /// `reasoning: {effort: "none"}` belongs to the Responses API and 400s on chat.
+    enum ReasoningOff: String { case thinking, effortFlat, effortNested, unsupported }
+
+    /// The parameter spellings a given host and model actually accept. Newer OpenAI models
+    /// reject `max_tokens` in favour of `max_completion_tokens` and refuse a custom
+    /// `temperature` outright, while every other OpenAI-compatible provider still expects the
+    /// old names — so there is no one body that works everywhere, and "OpenAI-compatible" is
+    /// only approximately true.
+    ///
+    /// Rather than sniff the provider, send the common shape, read the 400 the host sends back,
+    /// change exactly what it named, and remember the answer. The cost is one extra round-trip,
+    /// once per host and model; the alternative is a hardcoded table that goes stale.
+    struct BodyShape: Equatable {
+        var maxTokensKey = "max_tokens"
+        var sendsTemperature = true
+        var reasoningOff = ReasoningOff.thinking
+    }
+
+    /// Versioned: a learned shape records what *this* ladder could negotiate, so widening the
+    /// ladder has to re-learn rather than inherit an old "unsupported".
+    private static func shapeKey(_ host: String, _ model: String) -> String {
+        "aiOpenAIShape2|\(host)|\(model)"
+    }
+
+    static func learnedShape(host: String, model: String) -> BodyShape {
+        var shape = BodyShape()
+        guard let d = UserDefaults.standard.dictionary(forKey: shapeKey(host, model)) else { return shape }
+        if let k = d["maxTokensKey"] as? String { shape.maxTokensKey = k }
+        if let t = d["sendsTemperature"] as? Bool { shape.sendsTemperature = t }
+        if let r = d["reasoningOff"] as? String, let v = ReasoningOff(rawValue: r) { shape.reasoningOff = v }
+        return shape
+    }
+
+    static func remember(_ shape: BodyShape, host: String, model: String) {
+        UserDefaults.standard.set(["maxTokensKey": shape.maxTokensKey,
+                                   "sendsTemperature": shape.sendsTemperature,
+                                   "reasoningOff": shape.reasoningOff.rawValue],
+                                  forKey: shapeKey(host, model))
+    }
+
+    /// Change one parameter in response to the host's own complaint. Returns nil when the
+    /// message names nothing we know how to rename or drop, so a genuine 400 — a bad model
+    /// name, a malformed message list — is never retried in a loop.
+    static func adapt(_ shape: BodyShape, to message: String) -> BodyShape? {
+        let m = message.lowercased()
+        var s = shape
+        if m.contains("max_completion_tokens"), s.maxTokensKey != "max_completion_tokens" {
+            s.maxTokensKey = "max_completion_tokens"
+        } else if m.contains("temperature"), s.sendsTemperature {
+            s.sendsTemperature = false
+        } else if m.contains("thinking"), s.reasoningOff == .thinking {
+            s.reasoningOff = .effortFlat
+        } else if m.contains("reasoning") || m.contains("effort"), s.reasoningOff == .effortFlat {
+            s.reasoningOff = .effortNested
+        } else if m.contains("reasoning") || m.contains("effort"), s.reasoningOff == .effortNested {
+            s.reasoningOff = .unsupported
+        } else {
+            return nil
+        }
+        return s
+    }
+
+    /// Build a `/chat/completions` body in the shape this host is known to accept.
+    func chatBody(_ shape: BodyShape, system: String?, messages: [[String: Any]],
+                  maxTokens: Int, temperature: Double?, reasoningOff: Bool = false,
+                  extra: [String: Any] = [:]) -> [String: Any] {
+        var msgs = messages
+        if let system { msgs.insert(["role": "system", "content": system], at: 0) }
+        var body: [String: Any] = ["model": model, shape.maxTokensKey: maxTokens, "messages": msgs]
+        if let temperature, shape.sendsTemperature { body["temperature"] = temperature }
+        if reasoningOff {
+            switch shape.reasoningOff {
+            case .thinking:     body["thinking"] = ["type": "disabled"]
+            case .effortFlat:   body["reasoning_effort"] = "none"
+            case .effortNested: body["reasoning"] = ["effort": "none"]
+            case .unsupported:  break
+            }
+        }
+        for (k, v) in extra { body[k] = v }
+        return body
+    }
+
+    /// Run a request; when the host rejects a parameter with a 400, change that parameter and
+    /// try again. Bounded by `adapt` returning nil, which every unrecognised 400 does.
+    func adapting<T>(_ run: (BodyShape) async throws -> T) async throws -> T {
+        var shape = Self.learnedShape(host: host, model: model)
+        let initial = shape
+        while true {
+            do {
+                let out = try await run(shape)
+                if shape != initial { Self.remember(shape, host: host, model: model) }
+                return out
+            } catch AIError.http(let code, let msg) where code == 400 {
+                guard let next = Self.adapt(shape, to: msg) else { throw AIError.http(code, msg) }
+                Diagnostics.log(.ai, .info, "Host rejected a parameter, adapting: \(msg.prefix(120))")
+                shape = next
+            }
+        }
+    }
+
+    func asDicts(_ messages: [AIMessage]) -> [[String: Any]] {
+        messages.map { ["role": $0.role.rawValue, "content": $0.text] }
     }
 }
 
@@ -638,8 +753,13 @@ enum AIService {
     }
 
     /// Connectivity/health check for Settings ▸ Intelligence.
-    static func test() async -> String {
-        guard let provider = makeProvider() else { return AIError.notConfigured.localizedDescription }
+    static func test() async -> String { await test(mode: AIConfig.mode) }
+
+    /// Test one engine by name. Settings can be editing the engine that answers questions about
+    /// a note while the app still runs on a local one — testing `AIConfig.mode` there would
+    /// cheerfully report the local engine healthy and say nothing about the key just entered.
+    static func test(mode: AIMode) async -> String {
+        guard let provider = makeProvider(mode: mode) else { return AIError.notConfigured.localizedDescription }
         do {
             let reply = try await provider.complete(
                 system: "You are a connectivity check for a study app. Reply with exactly: StudyBar connected.",
@@ -1711,38 +1831,31 @@ extension OpenAIProvider {
     /// the verdicts are what gets cut when the budget runs out. Asking for reasoning off made
     /// the same scan 8x faster, 4x cheaper, and complete — 120 verdicts out of 120.
     ///
-    /// Providers that don't understand the parameter reject the request, so it is sent once
-    /// and retried without on a 400. No provider sniffing, and it degrades to today's
-    /// behaviour anywhere it isn't supported.
+    /// Hosts spell reasoning-off differently and some don't take it at all, so `adapting`
+    /// walks the spellings on a 400 and remembers which one this host wanted — see `BodyShape`.
+    /// No provider sniffing, and it degrades to reasoning-on anywhere none is supported.
     func completeClassification(system: String, messages: [AIMessage]) async throws -> String {
-        do { return try await post(system: system, messages: messages, noThinking: true) }
-        catch AIError.http(let code, _) where code == 400 {
-            Diagnostics.log(.ai, .info, "Provider rejected reasoning-off; retrying with defaults")
-            return try await complete(system: system, messages: messages)
-        }
+        try await post(system: system, messages: messages, noThinking: true)
     }
 
     private func post(system: String, messages: [AIMessage], noThinking: Bool) async throws -> String {
-        var req = URLRequest(url: AIConfig.chatCompletionsURL(host))
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 180
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
-        var body: [String: Any] = ["model": model, "max_tokens": 4096, "temperature": 0.2, "messages": msgs]
-        if noThinking { body["thinking"] = ["type": "disabled"] }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else {
+        var base = URLRequest(url: AIConfig.chatCompletionsURL(host))
+        base.httpMethod = "POST"
+        base.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        base.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        base.timeoutInterval = 180
+        return try await adapting { shape in
+            var req = base
+            req.httpBody = try JSONSerialization.data(withJSONObject:
+                chatBody(shape, system: system, messages: asDicts(messages),
+                         maxTokens: 4096, temperature: 0.2, reasoningOff: noThinking))
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else { throw AIError.http(code, errorText(data)) }
             let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            throw AIError.http(code, ((o?["error"] as? [String: Any])?["message"] as? String) ?? "")
+            let choice = (o?["choices"] as? [[String: Any]])?.first
+            return ((choice?["message"] as? [String: Any])?["content"] as? String) ?? ""
         }
-        let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let choice = (o?["choices"] as? [[String: Any]])?.first
-        return ((choice?["message"] as? [String: Any])?["content"] as? String) ?? ""
     }
 
     func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
@@ -1765,18 +1878,31 @@ extension OpenAIProvider {
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 300
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": model, "max_tokens": 4096, "temperature": temperature,
-            "stream": true, "messages": msgs,
-        ])
+        let base = req
+        return try await adapting { shape in
+            var req = base
+            req.httpBody = try JSONSerialization.data(withJSONObject:
+                chatBody(shape, system: system, messages: asDicts(messages),
+                         maxTokens: 4096, temperature: temperature, extra: ["stream": true]))
+            return try await stream(req, onReply: onReply)
+        }
+    }
 
+    /// Consume one SSE response. A non-200 here used to throw with an empty message, which read
+    /// as a bare "HTTP 400" — and the whole point of the host's 400 is the parameter it names,
+    /// so the body is drained and reported.
+    private func stream(_ req: URLRequest,
+                        onReply: @MainActor @escaping (String) -> Void) async throws -> String {
         let (bytes, resp) = try await URLSession.shared.bytes(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
+            var raw = ""
+            for try await line in bytes.lines {
+                raw += line
+                if raw.count > 4096 { break }
+            }
             Diagnostics.log(.net, .error, "OpenAI-compatible stream failed (\(code)) at \(host)")
-            throw AIError.http(code, "")
+            throw AIError.http(code, errorText(Data(raw.utf8)))
         }
 
         var full = ""
@@ -1809,13 +1935,16 @@ extension OpenAIProvider {
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": model, "max_tokens": 4096, "messages": messages, "tools": tools]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else {
-            let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            throw AIError.http(code, ((o?["error"] as? [String: Any])?["message"] as? String) ?? (String(data: data, encoding: .utf8) ?? ""))
+        let base = req
+        let data = try await adapting { shape -> Data in
+            var req = base
+            req.httpBody = try JSONSerialization.data(withJSONObject:
+                chatBody(shape, system: nil, messages: messages,
+                         maxTokens: 4096, temperature: nil, extra: ["tools": tools]))
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else { throw AIError.http(code, errorText(data)) }
+            return data
         }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let msg = ((obj?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any]) ?? [:]
@@ -1946,6 +2075,65 @@ enum AIToolSelfTest {
         check("base URL: endpoint already on it", url("https://api.deepseek.com/v1/chat/completions") == "https://api.deepseek.com/v1/chat/completions")
         check("base URL: pasted with spaces", url("  https://openrouter.ai/api/v1  ") == "https://openrouter.ai/api/v1/chat/completions")
         check("base URL: empty falls back to OpenAI", url("") == "https://api.openai.com/v1/chat/completions")
+
+        // Body-shape negotiation. "OpenAI-compatible" is only approximately true: gpt-5.6-luna
+        // rejects `max_tokens`, rejects a custom `temperature`, and wants a flat
+        // `reasoning_effort` where DeepSeek wants `thinking: {type: disabled}`. The ladder walks
+        // those on a 400 — and it is pure logic, so unlike everything --ai-smoke covers, it can
+        // be tested without a network. The messages below are verbatim from real 400s.
+        typealias Shape = OpenAIProvider.BodyShape
+        func adapt(_ s: Shape, _ msg: String) -> Shape? { OpenAIProvider.adapt(s, to: msg) }
+        let maxTokens400 = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+        let temp400 = "Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported."
+        let thinking400 = "Unrecognized request argument supplied: thinking"
+        let effort400 = "Unrecognized request argument supplied: reasoning"
+
+        check("default shape is the common one",
+              Shape() == Shape(maxTokensKey: "max_tokens", sendsTemperature: true, reasoningOff: .thinking))
+        check("max_tokens 400 renames the key",
+              adapt(Shape(), maxTokens400)?.maxTokensKey == "max_completion_tokens")
+        check("temperature 400 drops temperature",
+              adapt(Shape(), temp400)?.sendsTemperature == false)
+        // The mistake this test exists for: `reasoning: {effort:}` is the Responses API shape and
+        // 400s on /chat/completions, so the flat spelling has to be tried before giving up.
+        check("thinking 400 → flat reasoning_effort",
+              adapt(Shape(), thinking400)?.reasoningOff == .effortFlat)
+        check("flat rejected → nested",
+              adapt(Shape(reasoningOff: .effortFlat), effort400)?.reasoningOff == .effortNested)
+        check("nested rejected → give up",
+              adapt(Shape(reasoningOff: .effortNested), effort400)?.reasoningOff == .unsupported)
+        check("exhausted ladder stops",
+              adapt(Shape(reasoningOff: .unsupported), effort400) == nil)
+        // A 400 naming nothing we can change must not be retried, or a bad model name loops.
+        check("unrecognised 400 is not retried",
+              adapt(Shape(), "The model `gpt-4o-mini-typo` does not exist") == nil)
+        check("same complaint twice is not retried",
+              adapt(Shape(maxTokensKey: "max_completion_tokens"), maxTokens400) == nil)
+
+        // Walking the whole ladder from the default lands on what Luna actually accepts.
+        var walked = Shape()
+        for m in [maxTokens400, temp400, thinking400] { walked = adapt(walked, m) ?? walked }
+        check("ladder converges on Luna's shape",
+              walked == Shape(maxTokensKey: "max_completion_tokens", sendsTemperature: false,
+                              reasoningOff: .effortFlat))
+
+        // The body actually carries what the shape says, and nothing it doesn't.
+        let p = OpenAIProvider(apiKey: "k", model: "m", host: "https://api.openai.com/v1")
+        let body = p.chatBody(walked, system: "sys", messages: [["role": "user", "content": "hi"]],
+                              maxTokens: 4096, temperature: 0.2, reasoningOff: true)
+        check("body uses the learned token key", body["max_completion_tokens"] as? Int == 4096)
+        check("body omits max_tokens", body["max_tokens"] == nil)
+        check("body omits refused temperature", body["temperature"] == nil)
+        check("body sends flat reasoning_effort", body["reasoning_effort"] as? String == "none")
+        check("body omits nested reasoning", body["reasoning"] == nil)
+        check("system is prepended once", (body["messages"] as? [[String: Any]])?.count == 2)
+        let plain = p.chatBody(Shape(), system: nil, messages: [["role": "user", "content": "hi"]],
+                               maxTokens: 8192, temperature: 0.4, reasoningOff: false)
+        check("default body keeps max_tokens", plain["max_tokens"] as? Int == 8192)
+        check("default body keeps temperature", plain["temperature"] as? Double == 0.4)
+        check("reasoning off not requested → absent",
+              plain["thinking"] == nil && plain["reasoning_effort"] == nil)
+        check("no system → no system message", (plain["messages"] as? [[String: Any]])?.count == 1)
 
         // 1. Catalog covers exactly the read + write tools the app understands.
         let names = Set(AIToolCatalog.all.map { $0.name })
