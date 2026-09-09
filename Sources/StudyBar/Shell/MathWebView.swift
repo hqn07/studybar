@@ -312,7 +312,7 @@ enum MathMarkdown {
           body{font:11pt -apple-system,"SF Pro Text",system-ui,sans-serif;line-height:1.45;color:#000;}
           h1{font-size:17pt;margin:0 0 8pt;} h2{font-size:14pt;margin:12pt 0 4pt;} h3{font-size:12pt;margin:10pt 0 3pt;}
           p{margin:0 0 5pt;} ul{margin:2pt 0 5pt 0;} li{margin:1pt 0;}
-          table{border-collapse:collapse;margin:6pt 0;}
+          table{border-collapse:collapse;margin:6pt 0;width:100%;}
           th,td{border:1px solid #999;padding:3pt 6pt;font-size:10pt;text-align:left;}
           th{background:#f0f0f0;font-weight:600;}
           code{font-family:ui-monospace,Menlo,monospace;font-size:10pt;}
@@ -422,6 +422,40 @@ enum NoteDocument {
         return info
     }
 
+    /// Math attachments carry an image that redraws its glyphs when asked, rather than a
+    /// bitmap — printed equations came out mirrored while the same attachment is upright in
+    /// the editor. (Measured, not guessed: a plain bitmap attachment through this same print
+    /// path lands upright, so the print context isn't flipping anything.) Rasterizing each
+    /// math image once, at print resolution, locks in what it looks like on screen.
+    static func rasterizingMath(_ s: NSAttributedString) -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: s)
+        m.enumerateAttribute(.attachment, in: NSRange(location: 0, length: m.length)) { val, range, _ in
+            guard let att = val as? NSTextAttachment, let img = att.image,
+                  img.size.width > 0, img.size.height > 0 else { return }
+            let scale: CGFloat = 3                      // print resolution, not screen
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(ceil(img.size.width * scale)),
+                pixelsHigh: Int(ceil(img.size.height * scale)),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+            else { return }
+            rep.size = img.size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            img.draw(in: NSRect(origin: .zero, size: img.size))
+            NSGraphicsContext.restoreGraphicsState()
+
+            let flat = NSImage(size: img.size)
+            flat.addRepresentation(rep)
+            let copy = NSTextAttachment()
+            copy.image = flat
+            copy.bounds = att.bounds
+            m.addAttribute(.attachment, value: copy, range: range)
+        }
+        return m
+    }
+
     /// Is this note's text Markdown source (AI-written, pasted) rather than text the user
     /// styled in the editor? Those two want opposite treatment on paper: the first has to be
     /// rendered, the second already carries its formatting (and its images) in the RTFD.
@@ -448,17 +482,28 @@ enum NoteDocument {
             // .black, not .labelColor: on paper a dark-mode label color is white on white.
             doc.append(attributed.installingMath(defaultColor: .black))
         }
+        let printable = rasterizingMath(doc)
 
-        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
+        // An explicit TextKit 1 stack, for the same reason the editor builds one: text tables
+        // (what a Markdown table imports as) and attachment cells are TextKit 1 only. A
+        // default NSTextView is TextKit 2, which flattened every table cell onto its own
+        // line — that was the difference between Export as PDF and Print, which reached the
+        // print pipeline through different stacks.
+        let storage = NSTextStorage(attributedString: printable)
+        let layout = NSLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.widthTracksTextView = false
+        layout.addTextContainer(container)
+
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10), textContainer: container)
         tv.isVerticallyResizable = true
         tv.isHorizontallyResizable = false
-        tv.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        tv.textContainer?.widthTracksTextView = true
         tv.textContainerInset = .zero
         tv.backgroundColor = .white
         tv.drawsBackground = true
-        tv.textStorage?.setAttributedString(doc)
-        tv.sizeToFit()
+        layout.ensureLayout(for: container)
+        tv.frame.size.height = max(10, ceil(layout.usedRect(for: container).height))
         return tv
     }
 }
@@ -500,11 +545,28 @@ enum PDFSelfTest {
             check("title is present", text.contains("Gauss"))
             check("no LaTeX source left", !text.contains("\\oint") && !text.contains("\\frac") && !text.contains("$$"))
             check("Markdown is rendered, not printed", !text.contains("##") && !text.contains("**"))
-            check("table cells survive", text.contains("Total Due") && text.contains("$1,080"))
+            check("table cells survive", text.contains("Total") && text.contains("$1,080") && text.contains("$580"))
         } else {
             check("PDF is readable", false)
         }
-        try? FileManager.default.removeItem(at: url)
+        // The equations printed mirrored until every math attachment was rasterized: the
+        // image SwiftMath hands back redraws its glyphs on demand, and that redraw lands in
+        // the print context's coordinate space. Bitmap-backed means "looks like it does on
+        // screen", so assert it rather than the pixels.
+        let mathy = NSAttributedString(string: "flux is $\\oint E$ here").installingMath(defaultColor: .black)
+        let printable = NoteDocument.rasterizingMath(mathy)
+        var attachments = 0, bitmaps = 0
+        printable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: printable.length)) { v, _, _ in
+            guard let a = v as? NSTextAttachment, let img = a.image else { return }
+            attachments += 1
+            if img.representations.allSatisfy({ $0 is NSBitmapImageRep }) { bitmaps += 1 }
+        }
+        check("math is rasterized for print", attachments > 0 && attachments == bitmaps,
+              "(\(bitmaps)/\(attachments) attachments)")
+
+        // SB_KEEP_PDF=1 leaves the file behind for eyeballing (orientation, tables).
+        if ProcessInfo.processInfo.environment["SB_KEEP_PDF"] == "1" { Swift.print("  kept \(url.path)") }
+        else { try? FileManager.default.removeItem(at: url) }
 
         Swift.print(fail == 0 ? "PDF SELFTEST: ALL PASS (\(pass))" : "PDF SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1

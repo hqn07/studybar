@@ -6,7 +6,7 @@ this project uses [semantic versioning](https://semver.org).
 ## [Unreleased]
 
 - **Fixed: Export as Rich Text saved an empty file** — exporting (or printing) a note you had opened to *read* rather than edit produced a file with nothing in it, silently. Exports now come from the note itself rather than the editor window, so they work from either view.
-- **Send a note as a PDF** — **Export as PDF** writes the note the way the reading view shows it: headings, bullets, tables and equations rendered, not their Markdown and LaTeX source. That is the version to hand a classmate. Print does the same.
+- **Send a note as a PDF** — **Export as PDF** writes the note the way the reading view shows it: headings, bullets, tables and equations rendered, not their Markdown and LaTeX source. That is the version to hand a classmate. Print produces the same document.
 - **Tables render** — Markdown tables in a note (the ones AI summaries like to produce) now draw as tables in the reading view and in print, instead of a wall of pipe characters.
 - **Cleaner lecture transcripts** — the recorder now learns how loud your room actually is instead of using one fixed loudness cut-off, so it splits recordings at real pauses whether you're close to the mic or at the back of a hall. Stretches where nobody is talking are no longer sent to be transcribed at all, which is what used to sprinkle stray "Thank you." and "you" through a long lecture. Pauses are also judged over a slightly longer gap, so splits land between sentences rather than between words.
 - **Fixed: Spotlight showed note markup** — note results in Spotlight used the raw body, so headings, bullet markers and LaTeX delimiters showed up in the preview line. They now use the same cleaned text the notes list does.
