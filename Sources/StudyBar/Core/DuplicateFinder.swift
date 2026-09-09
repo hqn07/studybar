@@ -116,7 +116,16 @@ enum DuplicateFinder {
         Reply with ONLY a JSON array, no prose:
         [{"i": 1, "same": false, "why": "different chapters"}]
 
-        Say same only when you are confident: a merge deletes one of them, and losing real work         is far worse than leaving a duplicate in the list. Sequence numbers, chapter or section         numbers, week numbers and part letters that differ mean different work. Keep "why" under         six words.
+        Say same only when you are confident: a merge deletes one of them, and losing real work \
+        is far worse than leaving a duplicate in the list. Sequence numbers, chapter or section \
+        numbers, week numbers and part letters that differ mean different work.
+
+        Scope matters as much as numbering. A quiz on one lecture and a quiz covering a range of \
+        lectures are different work even when their numbers line up: "Lecture Quiz 1" is about \
+        lecture 1, while "Quiz 1 (L1-L3)" covers lectures 1 to 3. Likewise a prelab and its lab, \
+        a draft and its final, a practice set and the graded one.
+
+        Keep "why" under six words.
         """
     }
 

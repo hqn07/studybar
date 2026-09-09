@@ -70,6 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--vad-selftest") {
             exit(VADSelfTest.run())
         }
+        if CommandLine.arguments.contains("--ai-smoke") {
+            let verbose = CommandLine.arguments.contains("--ai-smoke-verbose")
+            Task { @MainActor in exit(await AISmokeTest.run(verbose: verbose)) }
+            return
+        }
         if CommandLine.arguments.contains("--dup-selftest") {
             exit(DupSelfTest.run())
         }

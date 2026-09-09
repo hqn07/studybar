@@ -47,6 +47,11 @@ struct SettingsView: View {
     @State private var aiOpenAIHost = AIConfig.openaiHost
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
     @State private var autocompleteStatus = ""
+    /// Which engine the credentials section is editing. Defaults to the main engine, but the
+    /// ask engine can be selected without changing what the app runs on — gating this on the
+    /// main picker alone is how a local-first setup ends up sending every job to a paid API
+    /// just because a key had to be typed somewhere.
+    @State private var credentialsFor: AIMode? = nil
     @State private var aiMode = AIConfig.mode
     @State private var aiKey = ""
     @State private var aiHasKey = false
@@ -545,7 +550,7 @@ struct SettingsView: View {
             Picker("Everything else", selection: $aiMode) {
                 ForEach(AIMode.allCases) { Text($0.title).tag($0) }
             }
-            .onChange(of: aiMode) { _, m in AIConfig.mode = m; loadAI() }
+            .onChange(of: aiMode) { _, m in AIConfig.mode = m; credentialsFor = nil; loadAI() }
 
             Picker("Asking about a note", selection: $aiAskMode) {
                 Text("Same as above").tag("")
@@ -560,8 +565,12 @@ struct SettingsView: View {
             }
         }
 
-        if aiMode.needsKey {
-            Section(aiMode == .claude ? "Anthropic" : (presets.first { aiOpenAIHost.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name ?? "OpenAI-compatible provider")) {
+        if credentialsMode.needsKey {
+            Section(credentialsMode == .claude ? "Anthropic" : (presets.first { aiOpenAIHost.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name ?? "OpenAI-compatible provider")) {
+                if credentialsMode != aiMode {
+                    Label("Editing the engine that answers questions about a note. Your main engine stays \(aiMode.title).",
+                          systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                }
                 if aiMode == .openai {
                     HStack {
                         Text("Provider")
@@ -683,11 +692,14 @@ struct SettingsView: View {
                              : (aiStatus.hasPrefix("✗") ? Color.dsNow : Color.secondary))
     }
 
+    /// The engine whose key and model the credentials section edits.
+    private var credentialsMode: AIMode { credentialsFor ?? aiMode }
+
     private func loadAI() {
         aiMode = AIConfig.mode
         aiKey = ""
-        aiHasKey = aiMode.needsKey && AIConfig.hasKey(aiMode)
-        switch aiMode {
+        aiHasKey = credentialsMode.needsKey && AIConfig.hasKey(credentialsMode)
+        switch credentialsMode {
         case .openai: aiModel = AIConfig.openaiModel
         case .ollama: aiModel = AIConfig.ollamaModel
         default:      aiModel = AIConfig.claudeModel
@@ -698,7 +710,7 @@ struct SettingsView: View {
     private func saveAIModel() {
         let m = aiModel.trimmingCharacters(in: .whitespaces)
         guard !m.isEmpty else { return }
-        switch aiMode {
+        switch credentialsMode {
         case .openai: AIConfig.openaiModel = m
         case .ollama: AIConfig.ollamaModel = m
         default:      AIConfig.claudeModel = m
@@ -706,7 +718,7 @@ struct SettingsView: View {
     }
     private func saveAIKey() {
         saveAIModel()
-        guard aiMode.needsKey, let acct = aiMode.keyAccount else { return }
+        guard credentialsMode.needsKey, let acct = credentialsMode.keyAccount else { return }
         let k = aiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !k.isEmpty { Keychain.set(k, account: acct); aiKey = ""; aiHasKey = true; aiStatus = "Saved." }
     }
