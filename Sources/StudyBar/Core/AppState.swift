@@ -515,7 +515,7 @@ final class AppState: ObservableObject {
     func upcomingAssignments(days: Int = 7) -> [Assignment] {
         let horizon = Calendar.current.date(byAdding: .day, value: days, to: .now) ?? .now
         return data.assignments
-            .filter { $0.status != .done && $0.due != nil }
+            .filter { $0.isOpen && $0.due != nil }
             .filter { ($0.due ?? .distantFuture) <= horizon }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
@@ -523,7 +523,7 @@ final class AppState: ObservableObject {
     /// Count for the menu bar badge: overdue + due within 3 days.
     var dueSoonCount: Int {
         data.assignments.filter { a in
-            guard a.status != .done, let d = a.daysUntilDue else { return false }
+            guard a.isOpen, let d = a.daysUntilDue else { return false }
             return d <= 3
         }.count
     }

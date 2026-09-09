@@ -95,7 +95,7 @@ enum Notifier {
                     let cal = Calendar.current
                     let horizon = cal.date(byAdding: .day, value: 14, to: .now) ?? .now
                     let soon = data.assignments
-                        .filter { $0.status != .done }
+                        .filter { $0.isOpen }
                         .compactMap { a -> (Assignment, Date)? in a.due.map { (a, $0) } }
                         .filter { $0.1 <= horizon }
                         .sorted { $0.1 < $1.1 }

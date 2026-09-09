@@ -7,7 +7,8 @@ struct KanbanView: View {
     private let columns = AssignmentStatus.allCases
 
     private func items(_ s: AssignmentStatus) -> [Assignment] {
-        state.data.assignments.filter { $0.status == s }
+        // Archived work is out of play — it shouldn't sit in a column waiting to be dragged.
+        state.data.assignments.filter { $0.status == s && !$0.isArchived }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
 
@@ -17,7 +18,7 @@ struct KanbanView: View {
                 HStack(spacing: 8) {
                     Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet") }
                         .help("List view — same assignments")
-                    Text("\(state.data.assignments.count) tasks").font(.caption).foregroundStyle(.secondary)
+                    Text("\(state.data.assignments.filter { !$0.isArchived }.count) tasks").font(.caption).foregroundStyle(.secondary)
                 }
             } content: {
                 if state.data.assignments.isEmpty {
@@ -44,7 +45,7 @@ struct KanbanView: View {
     private func card(_ a: Assignment) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(a.title.isEmpty ? "Untitled" : a.title).fontWeight(.medium).lineLimit(2)
-            if let u = a.urgency, u > 0, a.status != .done {
+            if let u = a.urgency, u > 0, a.isOpen {
                 Chip(u >= 2 ? "Now" : "This week", .status(u >= 2 ? .now : .week))
             }
             HStack(spacing: DS.Space.s) {

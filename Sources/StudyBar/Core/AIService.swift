@@ -845,7 +845,7 @@ enum StudyContext {
             lines.append("Courses: " + cs.joined(separator: "; ") + ".")
         }
 
-        let open = d.assignments.filter { $0.status != .done }
+        let open = d.assignments.filter { $0.isOpen }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
         if open.isEmpty {
             lines.append("Open assignments: none.")
@@ -906,7 +906,7 @@ enum AIReader {
 
         case "list_assignments":
             let includeDone = (r.str("include") ?? "").localizedCaseInsensitiveContains("done")
-            let list = d.assignments.filter { includeDone || $0.status != .done }
+            let list = d.assignments.filter { includeDone || $0.isOpen }
                 .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
             return "ASSIGNMENTS: " + (list.isEmpty ? "none" : list.prefix(40).map { a in
                 let due = a.due.map { " due \($0.dayMonth)" } ?? ""
@@ -991,7 +991,7 @@ enum AIReader {
         guard let q = query?.trimmingCharacters(in: .whitespaces), !q.isEmpty,
               let c = d.courses.first(where: { $0.name.localizedCaseInsensitiveContains(q) || $0.code.localizedCaseInsensitiveContains(q) })
         else { return "get_course: name the course by code or title." }
-        let open = d.assignments.filter { $0.courseID == c.id && $0.status != .done }
+        let open = d.assignments.filter { $0.courseID == c.id && $0.isOpen }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
         let done = d.assignments.filter { $0.courseID == c.id && $0.status == .done }.count
         let notes = d.notes.filter { $0.courseID == c.id }.count
@@ -1253,7 +1253,7 @@ enum AIActionRunner {
         var count = 0
         for i in state.data.assignments.indices {
             let a = state.data.assignments[i]
-            guard a.status != .done, !a.submitted else {
+            guard a.isOpen, !a.submitted else {
                 state.data.assignments[i].urgency = 0     // done/submitted → lowest
                 continue
             }
@@ -1361,7 +1361,7 @@ enum Starters {
     static func suggestions(state: AppState) -> [StarterPrompt] {
         var out: [StarterPrompt] = []
         let d = state.data
-        let openAssignments = d.assignments.filter { $0.status != .done }
+        let openAssignments = d.assignments.filter { $0.isOpen }
 
         if CanvasService.hasToken && !openAssignments.isEmpty {
             out.append(StarterPrompt(

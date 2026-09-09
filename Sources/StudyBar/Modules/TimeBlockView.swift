@@ -269,7 +269,7 @@ struct DayPlannerView: View {
     /// Open assignments due on the shown day — drawn as a marker line so you plan against them.
     private var dueToday: [Assignment] {
         state.data.assignments.filter { a in
-            a.status != .done && (a.due.map { cal.isDate($0, inSameDayAs: day) } ?? false)
+            a.isOpen && (a.due.map { cal.isDate($0, inSameDayAs: day) } ?? false)
         }.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
     private func dueMinutes(_ a: Assignment) -> Int {

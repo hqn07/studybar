@@ -36,7 +36,7 @@ enum TodayFocus {
     /// The single most-important open item worth featuring (due within three weeks, or overdue).
     static func top(_ data: AppData) -> Assignment? {
         data.assignments
-            .filter { $0.status != .done && ($0.daysUntilDue ?? 999) <= 21 }
+            .filter { $0.isOpen && ($0.daysUntilDue ?? 999) <= 21 }
             .max { importance($0) < importance($1) }
     }
 
@@ -63,7 +63,7 @@ enum TodayFocus {
         let cal = Calendar.current
         let start = cal.startOfDay(for: .now)
         var buckets = Array(repeating: 0, count: days)
-        for a in data.assignments where a.status != .done {
+        for a in data.assignments where a.isOpen {
             guard let due = a.due else { continue }
             let d = cal.dateComponents([.day], from: start, to: cal.startOfDay(for: due)).day ?? -1
             if d >= 0 && d < days { buckets[d] += 1 }

@@ -148,7 +148,7 @@ struct CoursesView: View {
 
     private var heroHeader: some View {
         let gpa = termGPA(currentCourses, state.data)
-        let overdue = state.data.assignments.filter { $0.status != .done && $0.isOverdue && isCurrentCourse($0.courseID) }.count
+        let overdue = state.data.assignments.filter { $0.isOpen && $0.isOverdue && isCurrentCourse($0.courseID) }.count
         let credits = currentCourses.reduce(0) { $0 + $1.credits }
         return VStack(alignment: .leading, spacing: DS.Space.s) {
             HStack(spacing: DS.Space.s) {
@@ -292,7 +292,7 @@ struct CourseCard: View {
     let onOpen: () -> Void
 
     private var pct: Double? { courseCurrentPct(course.id, state.data) }
-    private var open: [Assignment] { state.data.assignments.filter { $0.courseID == course.id && $0.status != .done } }
+    private var open: [Assignment] { state.data.assignments.filter { $0.courseID == course.id && $0.isOpen } }
     private var overdue: Int { open.filter { $0.isOverdue }.count }
     private var dueSoon: Int { open.filter { ($0.daysUntilDue ?? 99) >= 0 && ($0.daysUntilDue ?? 99) <= 7 }.count }
     private var notesCount: Int { state.data.notes.filter { $0.courseID == course.id }.count }
@@ -376,7 +376,7 @@ struct CourseDetailView: View {
 
     private var course: Course? { state.data.courses.first { $0.id == courseID } }
     private var assignments: [Assignment] {
-        state.data.assignments.filter { $0.courseID == courseID && $0.status != .done }
+        state.data.assignments.filter { $0.courseID == courseID && $0.isOpen }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
     private var classes: [ClassSession] {

@@ -360,7 +360,7 @@ struct WeekGridView: View {
     private var weekDue: [Int: [Assignment]] {
         let wi = displayedWeek
         var out: [Int: [Assignment]] = [:]
-        for a in state.data.assignments where a.status != .done {
+        for a in state.data.assignments where a.isOpen {
             guard let d = a.due, wi.contains(d) else { continue }
             out[cal.component(.weekday, from: d), default: []].append(a)
         }

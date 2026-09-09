@@ -35,7 +35,7 @@ enum RemindersService {
         let existingTags = existing.compactMap { $0.notes }
 
         var count = 0
-        for a in data.assignments where a.status != .done && a.due != nil {
+        for a in data.assignments where a.isOpen && a.due != nil {
             let tag = "studybar:\(a.id.uuidString)"
             if existingTags.contains(where: { $0.contains(tag) }) { continue }
             let r = EKReminder(eventStore: store)

@@ -5,6 +5,20 @@ enum AssignmentSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// What the list is scoped to. A term's worth of imported coursework is a few hundred rows,
+/// which is a list nobody works from — so the default is the part you can actually act on
+/// this week, and everything else is one click away.
+enum AssignmentScope: String, CaseIterable, Identifiable {
+    case week = "This week", overdue = "Overdue", all = "All", archived = "Archived"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .week: "calendar"; case .overdue: "exclamationmark.triangle"
+        case .all: "tray.full"; case .archived: "archivebox"
+        }
+    }
+}
+
 struct AssignmentsView: View {
     @EnvironmentObject var state: AppState
     @State private var showDone = false
@@ -15,15 +29,47 @@ struct AssignmentsView: View {
     @State private var selectedID: UUID?
     @FocusState private var quickFocused: Bool
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
+    @AppStorage("assignmentScope") private var scope = AssignmentScope.week.rawValue
 
     private var legacyTodos: Int { state.data.todos.count }
 
     private var unsortedImports: Int { CanvasFeedImport.unclassified(state).count }
 
     private var sortMode: AssignmentSort { AssignmentSort(rawValue: sort) ?? .due }
+    private var scopeMode: AssignmentScope { AssignmentScope(rawValue: scope) ?? .week }
+
+    /// Open, not archived — the working set every count and scope is drawn from.
+    private var live: [Assignment] {
+        state.data.assignments.filter(\.isOpen)
+    }
+
+    /// Due within the next week, already overdue, or undated (a captured task) — i.e. the
+    /// things there is any point looking at today.
+    static func isThisWeek(_ a: Assignment) -> Bool {
+        guard let days = a.daysUntilDue else { return true }   // no due date = a loose task
+        return days <= 7
+    }
+
+    private var weekCount: Int { live.filter(Self.isThisWeek).count }
+    private var overdueCount: Int { live.filter(\.isOverdue).count }
+    private var archivedCount: Int { state.data.assignments.filter(\.isArchived).count }
+
+    /// Imported rather than typed, and more than a week past due: the tail that makes the
+    /// list unusable. A week is the line because anything imported that is still untouched
+    /// after one is not going to be done in here. Offered, never archived automatically.
+    private var stale: [Assignment] {
+        live.filter { $0.sourceUID != nil && ($0.daysUntilDue ?? 0) < -7 }
+    }
 
     private var list: [Assignment] {
-        let base = state.data.assignments.filter { showDone || $0.status != .done }
+        let base = state.data.assignments.filter { a in
+            switch scopeMode {
+            case .archived: return a.isArchived
+            case .all:      return !a.isArchived && (showDone || a.status != .done)
+            case .overdue:  return !a.isArchived && a.status != .done && a.isOverdue
+            case .week:     return !a.isArchived && (showDone || a.status != .done) && Self.isThisWeek(a)
+            }
+        }
         switch sortMode {
         case .due:
             return base.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
@@ -37,7 +83,7 @@ struct AssignmentsView: View {
         }
     }
 
-    private var anyRanked: Bool { state.data.assignments.contains { $0.urgency != nil && $0.status != .done } }
+    private var anyRanked: Bool { state.data.assignments.contains { $0.urgency != nil && $0.isOpen } }
 
     var body: some View {
         NavigationStack {
@@ -68,10 +114,11 @@ struct AssignmentsView: View {
             } content: {
                 VStack(spacing: 0) {
                     quickAddBar
+                    scopeBar
                     if legacyTodos > 0 { importBanner; Divider() }
+                    if scopeMode != .archived, !stale.isEmpty { staleBanner; Divider() }
                     if list.isEmpty {
-                        EmptyState(symbol: "checklist", title: "No assignments",
-                                   subtitle: "Add homework, papers and exams — or a quick task above.")
+                        EmptyState(symbol: emptySymbol, title: emptyTitle, subtitle: emptySubtitle)
                     } else {
                         ScrollViewReader { proxy in
                             ScrollView {
@@ -100,6 +147,89 @@ struct AssignmentsView: View {
             .navigationDestination(isPresented: $deduping) { DuplicateReviewView() }
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
+        }
+    }
+
+    // MARK: Scope — the list you work from, not the list of everything
+
+    private var scopeBar: some View {
+        HStack(spacing: DS.Space.xs) {
+            ForEach(AssignmentScope.allCases) { s in
+                if s != .archived || archivedCount > 0 {
+                    Button { withAnimation(.snappy(duration: 0.2)) { scope = s.rawValue } } label: {
+                        Chip(label(for: s), .filter, selected: scopeMode == s, systemImage: s.symbol)
+                    }
+                    .buttonStyle(.plain)
+                    .help(help(for: s))
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, DS.Space.m)
+        .padding(.bottom, DS.Space.s)
+    }
+
+    private func label(for s: AssignmentScope) -> String {
+        switch s {
+        case .week: "This week \(weekCount)"
+        case .overdue: "Overdue \(overdueCount)"
+        case .all: "All \(live.count)"
+        case .archived: "Archived \(archivedCount)"
+        }
+    }
+
+    private func help(for s: AssignmentScope) -> String {
+        switch s {
+        case .week: "Due in the next 7 days, overdue, or undated"
+        case .overdue: "Past due and not done"
+        case .all: "Every open assignment"
+        case .archived: "Put aside — still here, not deleted"
+        }
+    }
+
+    private var emptySymbol: String { scopeMode == .week ? "checkmark.circle" : "checklist" }
+    private var emptyTitle: String {
+        switch scopeMode {
+        case .week: "Nothing due this week"
+        case .overdue: "Nothing overdue"
+        case .archived: "Nothing archived"
+        case .all: "No assignments"
+        }
+    }
+    private var emptySubtitle: String {
+        switch scopeMode {
+        case .week: "Later work is still under All."
+        case .overdue: "You're caught up."
+        case .archived: "Archived assignments stay here until you restore them."
+        case .all: "Add homework, papers and exams — or a quick task above."
+        }
+    }
+
+    /// Imported coursework that went past due weeks ago is what turns the list into a wall.
+    /// Archiving is a one-click, undoable move — not a delete, and never automatic.
+    private var staleBanner: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: "archivebox").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(stale.count) imported \(stale.count == 1 ? "assignment is" : "assignments are") more than a week past due")
+                    .font(.callout)
+                Text("Archive them to clear the list — they stay under Archived, and Undo puts them back.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Archive \(stale.count)") { archiveStale() }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
+    }
+
+    private func archiveStale() {
+        let ids = Set(stale.map(\.id))
+        guard !ids.isEmpty else { return }
+        state.withUndo("Archived \(ids.count) assignment\(ids.count == 1 ? "" : "s")") {
+            for i in state.data.assignments.indices where ids.contains(state.data.assignments[i].id) {
+                state.data.assignments[i].archived = true
+            }
         }
     }
 
@@ -240,10 +370,21 @@ struct AssignmentRow: View {
                 Button { AppActions.snoozeAssignment(id: assignment.id, days: 7) } label: { Label("Snooze 1 week", systemImage: "clock") }
             }
             Button { onEdit() } label: { Label("Edit…", systemImage: "pencil") }
+            Button { setArchived(!assignment.isArchived) } label: {
+                Label(assignment.isArchived ? "Restore" : "Archive",
+                      systemImage: assignment.isArchived ? "arrow.uturn.backward" : "archivebox")
+            }
             Divider()
             Button(role: .destructive) {
                 state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == assignment.id } }
             } label: { Label("Delete", systemImage: "trash") }
+        }
+    }
+
+    private func setArchived(_ on: Bool) {
+        state.withUndo(on ? "Archived assignment" : "Restored assignment") {
+            guard let i = state.data.assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
+            state.data.assignments[i].archived = on ? true : nil
         }
     }
 

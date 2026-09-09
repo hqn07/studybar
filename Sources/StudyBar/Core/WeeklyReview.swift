@@ -24,7 +24,7 @@ enum WeeklyReview {
             lines.append("Time by course this week: " + parts.joined(separator: "; ") + ".")
         }
 
-        let open = data.assignments.filter { $0.status != .done }
+        let open = data.assignments.filter { $0.isOpen }
         let overdue = open.filter { $0.isOverdue }.count
         lines.append("Assignments: \(open.count) open, \(overdue) overdue.")
         let next7 = open.compactMap { a -> (Date, String)? in
@@ -93,7 +93,7 @@ enum DailyPlan {
         for row in StudyStats.weekByCourse(data) { if let id = row.courseID { weekByCourse[id] = row.seconds / 60 } }
 
         // Open work due within ~10 days of the planned day (plus anything overdue): overdue first, then soonest.
-        let candidates = data.assignments.filter { $0.status != .done }
+        let candidates = data.assignments.filter { $0.isOpen }
             .filter { ($0.daysUntilDue(asOf: ref) ?? 99) <= 10 }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
         if candidates.isEmpty {
@@ -147,7 +147,7 @@ enum DailyPlan {
     /// these; the deterministic fallback takes the top few directly.
     static func candidates(_ data: AppData, asOf ref: Date = Date(), limit: Int = 6) -> [PlanCandidate] {
         data.assignments
-            .filter { $0.status != .done && ($0.daysUntilDue(asOf: ref) ?? 999) <= 10 }
+            .filter { $0.isOpen && ($0.daysUntilDue(asOf: ref) ?? 999) <= 10 }
             .sorted { TodayFocus.importance($0, asOf: ref) > TodayFocus.importance($1, asOf: ref) }
             .prefix(limit)
             .map { a in

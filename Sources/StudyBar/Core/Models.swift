@@ -147,7 +147,16 @@ struct Assignment: Identifiable, Codable, Hashable {
     var submitted: Bool = false     // from Canvas submission state
     var points: Double? = nil       // points possible
     var urgency: Int? = nil         // AI triage: 0 later · 1 this week · 2 now (nil = unranked)
+    /// Put aside without being deleted or marked done — for the long tail of imported items
+    /// that are past due and were never going to be touched. Optional so old stores decode.
+    var archived: Bool? = nil
     var createdAt: Date = .now
+
+    var isArchived: Bool { archived == true }
+
+    /// Open work: not finished, not put aside. Everything that counts, plans, notifies or
+    /// nags reads this — archiving is pointless if the item still shows up in the menu bar.
+    var isOpen: Bool { status != .done && !isArchived }
 
     var isOverdue: Bool {
         guard let due, status != .done else { return false }

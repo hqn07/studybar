@@ -141,7 +141,7 @@ struct AssignmentPicker: View {
         Menu {
             Button("None") { assignmentID = nil }
             Divider()
-            ForEach(state.data.assignments.filter { $0.status != .done }) { a in
+            ForEach(state.data.assignments.filter { $0.isOpen }) { a in
                 Button {
                     assignmentID = a.id
                 } label: {

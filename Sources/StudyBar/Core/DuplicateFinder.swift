@@ -17,7 +17,7 @@ enum DuplicateFinder {
     static func find(_ assignments: [Assignment]) -> [DupGroup] {
         let cal = Calendar.current
         var buckets: [String: [Assignment]] = [:]
-        for a in assignments where a.status != .done {
+        for a in assignments where a.isOpen {
             guard let due = a.due else { continue }   // undated can't be matched confidently
             let day = Int(cal.startOfDay(for: due).timeIntervalSince1970)
             buckets["\(a.courseID?.uuidString ?? "-")|\(day)", default: []].append(a)

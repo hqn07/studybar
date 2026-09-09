@@ -27,7 +27,7 @@ enum SpotlightIndexer {
             items.append(CSSearchableItem(uniqueIdentifier: "note:\(n.id.uuidString)",
                                           domainIdentifier: "studybar.note", attributeSet: attr))
         }
-        for a in data.assignments where a.status != .done {
+        for a in data.assignments where a.isOpen {
             let attr = CSSearchableItemAttributeSet(contentType: .text)
             attr.title = a.title
             attr.contentDescription = a.notes.isEmpty ? (a.due.map { "Due \($0.dayMonth)" } ?? "Assignment") : a.notes
