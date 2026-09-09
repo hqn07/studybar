@@ -130,6 +130,20 @@ enum KatexAssets {
 
 // MARK: - WebView host (auto-sizes to content)
 
+/// A web view that does not keep the scroll wheel to itself.
+///
+/// This view is laid out at its full measured content height inside a SwiftUI ScrollView, so it
+/// has nothing of its own to scroll — but WKWebView still consumes every wheel event it is sent,
+/// and the enclosing scroll view never hears about them. On a note that falls back to KaTeX (any
+/// note with a table) the reading view became one tall web view and the whole note stopped
+/// scrolling, while the same note scrolled fine in the editor. Forwarding to the next responder
+/// hands the wheel back to the SwiftUI ScrollView's NSScrollView.
+private final class PassThroughWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
 struct MathWebView: NSViewRepresentable {
     let html: String
     @Binding var height: CGFloat
@@ -139,7 +153,7 @@ struct MathWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "h")
-        let web = WKWebView(frame: .zero, configuration: cfg)
+        let web = PassThroughWebView(frame: .zero, configuration: cfg)
         web.navigationDelegate = context.coordinator
         web.setValue(false, forKey: "drawsBackground")     // transparent over the popover
         if #available(macOS 12.0, *) { web.underPageBackgroundColor = .clear }
@@ -198,8 +212,12 @@ enum MathMarkdown {
         return false
     }
 
+    /// Same pipeline as `printable`, deliberately: the reading view used to call `convert`
+    /// with the raw note while print normalized and joined first, so the two disagreed about
+    /// what a note looked like. Normalizing also folds `\[…\]` into `$$…$$`, which is what
+    /// lets `joinDisplayBlocks` repair a model's multi-line display math in either delimiter.
     static func html(_ md: String, dark: Bool) -> String {
-        page(body: convert(md), dark: dark)
+        page(body: convert(joinDisplayBlocks(MathSupport.normalized(md))), dark: dark)
     }
 
     private static func page(body: String, dark: Bool) -> String {
@@ -236,6 +254,55 @@ enum MathMarkdown {
           setTimeout(post,60); setTimeout(post,300);
         </script></body></html>
         """
+    }
+
+    /// Put a display-math block that was written across several lines back onto one line.
+    ///
+    /// `convert` is line-based, so
+    ///
+    ///     $$Q_{\text{enclosed}}
+    ///
+    ///     = \sigma_1 A+\sigma_2 A$$
+    ///
+    /// became three separate `<p>` elements, and KaTeX matches a delimiter pair only within a
+    /// single element — so the raw LaTeX showed through while single-line `$$…$$` rendered
+    /// fine. The native renderer never had this bug (`MathSupport.displayRE` sets
+    /// `.dotMatchesLineSeparators`), which is why it only ever appeared on notes that fall
+    /// back to KaTeX: the ones with tables. Models write display math this way constantly.
+    ///
+    /// A `$$` that never closes is left exactly as it was, so a stray delimiter can't swallow
+    /// the rest of the note.
+    static func joinDisplayBlocks(_ s: String) -> String {
+        guard s.contains("$$") else { return s }
+        let lines = s.components(separatedBy: "\n")
+        var out: [String] = []
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            // An odd number of delimiters opens a block that this line doesn't close.
+            if line.components(separatedBy: "$$").count % 2 == 0 {
+                var block = [line]
+                var j = i + 1
+                var closed = false
+                while j < lines.count {
+                    block.append(lines[j])
+                    if lines[j].contains("$$") { closed = true; break }
+                    j += 1
+                }
+                if closed {
+                    // Blank lines inside the block collapse; a space keeps `\\` row breaks and
+                    // adjacent tokens from running together.
+                    out.append(block.map { $0.trimmingCharacters(in: .whitespaces) }
+                                    .filter { !$0.isEmpty }
+                                    .joined(separator: " "))
+                    i = j + 1
+                    continue
+                }
+            }
+            out.append(line)
+            i += 1
+        }
+        return out.joined(separator: "\n")
     }
 
     private static func convert(_ md: String) -> String {
@@ -318,7 +385,7 @@ enum MathMarkdown {
     /// `##` and `**` and raw LaTeX — the source, not the note.
     @MainActor
     static func printable(_ md: String) -> NSAttributedString? {
-        let body = convert(MathSupport.normalized(md))
+        let body = convert(joinDisplayBlocks(MathSupport.normalized(md)))
         let html = """
         <!doctype html><html><head><meta charset="utf-8"><style>
           body{font:11pt -apple-system,"SF Pro Text",system-ui,sans-serif;line-height:1.45;color:#000;}

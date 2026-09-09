@@ -575,8 +575,9 @@ struct NoteEditor: View {
                 Image(systemName: showPreview ? "eye.fill" : "eye")
             }
             .buttonStyle(.borderless).foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .help("Full preview (renders Markdown & LaTeX)")
-            .onHover { setHint(showPreview ? "Back to editing" : "Preview (renders Markdown & LaTeX)", $0) }
+            .keyboardShortcut("e", modifiers: .command)
+            .help("Full preview (renders Markdown & LaTeX) — ⌘E")
+            .onHover { setHint(showPreview ? "Back to editing (⌘E)" : "Preview (renders Markdown & LaTeX) — ⌘E", $0) }
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
@@ -1111,9 +1112,16 @@ struct NoteEditor: View {
                     .frame(maxWidth: 680, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)   // center the reading column
                     .padding(.horizontal, 24).padding(.vertical, 20)
+                    // Selectable so a passage can be copied without entering the editor. The
+                    // math rows are SwiftMath images and stay unselectable; a note that falls
+                    // back to KaTeX is a web view, which selects on its own.
+                    .textSelection(.enabled)
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) { enterEditFromPreview() }
+                    )
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { enterEditFromPreview() }
             }
         } else if splitLive {
             VStack(spacing: 0) {
@@ -1158,7 +1166,8 @@ struct NoteEditor: View {
                 .help("Ask a question about this lecture — or about something it didn't cover")
                 Text("·").font(.caption2)
             }
-            Label("Click anywhere to edit", systemImage: "pencil").font(.caption2)
+            Label("⌘E to edit", systemImage: "pencil").font(.caption2)
+                .help("⌘E, the eye button, or a double-click in the margin. Text is selectable — drag to copy a passage.")
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16).padding(.vertical, 5)

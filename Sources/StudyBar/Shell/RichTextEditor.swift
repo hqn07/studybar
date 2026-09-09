@@ -1802,6 +1802,33 @@ enum MathSelfTest {
         let tableHTML = MathMarkdown.html(realTable, dark: false)
         check("table becomes a <table>", tableHTML.contains("<table>") && tableHTML.contains("<th>Year</th>") ? "yes" : "no", "yes")
 
+        // Display math written across several lines — how models actually write it. The
+        // converter is line-based and KaTeX only matches a delimiter pair inside one element,
+        // so a split block used to reach the reader as raw LaTeX. Only notes that fall back to
+        // KaTeX were affected, which is why the native renderer's tests never caught it.
+        let split = "$$Q_{\\text{enclosed}}\n\n=\n\n\\sigma_1 A+\\sigma_2 A$$"
+        let joined = MathMarkdown.joinDisplayBlocks(split)
+        check("split block joins to one line", "\(joined.components(separatedBy: "\n").count)", "1")
+        check("joined block keeps both delimiters",
+              joined.hasPrefix("$$") && joined.hasSuffix("$$") ? "yes" : "no", "yes")
+        check("joined block keeps the body",
+              joined.contains("Q_{\\text{enclosed}} = \\sigma_1 A+\\sigma_2 A") ? "yes" : "no", "yes")
+        check("single-line block is untouched",
+              MathMarkdown.joinDisplayBlocks("$$\\Phi_E=0$$"), "$$\\Phi_E=0$$")
+        check("prose is untouched",
+              MathMarkdown.joinDisplayBlocks("line one\nline two"), "line one\nline two")
+        // A stray delimiter must not swallow the rest of the note.
+        check("unclosed block left alone",
+              MathMarkdown.joinDisplayBlocks("$$oops\nplain line\nanother"),
+              "$$oops\nplain line\nanother")
+        check("two blocks both join",
+              MathMarkdown.joinDisplayBlocks("$$a\nb$$\ntext\n$$c\nd$$"),
+              "$$a b$$\ntext\n$$c d$$")
+        // End to end: the split block must reach the page as one text node KaTeX can match.
+        let splitHTML = MathMarkdown.html(split, dark: false)
+        check("split block reaches the page intact",
+              splitHTML.contains("$$Q_{\\text{enclosed}} = \\sigma_1 A+\\sigma_2 A$$") ? "yes" : "no", "yes")
+
         // SB_DUMP_HTML=<path> writes the reading view's actual HTML for a sample carrying
         // both real shapes (padded LaTeX, a six-column table) so it can be rendered and
         // looked at, rather than asserted about.
