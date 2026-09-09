@@ -788,12 +788,8 @@ struct ReadingDetailView: View {
         askTask?.cancel()
         askTask = Task {
             let out: String?
-            if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs, numCtx: 16384) { p in
-                    if askThread.indices.contains(turnIdx) { askThread[turnIdx].answer = p }
-                }
-            } else {
-                out = try? await provider.completePlain(system: sys, messages: msgs)
+            out = try? await provider.streamPlain(system: sys, messages: msgs, numCtx: 16384) { p in
+                if askThread.indices.contains(turnIdx) { askThread[turnIdx].answer = p }
             }
             await MainActor.run {
                 askLoading = false

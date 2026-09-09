@@ -297,12 +297,8 @@ struct VoiceView: View {
             // completePlain drops Ollama's format:json (which would force a JSON blob).
             // On Ollama, stream tokens so the user watches the notes form.
             let text: String?
-            if let ollama = provider as? OllamaProvider {
-                text = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { partial in
-                    organizeStream = partial
-                }
-            } else {
-                text = try? await provider.completePlain(system: sys, messages: msgs)
+            text = try? await provider.streamPlain(system: sys, messages: msgs) { partial in
+                organizeStream = partial
             }
             await MainActor.run {
                 organizing = false; organizeStream = ""

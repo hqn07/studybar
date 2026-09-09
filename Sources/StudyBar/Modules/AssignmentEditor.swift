@@ -174,11 +174,7 @@ struct AssignmentEditor: View {
         stepsTask = Task {
             let msgs = [AIMessage(role: .user, text: ctx)]
             let out: String?
-            if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in stepsRaw = p }
-            } else {
-                out = try? await provider.completePlain(system: sys, messages: msgs)
-            }
+            out = try? await provider.streamPlain(system: sys, messages: msgs) { p in stepsRaw = p }
             await MainActor.run {
                 stepsLoading = false
                 let steps = parseSteps(out ?? stepsRaw)

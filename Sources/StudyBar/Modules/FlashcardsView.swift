@@ -766,11 +766,7 @@ struct GenerateCardsView: View {
         task = Task {
             let msgs = [AIMessage(role: .user, text: text)]
             let out: String?
-            if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs) { p in raw = p }
-            } else {
-                out = try? await provider.completePlain(system: sys, messages: msgs)
-            }
+            out = try? await provider.streamPlain(system: sys, messages: msgs) { p in raw = p }
             await MainActor.run {
                 loading = false
                 let cards = parseCards(out ?? raw)

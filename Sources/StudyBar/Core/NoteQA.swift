@@ -26,6 +26,10 @@ enum NoteQA {
     /// question takes a minute to answer.
     static let totalCharLimit = 60_000
 
+    /// Turns of history replayed with a follow-up. Enough to keep a thread coherent, short
+    /// enough that the notes stay the bulk of the request.
+    static let maxReplayedTurns = 6
+
     /// One note in the context, carrying the title it will be cited by.
     struct Source: Identifiable, Equatable {
         let id: UUID
@@ -78,7 +82,11 @@ enum NoteQA {
     /// and the ones added by hand are background.
     static func messages(thread: [Turn], question: String, sources: [Source]) -> [AIMessage] {
         var msgs: [AIMessage] = []
-        for prior in thread where !prior.answer.isEmpty {
+        // Only the recent turns are replayed. Every follow-up used to resend the whole
+        // conversation *plus* the notes, so a long thread grew the request without bound —
+        // more expensive on a metered engine, and eventually enough to push the note itself
+        // out of a small local context window.
+        for prior in thread.suffix(maxReplayedTurns) where !prior.answer.isEmpty {
             msgs.append(AIMessage(role: .user, text: "Question: \(prior.question)"))
             msgs.append(AIMessage(role: .assistant, text: prior.answer))
         }
@@ -135,6 +143,12 @@ enum NoteQASelfTest {
         let msgs = NoteQA.messages(thread: thread, question: "How do scallions differ?",
                                    sources: [src("Week 3 — Coleus", "Coleus propagation notes.")])
         check("thread replayed", msgs.count == 3, "\(msgs.count) messages")
+
+        // A long thread must not grow the request without bound.
+        let manyTurns = (1...20).map { NoteQA.Turn(question: "q\($0)", answer: "a\($0)") }
+        let capped = NoteQA.messages(thread: manyTurns, question: "new", sources: [src("t", "body")])
+        check("history is capped", capped.count == NoteQA.maxReplayedTurns * 2 + 1, "\(capped.count) messages")
+        check("the newest turns are the ones kept", (capped.first?.text ?? "").contains("q15"))
         check("note attached once", msgs.filter { $0.text.contains("Coleus propagation notes.") }.count == 1)
         check("question is last", msgs.last?.text.contains("How do scallions differ?") == true)
 

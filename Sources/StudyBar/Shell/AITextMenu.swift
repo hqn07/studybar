@@ -93,11 +93,7 @@ struct AITextMenu: View {
         task = Task {
             let msgs = [AIMessage(role: .user, text: a.user(text))]
             let r: String?
-            if let ollama = provider as? OllamaProvider {
-                r = try? await ollama.completePlainStreaming(system: a.system(), messages: msgs, temperature: a.temperature) { p in out = p }
-            } else {
-                r = try? await provider.completePlain(system: a.system(), messages: msgs)
-            }
+            r = try? await provider.streamPlain(system: a.system(), messages: msgs, temperature: a.temperature) { p in out = p }
             await MainActor.run { out = (r ?? out).trimmingCharacters(in: .whitespacesAndNewlines); done = true }
         }
     }

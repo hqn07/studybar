@@ -964,21 +964,13 @@ struct NoteEditor: View {
         askTask?.cancel()
         askTask = Task {
             let out: String?
-            if let ollama = provider as? OllamaProvider {
-                // Prose, so completePlain* — never the format:json path, which returns `{}`.
-                out = try? await ollama.completePlainStreaming(
-                    system: sys, messages: msgs,
-                    numCtx: NoteQA.contextTokens(chars: askChars), temperature: 0.4) { p in
-                        if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
-                    }
-            } else if let openAI = provider as? OpenAIProvider {
-                // Hosted engines stream too — without this a DeepSeek answer sat on "Thinking…"
-                // for twenty seconds and then appeared all at once.
-                out = try? await openAI.completePlainStreaming(system: sys, messages: msgs, temperature: 0.4) { p in
-                    if askThread.indices.contains(idx) { askThread[idx].answer = MathSupport.normalized(p) }
-                }
-            } else {
-                out = try? await provider.completePlain(system: sys, messages: msgs)
+            // Prose, so the streaming path — never the format:json one, which returns `{}`.
+            // Raw while it streams: normalizing each delta re-scanned the whole answer per
+            // token. The finished text is normalized and quote-checked below.
+            out = try? await provider.streamPlain(system: sys, messages: msgs,
+                                                  numCtx: NoteQA.contextTokens(chars: askChars),
+                                                  temperature: 0.4) { p in
+                if askThread.indices.contains(idx) { askThread[idx].answer = p }
             }
             await MainActor.run {
                 askLoading = false
@@ -1044,11 +1036,7 @@ struct NoteEditor: View {
             let sys = action.system()
             let msgs = [AIMessage(role: .user, text: action.user(scope.text))]
             let out: String?
-            if let ollama = provider as? OllamaProvider {
-                out = try? await ollama.completePlainStreaming(system: sys, messages: msgs, temperature: action.temperature) { p in aiText = p }
-            } else {
-                out = try? await provider.completePlain(system: sys, messages: msgs)
-            }
+            out = try? await provider.streamPlain(system: sys, messages: msgs, temperature: action.temperature) { p in aiText = p }
             await MainActor.run {
                 // Canonicalize the model's LaTeX delimiters here rather than asking for them
                 // in the prompt: a 7B model complies most of the time, and "most" is what put

@@ -184,6 +184,23 @@ enum AIError: LocalizedError {
 /// A single completion. Providers are plain value types doing async HTTP / on-device calls.
 protocol AIProvider {
     func complete(system: String, messages: [AIMessage]) async throws -> String
+
+    /// Prose, delivered as it arrives. Declared here rather than in an extension so the
+    /// concrete implementations actually get dispatched to: every call site used to test
+    /// `provider as? OllamaProvider` and silently fall back to a blocking call for anything
+    /// else, which is why a hosted engine showed nothing for twenty seconds.
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int, temperature: Double,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String
+}
+
+extension AIProvider {
+    /// Providers that can't stream answer in one piece; the caller's UI works either way.
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        let out = try await completePlain(system: system, messages: messages)
+        await MainActor.run { onReply(out) }
+        return out
+    }
 }
 
 extension AIProvider {
@@ -369,6 +386,12 @@ struct OllamaProvider: AIProvider {
     /// prose/markdown instead of a JSON object. Used for organizing a transcript into notes.
     func completePlain(system: String, messages: [AIMessage]) async throws -> String {
         try await completePlainStreaming(system: system, messages: messages) { _ in }
+    }
+
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        try await completePlainStreaming(system: system, messages: messages, numCtx: numCtx,
+                                         temperature: temperature, onReply: onReply)
     }
 
     /// Non-streaming free-form completion — one whole response, no `format:json`. Streaming a
@@ -1608,6 +1631,13 @@ extension AnthropicProvider {
 }
 
 extension OpenAIProvider {
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int = 8192, temperature: Double = 0.4,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        // numCtx is an Ollama concept; a hosted provider sizes its own window.
+        try await completePlainStreaming(system: system, messages: messages,
+                                         temperature: temperature, onReply: onReply)
+    }
+
     /// Server-sent-events streaming, so a hosted engine types its answer out like the local
     /// one does. Every provider on the OpenAI-compatible list supports `stream: true`.
     ///
