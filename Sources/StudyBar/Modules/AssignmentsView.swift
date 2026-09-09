@@ -30,6 +30,9 @@ struct AssignmentsView: View {
     @FocusState private var quickFocused: Bool
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
     @AppStorage("assignmentScope") private var scope = AssignmentScope.week.rawValue
+    /// Once items are sorted, hiding the housekeeping is what makes the list usable.
+    @AppStorage("assignmentHideBusywork") private var hideBusywork = true
+    @State private var triaging = false
 
     private var legacyTodos: Int { state.data.todos.count }
 
@@ -61,8 +64,14 @@ struct AssignmentsView: View {
         live.filter { $0.sourceUID != nil && ($0.daysUntilDue ?? 0) < -7 }
     }
 
+    private var triagedCount: Int { state.data.assignments.filter { $0.kind != nil }.count }
+    private var busyworkCount: Int { state.data.assignments.filter { $0.isOpen && $0.isBusywork }.count }
+
     private var list: [Assignment] {
         let base = state.data.assignments.filter { a in
+            // Attendance and admin stay in the store and in All — they're just not what you
+            // open the app to look at.
+            if hideBusywork, a.isBusywork, scopeMode == .week || scopeMode == .overdue { return false }
             switch scopeMode {
             case .archived: return a.isArchived
             case .all:      return !a.isArchived && (showDone || a.status != .done)
@@ -98,6 +107,10 @@ struct AssignmentsView: View {
                         .help("Board view — same assignments")
                     Button { deduping = true } label: { Image(systemName: "square.on.square") }
                         .help("Find duplicate assignments")
+                    Button { triaging = true } label: { Image(systemName: "tray.2") }
+                        .help(triagedCount == 0
+                              ? "Sort imported items into work, attendance and admin"
+                              : "Sort the \(state.data.assignments.filter { $0.isOpen && $0.kind == nil }.count) unsorted items")
                     if anyRanked {
                         Menu {
                             ForEach(AssignmentSort.allCases) { s in
@@ -145,6 +158,7 @@ struct AssignmentsView: View {
             .navigationDestination(item: $editing) { AssignmentEditor(assignment: $0) }
             .navigationDestination(isPresented: $classifying) { ClassifyView() }
             .navigationDestination(isPresented: $deduping) { DuplicateReviewView() }
+            .navigationDestination(isPresented: $triaging) { TriageReviewView() }
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
         }
@@ -162,6 +176,16 @@ struct AssignmentsView: View {
                     .buttonStyle(.plain)
                     .help(help(for: s))
                 }
+            }
+            if busyworkCount > 0 {
+                Button { withAnimation(.snappy(duration: 0.2)) { hideBusywork.toggle() } } label: {
+                    Chip(hideBusywork ? "\(busyworkCount) hidden" : "Showing housekeeping",
+                         .filter, selected: !hideBusywork, systemImage: "tray")
+                }
+                .buttonStyle(.plain)
+                .help(hideBusywork
+                      ? "Attendance and admin are hidden from This week and Overdue — click to show them"
+                      : "Click to hide attendance and admin again")
             }
             Spacer()
         }

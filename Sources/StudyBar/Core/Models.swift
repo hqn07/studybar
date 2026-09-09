@@ -137,6 +137,10 @@ struct ChecklistItem: Identifiable, Codable, Hashable {
 }
 
 struct Assignment: Identifiable, Codable, Hashable {
+    /// What this item actually is — work, attendance, admin — once triaged. A String rather
+    /// than the enum so an unknown value from a newer build can't break decoding, and Optional
+    /// so untriaged items (and older stores) are simply unclassified.
+    var kind: String? = nil
     /// When it was actually finished. `status` alone can't answer "what did I get done this
     /// week" — Insights used to count every done assignment ever and call it the week's work.
     /// Optional so older stores decode; set through `setDone` rather than by hand.
@@ -174,6 +178,10 @@ struct Assignment: Identifiable, Codable, Hashable {
     }
 
     var isArchived: Bool { archived == true }
+
+    var triageKind: AssignmentTriage.Kind? { kind.flatMap(AssignmentTriage.Kind.init(rawValue:)) }
+    /// Graded, but not studying: the housekeeping a term of Canvas imports is half made of.
+    var isBusywork: Bool { triageKind == .attendance || triageKind == .admin }
 
     /// Open work: not finished, not put aside. Everything that counts, plans, notifies or
     /// nags reads this — archiving is pointless if the item still shows up in the menu bar.
