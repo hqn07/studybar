@@ -476,123 +476,195 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var intelligenceSections: some View {
-        Section("Assistant Engine") {
-            Picker("Engine", selection: $aiMode) {
-                ForEach(AIMode.allCases) { Text($0.title).tag($0) }
-            }
-            .onChange(of: aiMode) { _, m in AIConfig.mode = m; loadAI() }
-            Text(aiMode.subtitle).font(.caption).foregroundStyle(.secondary)
+    // MARK: Intelligence
+    //
+    // Two things had to be legible here: which engine answers which kind of request, and
+    // whether that engine is actually usable. Everything else is one line of explanation at
+    // most — the old version was six paragraphs of caption and no way to see the wiring.
 
-            if aiMode == .onDevice && !AIConfig.onDeviceAvailable {
-                Label("On-device model unavailable on this Mac. Needs macOS 26+ with Apple Intelligence enabled — or pick Claude / ChatGPT.",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+    /// A provider that speaks OpenAI's `/chat/completions`, so the base URL is a menu pick
+    /// rather than something to remember and type.
+    private struct Preset: Identifiable {
+        let id: String, name: String, host: String, model: String
+    }
+    private var presets: [Preset] {
+        [Preset(id: "openai", name: "OpenAI", host: "https://api.openai.com/v1", model: "gpt-5.6-terra"),
+         Preset(id: "deepseek", name: "DeepSeek", host: "https://api.deepseek.com/v1", model: "deepseek-v4-pro"),
+         Preset(id: "qwen", name: "Qwen (Alibaba)", host: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen3.8-max"),
+         Preset(id: "together", name: "Together", host: "https://api.together.xyz/v1", model: ""),
+         Preset(id: "groq", name: "Groq", host: "https://api.groq.com/openai/v1", model: ""),
+         Preset(id: "openrouter", name: "OpenRouter", host: "https://openrouter.ai/api/v1", model: "")]
+    }
+
+    private func engineLabel(_ m: AIMode) -> String {
+        switch m {
+        case .off: return "Off"
+        case .onDevice: return "Apple on-device"
+        case .ollama: return AIConfig.ollamaModel
+        case .claude: return AIConfig.claudeModel
+        case .openai:
+            let host = AIConfig.openaiHost
+            let who = presets.first { host.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name
+            return who.map { "\(AIConfig.openaiModel) · \($0)" } ?? AIConfig.openaiModel
+        }
+    }
+
+    /// One line of the routing summary: what runs this kind of request, and is it usable.
+    private func routeRow(_ title: String, _ detail: String, _ mode: AIMode) -> some View {
+        let ready = AIConfig.isReady(mode)
+        return HStack(spacing: DS.Space.m) {
+            Circle().fill(ready ? Color.dsDone : Color.dsWeek).frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout.weight(.medium))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(mode == .off ? "Off" : engineLabel(mode))
+                .font(.caption.monospaced()).foregroundStyle(ready ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.dsWeek))
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+
+    @ViewBuilder private var intelligenceSections: some View {
+        Section("What answers what") {
+            routeRow("Organizing, extracting, summarizing",
+                     "Reshapes your own material — the local model is good at this and free",
+                     AIConfig.mode)
+            routeRow("Asking questions about a note",
+                     "Reasons, and answers past the note — worth a stronger engine",
+                     AIConfig.askMode ?? AIConfig.mode)
+            if !AIConfig.isReady((AIConfig.askMode ?? AIConfig.mode)) {
+                Label("That engine isn't usable yet — add its key below and Ask disappears from notes until you do.",
+                      systemImage: "exclamationmark.circle")
+                    .font(.caption).foregroundStyle(Color.dsWeek)
             }
         }
 
-        Section("Asking questions about a note") {
-            Picker("Engine", selection: $aiAskMode) {
+        Section("Engine") {
+            Picker("Everything else", selection: $aiMode) {
+                ForEach(AIMode.allCases) { Text($0.title).tag($0) }
+            }
+            .onChange(of: aiMode) { _, m in AIConfig.mode = m; loadAI() }
+
+            Picker("Asking about a note", selection: $aiAskMode) {
                 Text("Same as above").tag("")
                 ForEach(AIMode.allCases.filter { $0 != .off }) { Text($0.title).tag($0.rawValue) }
             }
             .onChange(of: aiAskMode) { _, m in AIConfig.askMode = AIMode(rawValue: m) }
-            Text("Ask this note is the one place the model has to reason rather than reformat, so it can run on a different engine from everything else — a paid one for questions, your local model for organizing. It uses the key, model and base URL set for whichever engine you pick.")
-                .font(.caption).foregroundStyle(.secondary)
+
+            Text(aiMode.subtitle).font(.caption).foregroundStyle(.secondary)
+            if aiMode == .onDevice && !AIConfig.onDeviceAvailable {
+                Label("Needs macOS 26+ with Apple Intelligence enabled.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(Color.dsWeek)
+            }
         }
 
         if aiMode.needsKey {
-            Section(aiMode == .claude ? "Anthropic API" : "OpenAI API") {
-                SecureField(aiHasKey ? "Key saved — enter to replace" : "API key", text: $aiKey)
-                TextField("Model", text: $aiModel)
-                    .onSubmit { saveAIModel() }
+            Section(aiMode == .claude ? "Anthropic" : (presets.first { aiOpenAIHost.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name ?? "OpenAI-compatible provider")) {
                 if aiMode == .openai {
-                    TextField("API base URL", text: $aiOpenAIHost)
+                    HStack {
+                        Text("Provider")
+                        Spacer()
+                        Menu(presets.first { aiOpenAIHost.contains(URL(string: $0.host)?.host ?? "\u{0}") }?.name ?? "Custom") {
+                            ForEach(presets) { p in
+                                Button(p.name) {
+                                    aiOpenAIHost = p.host; AIConfig.openaiHost = p.host
+                                    if !p.model.isEmpty, aiModel.isEmpty || presets.contains(where: { $0.model == aiModel }) {
+                                        aiModel = p.model; AIConfig.openaiModel = p.model
+                                    }
+                                }
+                            }
+                        }.fixedSize()
+                    }
+                    TextField("Base URL", text: $aiOpenAIHost)
                         .onSubmit { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
                 }
-                HStack {
-                    Button("Save") { saveAIKey() }
-                    Button("Test connection") {
+                TextField("Model", text: $aiModel).onSubmit { saveAIModel() }
+                HStack(spacing: DS.Space.m) {
+                    SecureField(aiHasKey ? "Key saved — enter to replace" : "API key", text: $aiKey)
+                    Chip(aiHasKey ? "Saved" : "Not set", .status(aiHasKey ? .done : .week))
+                }
+                HStack(spacing: DS.Space.s) {
+                    Button("Save") { saveAIKey() }.disabled(aiKey.isEmpty)
+                    Button("Test") {
                         saveAIModel()
+                        if aiMode == .openai { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
                         Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
-                    }
-                    .disabled(aiTesting || (!aiHasKey && aiKey.isEmpty))
+                    }.disabled(aiTesting || !aiHasKey)
                     if aiTesting { ProgressView().controlSize(.small) }
                     Spacer()
                     if aiHasKey {
                         Button("Remove", role: .destructive) {
                             if let acct = aiMode.keyAccount { Keychain.delete(account: acct) }
-                            aiHasKey = false; aiStatus = "Key removed."
+                            aiHasKey = false; aiStatus = ""
                         }
                     }
                 }
-                if !aiStatus.isEmpty {
-                    Text(aiStatus).font(.caption)
-                        .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
-                }
+                if !aiStatus.isEmpty { statusLine }
                 Text(aiMode == .claude
-                     ? "A Claude Pro/Max subscription is NOT an API key. Create a developer key at console.anthropic.com ▸ API Keys (pay-as-you-go). Stored in your macOS Keychain."
-                     : "A ChatGPT Plus subscription is NOT an API key. Create a developer key at platform.openai.com ▸ API keys. Stored in your macOS Keychain.")
+                     ? "A Claude Pro/Max subscription is not an API key — create a pay-as-you-go key at console.anthropic.com. Stored in your Keychain."
+                     : "A ChatGPT Plus subscription is not an API key — and this engine is not ChatGPT-only: it is the OpenAI request format, which the providers above all speak. Each uses its own key and model name. Stored in your Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
-                if aiMode == .openai {
-                    Text("Any service that speaks OpenAI's /chat/completions works here — point the base URL at it and use its own key and model name. DeepSeek: https://api.deepseek.com/v1 with model deepseek-v4-pro (or deepseek-v4-flash) · Qwen: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 · Together, Groq, Fireworks and OpenRouter likewise. Leave it at https://api.openai.com/v1 for OpenAI itself.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
             }
         } else if aiMode == .ollama {
-            Section("Ollama (local)") {
-                TextField("Model (e.g. qwen2.5:7b)", text: $aiModel).onSubmit { saveAIModel() }
-                TextField("Server URL", text: $aiHost).onSubmit { AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces) }
-                Button("Test connection") {
-                    saveAIModel(); AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces)
-                    Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
-                }.disabled(aiTesting)
-                if aiTesting { ProgressView().controlSize(.small) }
-                if !aiStatus.isEmpty {
-                    Text(aiStatus).font(.caption)
-                        .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
+            Section("Ollama") {
+                TextField("Model", text: $aiModel).onSubmit { saveAIModel() }
+                TextField("Server", text: $aiHost).onSubmit { AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces) }
+                HStack(spacing: DS.Space.s) {
+                    Button("Test") {
+                        saveAIModel(); AIConfig.ollamaHost = aiHost.trimmingCharacters(in: .whitespaces)
+                        Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
+                    }.disabled(aiTesting)
+                    if aiTesting { ProgressView().controlSize(.small) }
+                    Spacer()
                 }
-                Text("Install Ollama from ollama.com, then run `ollama pull \(aiModel.isEmpty ? "qwen2.5:7b" : aiModel)` in Terminal. qwen2.5 follows formatting and math far better than llama3.1. Runs fully on your Mac — no key, no cloud.")
+                if !aiStatus.isEmpty { statusLine }
+                Text("Runs on this Mac — no key, nothing leaves. `ollama pull \(aiModel.isEmpty ? "qwen2.5:7b" : aiModel)` installs the model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Smart typing") {
                 Toggle("Autocomplete in Notes", isOn: $notesAutocomplete)
-                Text("As you type in a note, Ollama suggests the next few words in grey — press Tab to accept. Runs on your Mac, only with a local (Ollama) engine. It finishes your phrasing, not your homework.")
+                Text("Grey suggestions as you type; Tab accepts. Local engines only.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         } else if aiMode == .onDevice {
             Section("On-device") {
-                Button("Test connection") {
-                    Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false }
-                }.disabled(aiTesting || !AIConfig.onDeviceAvailable)
-                if aiTesting { ProgressView().controlSize(.small) }
-                if !aiStatus.isEmpty {
-                    Text(aiStatus).font(.caption)
-                        .foregroundStyle(aiStatus.hasPrefix("✓") ? .green : (aiStatus.hasPrefix("✗") ? .red : .secondary))
+                HStack(spacing: DS.Space.s) {
+                    Button("Test") { Task { aiTesting = true; aiStatus = await AIService.test(); aiTesting = false } }
+                        .disabled(aiTesting || !AIConfig.onDeviceAvailable)
+                    if aiTesting { ProgressView().controlSize(.small) }
+                    Spacer()
                 }
+                if !aiStatus.isEmpty { statusLine }
             }
         }
 
         Section("Inline AI") {
             Toggle("Suggest actions as I work", isOn: $aiProactive)
-            Text("Off by default — AI stays out of the way until you invoke it (the ✨ on any text). Turn this on and StudyBar adds a gentle, dismissible chip when it could help — e.g. \"Summarize?\" on a long note. Still a suggestion you accept; nothing is applied on its own.")
+            Text("Off by default. On, StudyBar offers a dismissible chip when it could help — never applies anything on its own.")
                 .font(.caption).foregroundStyle(.secondary)
         }
 
         Section("Boundaries") {
-            Label("Organizes, never tutors. The assistant sorts and schedules your own data — it won't explain material, answer questions, or write assignments.",
+            Label("Organizes your own material, and answers questions about a note — including ones the note doesn't cover.",
                   systemImage: "checkmark.shield")
                 .font(.caption).foregroundStyle(.secondary)
-            if aiMode == .claude || aiMode == .openai {
-                Label("Cloud mode sends only the items in scope for a request (never your whole data file) to \(aiMode == .claude ? "Anthropic" : "OpenAI").",
-                      systemImage: "lock.shield")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else if aiMode == .onDevice || aiMode == .ollama {
-                Label("Local mode keeps everything on this Mac — nothing is sent anywhere.",
-                      systemImage: "lock.shield")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            Label("Never writes what you'd submit: the essay, the problem set, the lab answer.",
+                  systemImage: "hand.raised")
+                .font(.caption).foregroundStyle(.secondary)
+            let cloudModes = [AIConfig.mode, AIConfig.askMode ?? AIConfig.mode].filter { $0 == .claude || $0 == .openai }
+            Label(cloudModes.isEmpty
+                  ? "Local engines only — nothing leaves this Mac."
+                  : "Cloud requests send only what's in scope — the note you're asking about, never your whole data file.",
+                  systemImage: "lock.shield")
+                .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private var statusLine: some View {
+        Text(aiStatus).font(.caption)
+            .foregroundStyle(aiStatus.hasPrefix("✓") ? Color.dsDone
+                             : (aiStatus.hasPrefix("✗") ? Color.dsNow : Color.secondary))
     }
 
     private func loadAI() {

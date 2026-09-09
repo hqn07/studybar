@@ -23,7 +23,9 @@ enum AIMode: String, CaseIterable, Identifiable {
         case .onDevice: return "On-device"
         case .ollama:   return "Ollama"
         case .claude:   return "Claude"
-        case .openai:   return "ChatGPT"
+        // Not "ChatGPT": this case is the OpenAI *wire format*, which DeepSeek, Qwen,
+        // Together, Groq, Fireworks and OpenRouter all serve. The base URL picks which.
+        case .openai:   return "OpenAI-compatible"
         }
     }
     var subtitle: String {
@@ -32,7 +34,7 @@ enum AIMode: String, CaseIterable, Identifiable {
         case .onDevice: return "Apple on-device model. Free, private, works offline. Nothing leaves your Mac."
         case .ollama:   return "Free local models via Ollama on your Mac (any age/chip). Runs on localhost, no key. Install from ollama.com."
         case .claude:   return "Anthropic API with your own key. Strongest for big planning jobs. Metered to your account."
-        case .openai:   return "OpenAI API with your own key. Same organizing power — pick whichever you already pay for."
+        case .openai:   return "Any provider that speaks OpenAI's API — OpenAI itself, DeepSeek, Qwen, Together, Groq, OpenRouter. Set the base URL, key and model name below."
         }
     }
     var needsKey: Bool { self == .claude || self == .openai }

@@ -389,8 +389,12 @@ struct SidebarView: View {
                     }
                 }
             }
-            .padding(.vertical, 5).padding(.horizontal, 8)
+            .padding(.vertical, 6).padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
+            // The whole row takes the click. Without this only the drawn glyphs are
+            // hit-testable — an unselected row's background is `.clear`, which isn't — so
+            // the target was the icon and the text, and the space around them was dead.
+            .contentShape(Rectangle())
             .background(sel ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: DS.Radius.control))
             .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
@@ -431,7 +435,8 @@ struct SidebarRow: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: 6))
