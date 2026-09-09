@@ -663,7 +663,7 @@ struct NoteEditor: View {
         HStack(spacing: 8) {
             Divider().frame(height: 18)
             Menu {
-                if AIConfig.isReady {
+                if AIConfig.isReady(for: .rewrite) {
                     Section("Selection, or the whole note") {
                         ForEach(NoteAI.allCases) { a in
                             Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
@@ -1009,7 +1009,7 @@ struct NoteEditor: View {
     // Opt-in ambient suggestion (Settings ▸ Intelligence ▸ Inline AI). Gentle, dismissible,
     // never auto-acts — it just offers the same Summarize the ✨ menu would run.
     private var showProactiveChip: Bool {
-        aiProactive && AIConfig.isReady && !chipDismissed && !showPreview && !focusMode && liveWords >= 150
+        aiProactive && AIConfig.isReady(for: .rewrite) && !chipDismissed && !showPreview && !focusMode && liveWords >= 150
     }
     private var proactiveChip: some View {
         HStack(spacing: 8) {
@@ -1027,7 +1027,7 @@ struct NoteEditor: View {
     }
 
     private func runAI(_ action: NoteAI) {
-        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard AIConfig.isReady(for: .rewrite), let provider = AIService.makeProvider(for: .rewrite) else { return }
         let scope = editor.aiScope()
         guard !scope.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         aiAction = action; aiText = ""; aiDone = false; aiStart = Date(); aiRange = scope.range

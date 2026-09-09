@@ -790,7 +790,7 @@ struct CourseDetailView: View {
             return
         }
         syllabusError = nil; syllabusExtracting = true; extractStart = Date()
-        let provider = AIService.makeProvider()
+        let provider = AIService.makeProvider(for: .extract)
         Task { @MainActor in
             let draft = await SyllabusExtract.run(text, provider: provider, datesOnly: datesOnly)
             syllabusExtracting = false; extractStart = nil

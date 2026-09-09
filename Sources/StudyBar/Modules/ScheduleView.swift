@@ -875,7 +875,7 @@ struct PasteScheduleView: View {
         guard !extracting else { return }
         error = nil
         extracting = true
-        let provider = AIConfig.isReady ? AIService.makeProvider() : nil
+        let provider = AIConfig.isReady ? AIService.makeProvider(for: .extract) : nil
         let input = text
         Task {
             let drafts = await ClassImport.fromPasted(input, provider: provider)

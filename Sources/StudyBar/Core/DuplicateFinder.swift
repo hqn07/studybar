@@ -161,7 +161,7 @@ enum DuplicateFinder {
     @MainActor
     static func deepScan(_ assignments: [Assignment]) async -> [DupGroup] {
         let cands = Array(candidates(assignments).prefix(scanLimit))
-        guard !cands.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return [] }
+        guard !cands.isEmpty, let provider = AIService.makeProvider(for: .judge) else { return [] }
         var found: [DupGroup] = []
         var unreadable = 0
         for chunk in stride(from: 0, to: cands.count, by: scanBatch).map({ Array(cands[$0..<min($0 + scanBatch, cands.count)]) }) {

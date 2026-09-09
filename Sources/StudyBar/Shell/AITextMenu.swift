@@ -22,7 +22,7 @@ struct AITextMenu: View {
 
     var body: some View {
         Menu {
-            if AIConfig.isReady {
+            if AIConfig.isReady(for: .rewrite) {
                 ForEach(NoteAI.allCases) { a in
                     Button { run(a) } label: { Label(a.label, systemImage: a.icon) }
                         .disabled(empty && a != .continueWriting)
@@ -87,7 +87,7 @@ struct AITextMenu: View {
     }
 
     private func run(_ a: NoteAI) {
-        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard AIConfig.isReady(for: .rewrite), let provider = AIService.makeProvider(for: .rewrite) else { return }
         action = a; out = ""; done = false; start = Date(); reviewing = true
         task?.cancel()
         task = Task {

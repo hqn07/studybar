@@ -533,13 +533,10 @@ struct SettingsView: View {
 
     @ViewBuilder private var intelligenceSections: some View {
         Section("What answers what") {
-            routeRow("Organizing, extracting, summarizing",
-                     "Reshapes your own material — the local model is good at this and free",
-                     AIConfig.mode)
-            routeRow("Asking questions about a note",
-                     "Reasons, and answers past the note — worth a stronger engine",
-                     AIConfig.askMode ?? AIConfig.mode)
-            if !AIConfig.isReady((AIConfig.askMode ?? AIConfig.mode)) {
+            ForEach(AIService.Surface.allCases) { surface in
+                routeRow(surface.label, surface.blurb, AIConfig.engine(for: surface))
+            }
+            if !AIConfig.isReady(for: .ask) {
                 Label("That engine isn't usable yet — add its key below and Ask disappears from notes until you do.",
                       systemImage: "exclamationmark.circle")
                     .font(.caption).foregroundStyle(Color.dsWeek)

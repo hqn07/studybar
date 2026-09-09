@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Route AI work by how much it costs to be wrong** — Settings ▸ Intelligence now assigns a stronger engine to the jobs that need accuracy (questions about a note, summaries and rewrites, turning recordings into notes, reading syllabi, spotting duplicates) while sorting and tidying stay on your local model and autocomplete always does. Each is a toggle, and the top of the screen shows which engine answers what.
+
 - **Deep scan for duplicates** — the duplicate finder can now ask your AI engine about near-miss pairs the exact match can't judge: same course, within a week, partly matching titles, including an assignment re-imported under a shifted date. Findings are labelled as the model's opinion and still need your confirmation before anything merges.
 
 - **Sort imported coursework into work, attendance and admin** — a Canvas feed arrives as one flat list where `L7 section 2.4` sits next to `SEPTEMBER 10 ATTENDANCE`. The new **⧉ Sort by kind** button in Assignments settles the obvious cases itself and asks your AI engine about the rest, then shows you everything before applying. Once sorted, This week and Overdue hide the housekeeping — one click brings it back, and nothing is ever deleted.

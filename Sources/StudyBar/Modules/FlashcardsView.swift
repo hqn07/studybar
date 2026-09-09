@@ -757,7 +757,7 @@ struct GenerateCardsView: View {
     }
 
     private func generate() {
-        guard AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard AIConfig.isReady, let provider = AIService.makeProvider(for: .rewrite) else { return }
         let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 20 else { return }
         loading = true; raw = ""; proposed = []; genError = false

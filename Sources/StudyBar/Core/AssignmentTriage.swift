@@ -136,7 +136,7 @@ enum AssignmentTriage {
                 unresolved.append((unresolved.count + 1, a.id, a.title))
             }
         }
-        guard !unresolved.isEmpty, let provider = AIService.makeProvider(for: .ask) else {
+        guard !unresolved.isEmpty, let provider = AIService.makeProvider(for: .organize) else {
             // No engine: the rules still did most of it, and the rest stay unclassified rather
             // than being guessed at.
             return proposals

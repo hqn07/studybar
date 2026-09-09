@@ -105,6 +105,27 @@ enum AIConfig {
         set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: "aiAskMode") }
     }
 
+    /// Which kinds of work go to the stronger engine. Everything else stays on the main one.
+    /// Defaults cover the jobs where being wrong is expensive and hard to notice — reading a
+    /// lecture, organizing a transcript, pulling dates out of a syllabus — while typing,
+    /// tidying and sorting stay local and free.
+    static var strongSurfaces: Set<String> {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: "aiStrongSurfaces") else {
+                return ["ask", "transcript", "extract", "rewrite", "judge"]
+            }
+            return Set(raw.split(separator: ",").map(String.init))
+        }
+        set { UserDefaults.standard.set(newValue.sorted().joined(separator: ","), forKey: "aiStrongSurfaces") }
+    }
+
+    /// The engine that runs a given kind of work.
+    static func engine(for surface: AIService.Surface) -> AIMode {
+        if surface.alwaysLocal { return mode }
+        guard let strong = askMode, strongSurfaces.contains(surface.rawValue) else { return mode }
+        return strong
+    }
+
     static var ollamaHost: String {
         get { UserDefaults.standard.string(forKey: "aiOllamaHost").flatMap { $0.isEmpty ? nil : $0 } ?? "http://localhost:11434" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOllamaHost") }
@@ -141,9 +162,7 @@ enum AIConfig {
     static var isReady: Bool { isReady(mode) }
 
     /// Ready for a particular surface — the Ask panel may be pointed at a different engine.
-    static func isReady(for surface: AIService.Surface) -> Bool {
-        isReady((surface == .ask ? askMode : nil) ?? mode)
-    }
+    static func isReady(for surface: AIService.Surface) -> Bool { isReady(engine(for: surface)) }
 
     static func isReady(_ mode: AIMode) -> Bool {
         switch mode {
@@ -552,13 +571,50 @@ enum AIService {
     static var enabled: Bool { AIConfig.mode != .off }
 
     /// Build the provider for the current mode, or nil if not configured/available.
-    /// Which job the model is being asked to do. The engine can differ per surface — see
-    /// `AIConfig.askMode`.
-    enum Surface { case main, ask }
+    /// What kind of job this is, so it can be routed by how much it costs to get wrong.
+    ///
+    /// Reshaping text the student already wrote is cheap to get slightly wrong and expensive
+    /// to send away — it runs constantly and carries the note itself. Reading a lecture and
+    /// answering from it, or pulling dates out of a syllabus, is worth a stronger engine: the
+    /// output is acted on, and a mistake propagates into the schedule or the notes.
+    enum Surface: String, CaseIterable, Identifiable {
+        case quick          // autocomplete, tiny transforms — always local
+        case organize       // triage, tagging — proposed, reviewed, non-destructive
+        case judge          // deciding two items are the same thing
+        case rewrite        // summarize, key points, proofread — inline ✨
+        case transcript     // turning a recording into notes
+        case extract        // syllabus dates, pasted schedules
+        case ask            // questions about a note
 
-    static func makeProvider(for surface: Surface = .main) -> AIProvider? {
-        let mode = (surface == .ask ? AIConfig.askMode : nil) ?? AIConfig.mode
-        return makeProvider(mode: mode)
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .quick: "Autocomplete"
+            case .organize: "Sorting and tidying"
+            case .judge: "Spotting duplicates"
+            case .rewrite: "Summaries and rewrites"
+            case .transcript: "Turning recordings into notes"
+            case .extract: "Reading syllabi and schedules"
+            case .ask: "Questions about a note"
+            }
+        }
+        var blurb: String {
+            switch self {
+            case .quick: "Runs on every pause in typing — always local."
+            case .organize: "Judging what an item is. Cheap to review, cheap to redo."
+            case .judge: "A wrong merge deletes work. The local model flagged 15 pairs the stronger one rejected."
+            case .rewrite: "Reshapes what you wrote. Wrong output is visible immediately."
+            case .transcript: "A whole lecture at once — errors are hard to spot afterwards."
+            case .extract: "Dates and grading rules that end up in your schedule."
+            case .ask: "Reasons about the material rather than reformatting it."
+            }
+        }
+        /// Local, whatever the settings say: it fires on every keystroke pause.
+        var alwaysLocal: Bool { self == .quick }
+    }
+
+    static func makeProvider(for surface: Surface = .organize) -> AIProvider? {
+        makeProvider(mode: AIConfig.engine(for: surface))
     }
 
     static func makeProvider(mode: AIMode) -> AIProvider? {

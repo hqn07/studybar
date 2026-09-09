@@ -280,7 +280,7 @@ struct VoiceView: View {
 
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider(for: .transcript) else { return }
         organizeError = nil; organizeStream = ""; organizeStart = Date()
         organizing = true
         Task {

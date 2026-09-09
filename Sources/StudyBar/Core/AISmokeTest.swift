@@ -29,7 +29,7 @@ enum AISmokeTest {
         var results: [Outcome] = []
 
         func engineName(_ s: AIService.Surface) -> String {
-            let m = (s == .ask ? AIConfig.askMode : nil) ?? AIConfig.mode
+            let m = AIConfig.engine(for: s)
             switch m {
             case .ollama: return "ollama/\(AIConfig.ollamaModel)"
             case .openai: return AIConfig.openaiModel
@@ -57,12 +57,15 @@ enum AISmokeTest {
         let noteBody = String((note?.body ?? "").prefix(6000))
         let noteTitle = note?.title ?? "Untitled"
 
-        print("Engines — main: \(engineName(.main)) · ask: \(engineName(.ask))")
+        print("Routing:")
+        for s in AIService.Surface.allCases {
+            print("  \(s.label.padding(toLength: 30, withPad: " ", startingAt: 0)) \(engineName(s))")
+        }
         print("Store  — \(data.notes.count) notes, \(data.assignments.filter(\.isOpen).count) open assignments\n")
 
         // 1. Ask this note — the answer must be prose, not a JSON blob or an empty string.
         await measure("Ask this note", .ask) {
-            guard let p = AIService.makeProvider(for: .ask) else { return (false, "no ask engine", "") }
+            guard let p = AIService.makeProvider(for: .ask) else { return (false, "no engine for questions", "") }
             let msgs = NoteQA.messages(thread: [], question: "In two sentences, what is this note about?",
                                        sources: [.init(id: UUID(), title: noteTitle, body: noteBody)])
             let out = (try? await p.completePlain(system: NoteQA.system(noteTitle: noteTitle, courseName: nil),
@@ -90,7 +93,7 @@ enum AISmokeTest {
         }
 
         // 4. Triage — every item must come back with a kind.
-        await measure("Assignment triage", .ask) {
+        await measure("Assignment triage", .organize) {
             let sample = Array(data.assignments.filter { $0.isOpen && $0.kind == nil }.prefix(12))
             guard !sample.isEmpty else { return (true, "nothing untriaged — skipped", "") }
             let props = await AssignmentTriage.classify(sample)
@@ -102,7 +105,7 @@ enum AISmokeTest {
 
         // 5. Duplicate deep scan — must return verdicts, and must not flag the pair the user
         //    confirmed is genuinely two different quizzes.
-        await measure("Duplicate deep scan", .ask) {
+        await measure("Duplicate deep scan", .judge) {
             let groups = await DuplicateFinder.deepScan(data.assignments)
             let falsePositive = groups.contains { g in
                 let titles = g.items.map(\.title)
@@ -118,8 +121,8 @@ enum AISmokeTest {
         //    version of this test wrote its own and caught the model answering in JSON; the
         //    real prompt forbids that explicitly, and testing a paraphrase tests nothing.
         for action in [NoteAI.summarize, NoteAI.keyPoints] {
-            await measure("Inline ✨ \(action.label.lowercased())", .main) {
-                guard let p = AIService.makeProvider() else { return (false, "no main engine", "") }
+            await measure("Inline ✨ \(action.label.lowercased())", .rewrite) {
+                guard let p = AIService.makeProvider(for: .rewrite) else { return (false, "no engine", "") }
                 let out = (try? await p.streamPlain(system: action.system(),
                                                     messages: [AIMessage(role: .user, text: action.user(String(noteBody.prefix(2500))))],
                                                     temperature: action.temperature) { _ in }) ?? ""
@@ -134,8 +137,8 @@ enum AISmokeTest {
         }
 
         // 7. Flashcard generation — front|back lines the deck importer can read.
-        await measure("Flashcards from note", .main) {
-            guard let p = AIService.makeProvider() else { return (false, "no main engine", "") }
+        await measure("Flashcards from note", .rewrite) {
+            guard let p = AIService.makeProvider(for: .rewrite) else { return (false, "no engine", "") }
             let out = (try? await p.streamPlain(
                 system: "Write 5 study flashcards from the student's notes. Output ONLY lines of the form "
                       + "front | back — no numbering, no preamble, no JSON, no code fences.",
@@ -149,8 +152,8 @@ enum AISmokeTest {
         }
 
         // 8. Structured extraction — the long-output path that has failed before.
-        await measure("Structured extraction", .ask) {
-            guard let p = AIService.makeProvider(for: .ask) else { return (false, "no ask engine", "") }
+        await measure("Structured extraction", .extract) {
+            guard let p = AIService.makeProvider(for: .ask) else { return (false, "no engine for questions", "") }
             let out: String
             if let ollama = p as? OllamaProvider {
                 out = (try? await ollama.completePlainOnce(
@@ -169,7 +172,7 @@ enum AISmokeTest {
         }
 
         // 9. Autocomplete — local by design, whatever the assistant is set to.
-        await measure("Autocomplete (local)", .main) {
+        await measure("Autocomplete (local)", .quick) {
             let outcome = await NoteAutocomplete.suggest(prefix: "The present value of a future cash flow is ")
             switch outcome {
             case .suggestion(let s): return (true, "suggested \"\(s.prefix(30))\"", s)
