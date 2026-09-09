@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-09-08
+
 - **Fixed: Export as Rich Text saved an empty file** — exporting (or printing) a note you had opened to *read* rather than edit produced a file with nothing in it, silently. Exports now come from the note itself rather than the editor window, so they work from either view.
 - **Send a note as a PDF** — **Export as PDF** writes the note the way the reading view shows it: headings, bullets, tables and equations rendered, not their Markdown and LaTeX source. That is the version to hand a classmate. Print produces the same document.
 - **Tables render** — a Markdown table in a note (the ones AI summaries like to produce) now draws as a table in the reading view and in print, instead of a wall of pipe characters.
