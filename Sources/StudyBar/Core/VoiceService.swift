@@ -79,6 +79,10 @@ final class VoiceService: ObservableObject {
     // Per-recording chunk tally, logged on finish so the chunker's behaviour is measurable
     // instead of inferred (there was no per-chunk logging at all before).
     private var chunksSent = 0
+    /// Silent chunks dropped back-to-back, and chunks kept despite sounding silent because
+    /// the gate wasn't confident. Both are reported when the recording finishes.
+    private var consecutiveSilentDrops = 0
+    private var chunksKeptUnsure = 0
     private var chunksDroppedSilent = 0
     private var chunksEmptyResult = 0
     private var transcribeChain: Task<Void, Never>?
@@ -278,6 +282,7 @@ final class VoiceService: ObservableObject {
         whisperCommitted = ""; transcript = ""; totalFrames = 0; chunkLang = nil
         activity.resetAll()
         chunksSent = 0; chunksDroppedSilent = 0; chunksEmptyResult = 0
+        consecutiveSilentDrops = 0; chunksKeptUnsure = 0
         guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
@@ -334,10 +339,26 @@ final class VoiceService: ObservableObject {
         // `!text.isEmpty` guard downstream and land in the transcript.
         guard s.chunkHadSpeech else {
             // Recycle rather than accumulate: a lecturer who steps out for ten minutes
-            // shouldn't leave a ten-minute file of silence on disk.
-            if dur >= maxChunkSec { recycleChunk() }
+            // shouldn't leave a ten-minute file of silence on disk. But dropping deletes
+            // audio unheard, so SilentChunkGate decides whether the verdict has earned that
+            // yet — otherwise transcribe and let a stray "Thank you." be the cost.
+            if dur >= maxChunkSec {
+                switch SilentChunkGate.decide(everHeardSpeech: s.everHeardSpeech,
+                                              consecutiveDrops: consecutiveSilentDrops) {
+                case .drop:
+                    recycleChunk()
+                case .transcribe:
+                    chunksKeptUnsure += 1
+                    cutChunk(final: false)
+                }
+            }
             return
         }
+
+        // Speech in this chunk means the detector is still hearing the room, so the run of
+        // drops starts over. (Not reset by a kept-unsure chunk — otherwise a deaf floor
+        // would drop three, keep one, and drop three more.)
+        consecutiveSilentDrops = 0
 
         let quietFor = Date().timeIntervalSince(s.lastSpeechAt)
         let paused = !s.isSpeech && quietFor >= pauseGapSec
@@ -353,6 +374,7 @@ final class VoiceService: ObservableObject {
         chunkLock.unlock()
         if let url { try? FileManager.default.removeItem(at: url) }
         chunksDroppedSilent += 1
+        consecutiveSilentDrops += 1
         openNewChunk()
     }
 
@@ -428,7 +450,7 @@ final class VoiceService: ObservableObject {
             } else {
                 lastEngine = "Whisper (\(loadedModel ?? whisperModel))"
                 status = .idle
-                Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s · chunks: \(chunksSent) sent, \(chunksDroppedSilent) silent-dropped, \(chunksEmptyResult) empty")
+                Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s · chunks: \(chunksSent) sent, \(chunksDroppedSilent) silent-dropped, \(chunksKeptUnsure) kept-unsure, \(chunksEmptyResult) empty")
             }
             saveDraft()
         }

@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Recordings only discard silence once the detector is sure** — a stretch judged to contain no speech is skipped rather than transcribed, but never before the recorder has recognized speech at least once in that recording, and never for more than a few stretches in a row. If the room fools it, you get an odd stray line in the transcript instead of a missing minute.
+
 ## [2.0.0] — 2026-09-08
 
 - **Fixed: Export as Rich Text saved an empty file** — exporting (or printing) a note you had opened to *read* rather than edit produced a file with nothing in it, silently. Exports now come from the note itself rather than the editor window, so they work from either view.

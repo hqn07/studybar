@@ -95,12 +95,17 @@ final class VoiceActivityTracker: @unchecked Sendable {
         /// Fraction of the current chunk's frames that were speech — for diagnostics.
         let speechRatio: Double
         let floorDB: Float
+        /// Has this recording contained speech *at any point*? Until it has, the detector
+        /// has never been shown what speech in this room looks like, so its verdict that a
+        /// chunk is silent is not yet worth acting on.
+        let everHeardSpeech: Bool
     }
 
     private let lock = NSLock()
     private var vad = EnergyVAD()
     private var lastSpeechAt = Date.distantPast
     private var chunkHadSpeech = false
+    private var everHeardSpeech = false
     private var frames = 0
     private var speechFrames = 0
 
@@ -113,6 +118,7 @@ final class VoiceActivityTracker: @unchecked Sendable {
         if speech {
             speechFrames += 1
             chunkHadSpeech = true
+            everHeardSpeech = true
             lastSpeechAt = Date()
         }
         lock.unlock()
@@ -124,7 +130,8 @@ final class VoiceActivityTracker: @unchecked Sendable {
                         lastSpeechAt: lastSpeechAt,
                         chunkHadSpeech: chunkHadSpeech,
                         speechRatio: frames > 0 ? Double(speechFrames) / Double(frames) : 0,
-                        floorDB: vad.floor)
+                        floorDB: vad.floor,
+                        everHeardSpeech: everHeardSpeech)
     }
 
     /// New chunk: clear the per-chunk gate and counters, but keep the learned noise floor —
@@ -136,8 +143,32 @@ final class VoiceActivityTracker: @unchecked Sendable {
     /// New recording: forget the room too.
     func resetAll() {
         lock.lock()
-        vad.reset(); lastSpeechAt = .distantPast; chunkHadSpeech = false; frames = 0; speechFrames = 0
+        vad.reset(); lastSpeechAt = .distantPast; chunkHadSpeech = false; everHeardSpeech = false
+        frames = 0; speechFrames = 0
         lock.unlock()
+    }
+}
+
+/// What to do with a chunk the detector says contains no speech.
+///
+/// Dropping is the one thing in the recorder that destroys audio rather than just deciding
+/// how to cut it: a recycled chunk is deleted unheard, so a mis-learned noise floor would
+/// cost transcript with nothing to undo. These two rules bound that. The detector's verdict
+/// is only acted on once it has recognized speech at least once in this recording (proving
+/// it knows what speech in this room looks like), and a run of drops is capped, so a floor
+/// that drifts deaf part-way through a lecture can eat a few chunks, never the rest of it.
+/// When either rule bites, the chunk is transcribed instead — a stray "Thank you." in the
+/// transcript is a far cheaper mistake than a missing paragraph.
+enum SilentChunkGate {
+    /// How many silent chunks may be dropped in a row before the detector loses the benefit
+    /// of the doubt. At 8-18s per chunk that is well under a minute of audio.
+    static let maxConsecutiveDrops = 3
+
+    enum Decision: Equatable { case drop, transcribe }
+
+    static func decide(everHeardSpeech: Bool, consecutiveDrops: Int) -> Decision {
+        guard everHeardSpeech else { return .transcribe }
+        return consecutiveDrops < maxConsecutiveDrops ? .drop : .transcribe
     }
 }
 
@@ -217,6 +248,18 @@ enum VADSelfTest {
         t.snapshot().floorDB > -80
             ? ok("beginChunk keeps the learned floor", String(format: "%.0f dB", t.snapshot().floorDB))
             : bad("beginChunk keeps the learned floor", "floor was reset")
+
+        // The gate in front of the one destructive action in the recorder.
+        func gate(_ n: String, _ ever: Bool, _ drops: Int, _ want: SilentChunkGate.Decision) {
+            let got = SilentChunkGate.decide(everHeardSpeech: ever, consecutiveDrops: drops)
+            got == want ? ok(n) : bad(n, "got \(got), want \(want)")
+        }
+        gate("never heard speech → transcribe, don't drop", false, 0, .transcribe)
+        gate("never heard speech, many chunks in → still transcribe", false, 9, .transcribe)
+        gate("calibrated → drop silence", true, 0, .drop)
+        gate("calibrated, two drops in → still drop", true, 2, .drop)
+        gate("run of drops is capped", true, SilentChunkGate.maxConsecutiveDrops, .transcribe)
+        gate("gone deaf → keep transcribing", true, 12, .transcribe)
 
         print(fail == 0 ? "VAD SELFTEST: ALL PASS (\(pass))" : "VAD SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
