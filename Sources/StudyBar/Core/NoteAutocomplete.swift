@@ -17,9 +17,39 @@ enum NoteAutocomplete {
         case unavailable(String)  // couldn't reach / run the model — human-readable reason
     }
 
-    /// On only when the user turned it on AND a local (Ollama) engine is selected.
+    /// On when the user turned it on. Deliberately independent of `AIConfig.mode`: this talks
+    /// to Ollama directly through its own host and model settings and never touches the main
+    /// engine, so gating it on that setting only meant the feature vanished when the assistant
+    /// was pointed at a hosted model — for no reason a user could see.
+    ///
+    /// It stays local by design rather than by accident. Ghost text fires on every pause in
+    /// typing: a hosted engine would put a network round-trip in front of each one (~2.5s
+    /// against DeepSeek, where the local model answers in a few hundred milliseconds) and turn
+    /// a background convenience into a metered one.
     @MainActor static var enabled: Bool {
-        UserDefaults.standard.bool(forKey: "notesAutocomplete") && AIConfig.mode == .ollama
+        UserDefaults.standard.bool(forKey: "notesAutocomplete")
+    }
+
+    /// Which local model will be asked, so the setting can say so instead of implying the
+    /// assistant's engine has anything to do with it.
+    @MainActor static var localModel: String { AIConfig.ollamaModel }
+
+    /// Is the local server actually there? Used by Settings to explain a silent no-op.
+    static func probe() async -> String {
+        let host = await AIConfig.ollamaHost.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let model = await AIConfig.ollamaModel
+        guard let url = URL(string: "\(host)/api/tags") else { return "✗ Bad server URL." }
+        do {
+            let (data, resp) = try await URLSession.shared.data(from: url)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return "✗ Ollama didn't answer." }
+            let names = ((try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["models"] as? [[String: Any]])?
+                .compactMap { $0["name"] as? String } ?? []
+            return names.contains(model)
+                ? "✓ \(model) ready on this Mac."
+                : "✗ Ollama is running but \(model) isn't installed — `ollama pull \(model)`."
+        } catch {
+            return "✗ Ollama isn't running. Install from ollama.com, or turn this off."
+        }
     }
 
     private static let system = """

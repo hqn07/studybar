@@ -46,6 +46,7 @@ struct SettingsView: View {
     // Intelligence
     @State private var aiOpenAIHost = AIConfig.openaiHost
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
+    @State private var autocompleteStatus = ""
     @State private var aiMode = AIConfig.mode
     @State private var aiKey = ""
     @State private var aiHasKey = false
@@ -622,11 +623,7 @@ struct SettingsView: View {
                 Text("Runs on this Mac — no key, nothing leaves. `ollama pull \(aiModel.isEmpty ? "qwen2.5:7b" : aiModel)` installs the model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Smart typing") {
-                Toggle("Autocomplete in Notes", isOn: $notesAutocomplete)
-                Text("Grey suggestions as you type; Tab accepts. Local engines only.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+
         } else if aiMode == .onDevice {
             Section("On-device") {
                 HStack(spacing: DS.Space.s) {
@@ -637,6 +634,25 @@ struct SettingsView: View {
                 }
                 if !aiStatus.isEmpty { statusLine }
             }
+        }
+
+        Section("Smart typing") {
+            Toggle("Autocomplete in Notes", isOn: $notesAutocomplete)
+            if notesAutocomplete {
+                HStack(spacing: DS.Space.s) {
+                    Text("Uses the local model").font(.caption).foregroundStyle(.secondary)
+                    Chip(NoteAutocomplete.localModel, .tag)
+                    Spacer()
+                    Button("Check") { Task { autocompleteStatus = await NoteAutocomplete.probe() } }
+                        .controlSize(.small)
+                }
+                if !autocompleteStatus.isEmpty {
+                    Text(autocompleteStatus).font(.caption)
+                        .foregroundStyle(autocompleteStatus.hasPrefix("✓") ? Color.dsDone : Color.dsWeek)
+                }
+            }
+            Text("Grey suggestions as you type; Tab accepts. Always runs on Ollama, whatever the assistant's engine is — ghost text fires on every pause, so it stays on this Mac rather than becoming a network round-trip you pay for per keystroke.")
+                .font(.caption).foregroundStyle(.secondary)
         }
 
         Section("Inline AI") {
