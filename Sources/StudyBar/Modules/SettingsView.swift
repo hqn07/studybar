@@ -535,7 +535,7 @@ struct SettingsView: View {
                      : "A ChatGPT Plus subscription is NOT an API key. Create a developer key at platform.openai.com ▸ API keys. Stored in your macOS Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 if aiMode == .openai {
-                    Text("Any service that speaks OpenAI's /chat/completions works here — point the base URL at it and use its own key and model name. DeepSeek: https://api.deepseek.com/v1 · Qwen: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 · Together, Groq, Fireworks and OpenRouter likewise. Leave it at https://api.openai.com/v1 for OpenAI itself.")
+                    Text("Any service that speaks OpenAI's /chat/completions works here — point the base URL at it and use its own key and model name. DeepSeek: https://api.deepseek.com/v1 with model deepseek-v4-pro (or deepseek-v4-flash) · Qwen: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 · Together, Groq, Fireworks and OpenRouter likewise. Leave it at https://api.openai.com/v1 for OpenAI itself.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
