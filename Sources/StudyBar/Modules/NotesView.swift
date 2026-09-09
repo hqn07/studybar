@@ -748,7 +748,7 @@ struct NoteEditor: View {
                 Text("Ask this note").font(.caption.weight(.semibold))
                 if askLoading { ProgressView().controlSize(.small) }
                 Spacer()
-                Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
+                Text((AIConfig.askMode ?? AIConfig.mode).title).font(.caption2).foregroundStyle(.secondary)
                 if !askThread.isEmpty {
                     Button { askThread = [] } label: { Image(systemName: "arrow.counterclockwise") }
                         .buttonStyle(.plain).foregroundStyle(.secondary).help("Start a new thread")
@@ -917,7 +917,8 @@ struct NoteEditor: View {
 
     private func ask() {
         let q = askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty, !askLoading, AIConfig.isReady, let provider = AIService.makeProvider() else { return }
+        guard !q.isEmpty, !askLoading, AIConfig.isReady(for: .ask),
+              let provider = AIService.makeProvider(for: .ask) else { return }
         persist()
         askQuestion = ""
         let title = draft.title.isEmpty ? "Untitled note" : draft.title
@@ -1118,7 +1119,7 @@ struct NoteEditor: View {
             Image(systemName: "book").font(.caption2)
             Text("Reading").font(.caption2.weight(.semibold))
             Spacer()
-            if AIConfig.isReady {
+            if AIConfig.isReady(for: .ask) {
                 Button { openAsk() } label: {
                     Label("Ask", systemImage: "questionmark.bubble").font(.caption2)
                 }

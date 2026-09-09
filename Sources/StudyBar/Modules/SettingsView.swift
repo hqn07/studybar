@@ -44,6 +44,8 @@ struct SettingsView: View {
     @State private var selectedTab = SettingsTab.general
     @State private var openRelease: String?
     // Intelligence
+    @State private var aiOpenAIHost = AIConfig.openaiHost
+    @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
     @State private var aiMode = AIConfig.mode
     @State private var aiKey = ""
     @State private var aiHasKey = false
@@ -489,11 +491,25 @@ struct SettingsView: View {
             }
         }
 
+        Section("Asking questions about a note") {
+            Picker("Engine", selection: $aiAskMode) {
+                Text("Same as above").tag("")
+                ForEach(AIMode.allCases.filter { $0 != .off }) { Text($0.title).tag($0.rawValue) }
+            }
+            .onChange(of: aiAskMode) { _, m in AIConfig.askMode = AIMode(rawValue: m) }
+            Text("Ask this note is the one place the model has to reason rather than reformat, so it can run on a different engine from everything else — a paid one for questions, your local model for organizing. It uses the key, model and base URL set for whichever engine you pick.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
         if aiMode.needsKey {
             Section(aiMode == .claude ? "Anthropic API" : "OpenAI API") {
                 SecureField(aiHasKey ? "Key saved — enter to replace" : "API key", text: $aiKey)
                 TextField("Model", text: $aiModel)
                     .onSubmit { saveAIModel() }
+                if aiMode == .openai {
+                    TextField("API base URL", text: $aiOpenAIHost)
+                        .onSubmit { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
+                }
                 HStack {
                     Button("Save") { saveAIKey() }
                     Button("Test connection") {
@@ -518,6 +534,10 @@ struct SettingsView: View {
                      ? "A Claude Pro/Max subscription is NOT an API key. Create a developer key at console.anthropic.com ▸ API Keys (pay-as-you-go). Stored in your macOS Keychain."
                      : "A ChatGPT Plus subscription is NOT an API key. Create a developer key at platform.openai.com ▸ API keys. Stored in your macOS Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
+                if aiMode == .openai {
+                    Text("Any service that speaks OpenAI's /chat/completions works here — point the base URL at it and use its own key and model name. DeepSeek: https://api.deepseek.com/v1 · Qwen: https://dashscope-intl.aliyuncs.com/compatible-mode/v1 · Together, Groq, Fireworks and OpenRouter likewise. Leave it at https://api.openai.com/v1 for OpenAI itself.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         } else if aiMode == .ollama {
             Section("Ollama (local)") {

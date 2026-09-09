@@ -78,6 +78,31 @@ enum AIConfig {
         get { UserDefaults.standard.string(forKey: "aiOllamaModel").flatMap { $0.isEmpty ? nil : $0 } ?? "qwen2.5:7b" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOllamaModel") }
     }
+    static var openaiHost: String {
+        get { UserDefaults.standard.string(forKey: "aiOpenAIHost").flatMap { $0.isEmpty ? nil : $0 } ?? "https://api.openai.com/v1" }
+        set { UserDefaults.standard.set(newValue, forKey: "aiOpenAIHost") }
+    }
+
+    /// Tolerates the three ways people paste a base URL: with or without `/v1`, with or
+    /// without the endpoint already on the end.
+    nonisolated static func chatCompletionsURL(_ host: String) -> URL {
+        var base = host.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "/")))
+        if base.isEmpty { base = "https://api.openai.com/v1" }
+        if base.hasSuffix("/chat/completions") { return URL(string: base) ?? URL(string: "https://api.openai.com/v1/chat/completions")! }
+        return URL(string: base + "/chat/completions") ?? URL(string: "https://api.openai.com/v1/chat/completions")!
+    }
+
+    /// Asking a question about a note is the one job where a stronger engine is worth paying
+    /// for — it reasons rather than reformats. Everything else can stay local. Empty = use the
+    /// main engine.
+    static var askMode: AIMode? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: "aiAskMode"), !raw.isEmpty else { return nil }
+            return AIMode(rawValue: raw)
+        }
+        set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: "aiAskMode") }
+    }
+
     static var ollamaHost: String {
         get { UserDefaults.standard.string(forKey: "aiOllamaHost").flatMap { $0.isEmpty ? nil : $0 } ?? "http://localhost:11434" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOllamaHost") }
@@ -104,7 +129,14 @@ enum AIConfig {
     }
 
     /// Whether the current mode is usable right now (key present / model available).
-    static var isReady: Bool {
+    static var isReady: Bool { isReady(mode) }
+
+    /// Ready for a particular surface — the Ask panel may be pointed at a different engine.
+    static func isReady(for surface: AIService.Surface) -> Bool {
+        isReady((surface == .ask ? askMode : nil) ?? mode)
+    }
+
+    static func isReady(_ mode: AIMode) -> Bool {
         switch mode {
         case .off:      return false
         case .onDevice: return onDeviceAvailable
@@ -194,9 +226,13 @@ struct AnthropicProvider: AIProvider {
 struct OpenAIProvider: AIProvider {
     let apiKey: String
     let model: String
+    /// The API root. OpenAI's `/chat/completions` shape is what DeepSeek, Alibaba's Qwen,
+    /// Together, Groq, Fireworks and OpenRouter all serve, so pointing this elsewhere is the
+    /// whole of "use another provider" — same request, same parsing, different host and key.
+    var host: String
 
     func complete(system: String, messages: [AIMessage]) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        var req = URLRequest(url: AIConfig.chatCompletionsURL(host))
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -465,8 +501,17 @@ enum AIService {
     static var enabled: Bool { AIConfig.mode != .off }
 
     /// Build the provider for the current mode, or nil if not configured/available.
-    static func makeProvider() -> AIProvider? {
-        switch AIConfig.mode {
+    /// Which job the model is being asked to do. The engine can differ per surface — see
+    /// `AIConfig.askMode`.
+    enum Surface { case main, ask }
+
+    static func makeProvider(for surface: Surface = .main) -> AIProvider? {
+        let mode = (surface == .ask ? AIConfig.askMode : nil) ?? AIConfig.mode
+        return makeProvider(mode: mode)
+    }
+
+    static func makeProvider(mode: AIMode) -> AIProvider? {
+        switch mode {
         case .off:
             return nil
         case .onDevice:
@@ -479,7 +524,7 @@ enum AIService {
             return AnthropicProvider(apiKey: key, model: AIConfig.claudeModel)
         case .openai:
             guard let key = Keychain.get(account: AIConfig.openaiKeyAccount), !key.isEmpty else { return nil }
-            return OpenAIProvider(apiKey: key, model: AIConfig.openaiModel)
+            return OpenAIProvider(apiKey: key, model: AIConfig.openaiModel, host: AIConfig.openaiHost)
         case .ollama:
             return OllamaProvider(host: AIConfig.ollamaHost, model: AIConfig.ollamaModel)
         }
@@ -1557,7 +1602,7 @@ extension OpenAIProvider {
     /// assistant message (to replay verbatim), its text, and any tool calls.
     func completeTools(messages: [[String: Any]],
                        tools: [[String: Any]]) async throws -> (assistant: [String: Any], text: String, toolUses: [ToolUse]) {
-        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        var req = URLRequest(url: AIConfig.chatCompletionsURL(host))
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1689,6 +1734,15 @@ enum AIToolSelfTest {
         func check(_ name: String, _ cond: Bool) {
             print((cond ? "  ok   " : "FAIL   ") + name); if !cond { fail += 1 }
         }
+
+        // Base-URL normalization: this one field is what points the OpenAI-shaped provider at
+        // DeepSeek, Qwen, Together or OpenRouter, so it has to survive however it gets pasted.
+        func url(_ h: String) -> String { AIConfig.chatCompletionsURL(h).absoluteString }
+        check("base URL: plain", url("https://api.openai.com/v1") == "https://api.openai.com/v1/chat/completions")
+        check("base URL: trailing slash", url("https://api.deepseek.com/v1/") == "https://api.deepseek.com/v1/chat/completions")
+        check("base URL: endpoint already on it", url("https://api.deepseek.com/v1/chat/completions") == "https://api.deepseek.com/v1/chat/completions")
+        check("base URL: pasted with spaces", url("  https://openrouter.ai/api/v1  ") == "https://openrouter.ai/api/v1/chat/completions")
+        check("base URL: empty falls back to OpenAI", url("") == "https://api.openai.com/v1/chat/completions")
 
         // 1. Catalog covers exactly the read + write tools the app understands.
         let names = Set(AIToolCatalog.all.map { $0.name })

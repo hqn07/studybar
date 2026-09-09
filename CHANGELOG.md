@@ -5,6 +5,9 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Use any OpenAI-compatible provider** — Settings ▸ Intelligence ▸ ChatGPT now has an **API base URL** field, so the same engine can point at DeepSeek, Alibaba's Qwen, Together, Groq, Fireworks or OpenRouter with their own key and model name. Leave it alone for OpenAI itself.
+- **A different engine for asking questions** — *Ask this note* can run on its own engine, separate from everything else: a paid model for questions that need reasoning, your local one for organizing, summarizing and extracting. Settings ▸ Intelligence ▸ Asking questions about a note.
+
 - **Ask this note — with the weeks you choose** — while reading a lecture note, ask a question about it, and attach earlier notes as context (Add notes → this course first, or add the whole course in one click). The panel shows how many notes are attached and roughly how much of the model's context they fill, and answers say which note each piece came from. Answers use the notes where they cover the ground and go past them where they don't, so a note on one plant can still answer a question about another. Follow-ups keep the thread, answers render Markdown and math, and you can insert one under its question or copy it. StudyBar still won't write what you'd hand in.
 
 - **Recordings only discard silence once the detector is sure** — a stretch judged to contain no speech is skipped rather than transcribed, but never before the recorder has recognized speech at least once in that recording, and never for more than a few stretches in a row. If the room fools it, you get an odd stray line in the transcript instead of a missing minute.
