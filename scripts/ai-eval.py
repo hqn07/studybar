@@ -49,7 +49,9 @@ def ollama(model):
 def openai_compatible(base, key, model):
     def go(title, body, q):
         r = post(base.rstrip("/") + "/chat/completions", {
-            "model": model, "max_tokens": 1024, "temperature": 0.4,
+            # Reasoning models (DeepSeek V4, o-series) spend completion budget on hidden
+            # reasoning tokens before writing a word — 1024 truncated the visible answer.
+            "model": model, "max_tokens": 4096, "temperature": 0.4,
             "messages": [{"role": "system", "content": SYSTEM},
                          {"role": "user", "content": f'My note "{title}":\n{body}\n\nQuestion: {q}'}]},
             {"Authorization": f"Bearer {key}"})
@@ -59,7 +61,7 @@ def openai_compatible(base, key, model):
 def anthropic(key, model):
     def go(title, body, q):
         r = post("https://api.anthropic.com/v1/messages", {
-            "model": model, "max_tokens": 1024, "system": SYSTEM,
+            "model": model, "max_tokens": 4096, "system": SYSTEM,
             "messages": [{"role": "user", "content": f'My note "{title}":\n{body}\n\nQuestion: {q}'}]},
             {"x-api-key": key, "anthropic-version": "2023-06-01"})
         return "".join(b.get("text", "") for b in r["content"])

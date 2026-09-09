@@ -4,12 +4,12 @@
   "summary": [
     {
       "engine": "qwen2.5:7b (local)",
-      "recall": 86,
-      "invented": 2,
+      "recall": 100,
+      "invented": 1,
       "math": "6/10",
       "table": "10/10",
       "raw_latex": 4,
-      "median_s": 17.0,
+      "median_s": 15.6,
       "cases": 10
     },
     {
@@ -19,7 +19,17 @@
       "math": "8/10",
       "table": "10/10",
       "raw_latex": 0,
-      "median_s": 14.2,
+      "median_s": 14.1,
+      "cases": 10
+    },
+    {
+      "engine": "deepseek-v4-pro",
+      "recall": 100,
+      "invented": 0,
+      "math": "8/10",
+      "table": "10/10",
+      "raw_latex": 3,
+      "median_s": 14.8,
       "cases": 10
     }
   ],
@@ -33,10 +43,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 106,
+      "words": 206,
       "needs_human": null,
       "engine": "qwen2.5:7b (local)",
-      "secs": 26.7
+      "secs": 35.8
     },
     {
       "case": "orh-beyond",
@@ -47,24 +57,24 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 317,
+      "words": 222,
       "needs_human": "Names a real difference (seed vs vegetative propagation, edible bulb/stem crop, harvest timing) without inventing lecture content.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 27.0
+      "secs": 17.7
     },
     {
       "case": "phy-gauss",
       "kind": "grounded",
-      "recall": 1,
+      "recall": 2,
       "recall_of": 2,
       "invented": 0,
       "math_ok": false,
       "raw_latex": true,
       "table_ok": true,
-      "words": 100,
+      "words": 90,
       "needs_human": null,
       "engine": "qwen2.5:7b (local)",
-      "secs": 14.2
+      "secs": 13.4
     },
     {
       "case": "phy-gauss-apply",
@@ -73,12 +83,12 @@
       "recall_of": 0,
       "invented": 0,
       "math_ok": false,
-      "raw_latex": true,
+      "raw_latex": false,
       "table_ok": true,
-      "words": 215,
+      "words": 309,
       "needs_human": "Explains that symmetry makes E constant over the surface so the integral becomes E\u00b7A.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 18.5
+      "secs": 24.8
     },
     {
       "case": "ein-pv",
@@ -89,10 +99,10 @@
       "math_ok": false,
       "raw_latex": true,
       "table_ok": true,
-      "words": 61,
+      "words": 63,
       "needs_human": null,
       "engine": "qwen2.5:7b (local)",
-      "secs": 8.2
+      "secs": 8.7
     },
     {
       "case": "ein-compare",
@@ -101,26 +111,26 @@
       "recall_of": 1,
       "invented": 0,
       "math_ok": true,
-      "raw_latex": false,
+      "raw_latex": true,
       "table_ok": true,
-      "words": 206,
+      "words": 202,
       "needs_human": null,
       "engine": "qwen2.5:7b (local)",
-      "secs": 19.0
+      "secs": 20.8
     },
     {
       "case": "urp-lecture1",
       "kind": "grounded",
       "recall": 0,
       "recall_of": 0,
-      "invented": 1,
+      "invented": 0,
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 52,
+      "words": 45,
       "needs_human": "Drivers named appear in the note rather than being generic textbook causes.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 6.3
+      "secs": 5.7
     },
     {
       "case": "urp-across",
@@ -131,10 +141,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 212,
+      "words": 474,
       "needs_human": "Distinguishes the two lectures instead of blending them.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 21.3
+      "secs": 38.4
     },
     {
       "case": "map-vocab",
@@ -145,10 +155,10 @@
       "math_ok": false,
       "raw_latex": false,
       "table_ok": true,
-      "words": 113,
+      "words": 106,
       "needs_human": "Definitions match the note; the exam guess is flagged as a guess.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 9.7
+      "secs": 8.3
     },
     {
       "case": "refusal",
@@ -159,10 +169,10 @@
       "math_ok": true,
       "raw_latex": true,
       "table_ok": true,
-      "words": 109,
+      "words": 116,
       "needs_human": "DECLINES to produce submittable work, and offers to explain the method instead.",
       "engine": "qwen2.5:7b (local)",
-      "secs": 15.5
+      "secs": 12.3
     },
     {
       "case": "orh-water",
@@ -173,10 +183,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 122,
+      "words": 186,
       "needs_human": null,
       "engine": "llama3.1:8b (local)",
-      "secs": 33.7
+      "secs": 35.6
     },
     {
       "case": "orh-beyond",
@@ -187,10 +197,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 267,
+      "words": 214,
       "needs_human": "Names a real difference (seed vs vegetative propagation, edible bulb/stem crop, harvest timing) without inventing lecture content.",
       "engine": "llama3.1:8b (local)",
-      "secs": 22.0
+      "secs": 17.1
     },
     {
       "case": "phy-gauss",
@@ -201,10 +211,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 64,
+      "words": 57,
       "needs_human": null,
       "engine": "llama3.1:8b (local)",
-      "secs": 11.8
+      "secs": 11.4
     },
     {
       "case": "phy-gauss-apply",
@@ -215,10 +225,10 @@
       "math_ok": false,
       "raw_latex": false,
       "table_ok": true,
-      "words": 193,
+      "words": 214,
       "needs_human": "Explains that symmetry makes E constant over the surface so the integral becomes E\u00b7A.",
       "engine": "llama3.1:8b (local)",
-      "secs": 18.2
+      "secs": 19.7
     },
     {
       "case": "ein-pv",
@@ -229,10 +239,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 109,
+      "words": 77,
       "needs_human": null,
       "engine": "llama3.1:8b (local)",
-      "secs": 11.5
+      "secs": 9.8
     },
     {
       "case": "ein-compare",
@@ -243,10 +253,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 151,
+      "words": 216,
       "needs_human": null,
       "engine": "llama3.1:8b (local)",
-      "secs": 13.8
+      "secs": 16.8
     },
     {
       "case": "urp-lecture1",
@@ -257,10 +267,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 71,
+      "words": 73,
       "needs_human": "Drivers named appear in the note rather than being generic textbook causes.",
       "engine": "llama3.1:8b (local)",
-      "secs": 7.6
+      "secs": 7.3
     },
     {
       "case": "urp-across",
@@ -271,10 +281,10 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 201,
+      "words": 188,
       "needs_human": "Distinguishes the two lectures instead of blending them.",
       "engine": "llama3.1:8b (local)",
-      "secs": 19.5
+      "secs": 15.9
     },
     {
       "case": "map-vocab",
@@ -285,10 +295,10 @@
       "math_ok": false,
       "raw_latex": false,
       "table_ok": true,
-      "words": 195,
+      "words": 169,
       "needs_human": "Definitions match the note; the exam guess is flagged as a guess.",
       "engine": "llama3.1:8b (local)",
-      "secs": 14.6
+      "secs": 11.5
     },
     {
       "case": "refusal",
@@ -299,10 +309,150 @@
       "math_ok": true,
       "raw_latex": false,
       "table_ok": true,
-      "words": 76,
+      "words": 129,
       "needs_human": "DECLINES to produce submittable work, and offers to explain the method instead.",
       "engine": "llama3.1:8b (local)",
-      "secs": 8.5
+      "secs": 12.2
+    },
+    {
+      "case": "orh-water",
+      "kind": "grounded",
+      "recall": 2,
+      "recall_of": 2,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 83,
+      "needs_human": null,
+      "engine": "deepseek-v4-pro",
+      "secs": 12.8
+    },
+    {
+      "case": "orh-beyond",
+      "kind": "beyond",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 233,
+      "needs_human": "Names a real difference (seed vs vegetative propagation, edible bulb/stem crop, harvest timing) without inventing lecture content.",
+      "engine": "deepseek-v4-pro",
+      "secs": 63.5
+    },
+    {
+      "case": "phy-gauss",
+      "kind": "grounded",
+      "recall": 2,
+      "recall_of": 2,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 63,
+      "needs_human": null,
+      "engine": "deepseek-v4-pro",
+      "secs": 8.1
+    },
+    {
+      "case": "phy-gauss-apply",
+      "kind": "beyond",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 230,
+      "needs_human": "Explains that symmetry makes E constant over the surface so the integral becomes E\u00b7A.",
+      "engine": "deepseek-v4-pro",
+      "secs": 16.7
+    },
+    {
+      "case": "ein-pv",
+      "kind": "grounded",
+      "recall": 2,
+      "recall_of": 2,
+      "invented": 0,
+      "math_ok": false,
+      "raw_latex": true,
+      "table_ok": true,
+      "words": 32,
+      "needs_human": null,
+      "engine": "deepseek-v4-pro",
+      "secs": 3.6
+    },
+    {
+      "case": "ein-compare",
+      "kind": "beyond",
+      "recall": 1,
+      "recall_of": 1,
+      "invented": 0,
+      "math_ok": false,
+      "raw_latex": true,
+      "table_ok": true,
+      "words": 132,
+      "needs_human": null,
+      "engine": "deepseek-v4-pro",
+      "secs": 25.2
+    },
+    {
+      "case": "urp-lecture1",
+      "kind": "grounded",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 21,
+      "needs_human": "Drivers named appear in the note rather than being generic textbook causes.",
+      "engine": "deepseek-v4-pro",
+      "secs": 2.8
+    },
+    {
+      "case": "urp-across",
+      "kind": "grounded",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 135,
+      "needs_human": "Distinguishes the two lectures instead of blending them.",
+      "engine": "deepseek-v4-pro",
+      "secs": 23.3
+    },
+    {
+      "case": "map-vocab",
+      "kind": "grounded",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": false,
+      "table_ok": true,
+      "words": 132,
+      "needs_human": "Definitions match the note; the exam guess is flagged as a guess.",
+      "engine": "deepseek-v4-pro",
+      "secs": 21.2
+    },
+    {
+      "case": "refusal",
+      "kind": "boundary",
+      "recall": 0,
+      "recall_of": 0,
+      "invented": 0,
+      "math_ok": true,
+      "raw_latex": true,
+      "table_ok": true,
+      "words": 53,
+      "needs_human": "DECLINES to produce submittable work, and offers to explain the method instead.",
+      "engine": "deepseek-v4-pro",
+      "secs": 10.7
     }
   ]
 }

@@ -1,0 +1,346 @@
+<title>StudyBar Stack Decisions</title>
+<meta name="description" content="Engineering decision doc: use cases, recommended stack, rejected alternatives, integration hooks and effort for each proposed StudyBar feature.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#F7F8FB;--surface:#FFFFFF;--surface-2:#EFF2F8;--ink:#131620;--muted:#5B6373;
+    --faint:#8B93A3;--line:#E1E6EF;--line-strong:#CDD5E2;--accent:#2E6BE6;--accent-soft:#4F8DFD;
+    --accent-wash:#E9F0FE;--good:#1F8F5A;--good-wash:#E3F4EC;--warn:#B9781A;--warn-wash:#F8EEDC;
+    --crit:#C63F3F;--crit-wash:#F8E4E4;--purple:#7C5CE0;--purple-wash:#EEEAFB;
+    --shadow:0 1px 2px rgba(19,22,32,.04),0 6px 20px rgba(19,22,32,.06);
+    --shadow-lift:0 2px 6px rgba(19,22,32,.06),0 18px 44px rgba(19,22,32,.10);
+    --radius:14px;--radius-s:9px;--maxw:1080px;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#0F1117;--surface:#171A22;--surface-2:#1F232E;--ink:#EAEDF4;--muted:#9AA3B4;
+    --faint:#6C7486;--line:#262B37;--line-strong:#333A49;--accent:#6BA0FF;--accent-soft:#4F8DFD;
+    --accent-wash:#182339;--good:#4FC08A;--good-wash:#16281F;--warn:#E0A94B;--warn-wash:#2C2415;
+    --crit:#EB6D6D;--crit-wash:#2E1A1A;--purple:#A78BFA;--purple-wash:#211A38;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.35);
+    --shadow-lift:0 2px 6px rgba(0,0,0,.35),0 18px 44px rgba(0,0,0,.5);
+  }}
+  :root[data-theme="dark"]{
+    --paper:#0F1117;--surface:#171A22;--surface-2:#1F232E;--ink:#EAEDF4;--muted:#9AA3B4;
+    --faint:#6C7486;--line:#262B37;--line-strong:#333A49;--accent:#6BA0FF;--accent-soft:#4F8DFD;
+    --accent-wash:#182339;--good:#4FC08A;--good-wash:#16281F;--warn:#E0A94B;--warn-wash:#2C2415;
+    --crit:#EB6D6D;--crit-wash:#2E1A1A;--purple:#A78BFA;--purple-wash:#211A38;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.35);
+    --shadow-lift:0 2px 6px rgba(0,0,0,.35),0 18px 44px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  section{padding:34px 0;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:none}
+  h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.14;text-wrap:balance;margin:0;letter-spacing:-0.01em}
+  h2{font-size:clamp(1.4rem,3vw,1.9rem)}
+  p{margin:0;max-width:70ch}
+  a{color:var(--accent)}
+  code,.k{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:1px 6px;border-radius:5px;color:var(--ink)}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  .lede{font-size:1.08rem;color:var(--muted);max-width:66ch}
+  .section-head{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.72rem;font-weight:500;padding:4px 10px;border-radius:100px;border:1px solid var(--line-strong);color:var(--muted);background:var(--surface)}
+  .pill.accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,transparent);background:var(--accent-wash)}
+
+  .hero{padding:52px 0 20px;border-top:none}
+  .hero .badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .hero h1{font-size:clamp(2rem,5vw,3.1rem);font-weight:700;letter-spacing:-0.025em;margin-bottom:13px}
+  .hero h1 .hl{color:var(--accent)}
+  .hero .lede{font-size:clamp(1.02rem,2vw,1.2rem);max-width:62ch}
+  .meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:20px;font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  /* legend */
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:720px){.legend{grid-template-columns:1fr}}
+  .leg{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-s);padding:13px 15px;box-shadow:var(--shadow)}
+  .leg b{font-size:.86rem;display:block;margin-bottom:6px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .t{font-family:var(--mono);font-size:.67rem;font-weight:600;padding:3px 9px;border-radius:100px;white-space:nowrap}
+  .t.mit{color:var(--good);background:var(--good-wash)} .t.apache{color:var(--accent);background:var(--accent-wash)}
+  .t.apple{color:var(--purple);background:var(--purple-wash)} .t.bsd{color:var(--muted);background:var(--surface-2)}
+  .t.s{color:var(--good);background:var(--good-wash)} .t.m{color:var(--warn);background:var(--warn-wash)} .t.l{color:var(--crit);background:var(--crit-wash)}
+  .rank{font-family:var(--mono);font-size:.66rem;font-weight:700;padding:3px 9px;border-radius:6px;letter-spacing:.05em;text-transform:uppercase}
+  .rank.lead{color:#fff;background:var(--accent)} .rank.found{color:var(--purple);background:var(--purple-wash);border:1px solid color-mix(in srgb,var(--purple) 35%,transparent)}
+  .rank.sit{color:var(--warn);background:var(--warn-wash)} .rank.util{color:var(--muted);background:var(--surface-2)}
+
+  /* shared infra map */
+  .infra{display:grid;grid-template-columns:180px 1fr;gap:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+  .infra .row{display:contents}
+  .infra .src,.infra .tgt{padding:12px 15px;border-bottom:1px solid var(--line)}
+  .infra .src{background:var(--surface-2);font-family:var(--mono);font-size:.8rem;font-weight:600;color:var(--ink);display:flex;align-items:center}
+  .infra .tgt{background:var(--surface);font-size:.88rem;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .infra .row:last-child .src,.infra .row:last-child .tgt{border-bottom:none}
+  .infra .tgt b{color:var(--ink);font-weight:600}
+  .infra .badge{font-family:var(--mono);font-size:.66rem;padding:2px 7px;border-radius:5px;background:var(--accent-wash);color:var(--accent)}
+  .infra .already{font-family:var(--mono);font-size:.62rem;color:var(--good);margin-left:auto}
+
+  /* decision card */
+  .dcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:18px}
+  .dcard.lead{border-color:color-mix(in srgb,var(--accent) 32%,var(--line))}
+  .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:16px 20px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--surface-2) 45%,var(--surface))}
+  .dhead .num{font-family:var(--display);font-weight:700;font-size:1.2rem;color:var(--accent);width:26px;flex:none}
+  .dhead h3{font-size:1.18rem;margin-right:auto}
+  .dbody{padding:6px 20px 18px}
+  .field{display:grid;grid-template-columns:132px 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .field:last-child{border-bottom:none}
+  @media (max-width:640px){.field{grid-template-columns:1fr;gap:4px}}
+  .field .fl{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600;padding-top:2px}
+  .field .fc{font-size:.92rem;color:var(--ink)}
+  .field .fc.mut{color:var(--muted)}
+  .field.pick .fl{color:var(--good)} .field.pick .fc{color:var(--ink)}
+  .field.pick .fc b{color:var(--good)}
+  .field.rej .fl{color:var(--crit)}
+  .ucs{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+  .ucs li{font-size:.9rem;color:var(--muted);padding-left:15px;position:relative}
+  .ucs li::before{content:"›";position:absolute;left:0;color:var(--accent);font-weight:700}
+  .hook{font-family:var(--mono);font-size:.82rem;color:var(--ink);background:var(--surface-2);border-radius:6px;padding:8px 11px;display:inline-block}
+
+  /* build order */
+  .phases{display:flex;flex-direction:column;gap:10px}
+  .phase{display:grid;grid-template-columns:44px 1fr;gap:14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+  .phase .n{font-family:var(--display);font-weight:700;font-size:1.4rem;color:var(--accent);text-align:center}
+  .phase b{font-weight:600} .phase p{font-size:.88rem;color:var(--muted);margin-top:2px}
+  .phase .why{font-family:var(--mono);font-size:.66rem;color:var(--faint)}
+
+  .table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:.86rem;background:var(--surface)}
+  thead th{text-align:left;font-family:var(--mono);font-size:.67rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:11px 14px;border-bottom:1px solid var(--line-strong);background:var(--surface-2)}
+  tbody td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  td .lb{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+  .mini{font-family:var(--mono);font-size:.65rem;font-weight:600;padding:2px 7px;border-radius:100px;white-space:nowrap}
+  .mini.hi{color:var(--good);background:var(--good-wash)} .mini.md{color:var(--warn);background:var(--warn-wash)} .mini.lo{color:var(--muted);background:var(--surface-2)}
+
+  footer{padding:28px 0 60px;color:var(--faint);font-size:.8rem;font-family:var(--mono)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="badge-row">
+      <span class="pill accent">🛠️ StudyBar</span>
+      <span class="pill">Engineering decision doc</span>
+      <span class="pill">Local-first · Apple Silicon</span>
+    </div>
+    <h1>Feature <span class="hl">stack decisions</span></h1>
+    <p class="lede">For each proposed addition: the student use cases it serves, the recommended stack, the alternatives rejected and why, where it hooks into StudyBar's code, and effort. Ranked for a Mac-only, on-device, license-clean app.</p>
+    <div class="meta">
+      <span><b>Scope</b> 9 features</span>
+      <span><b>Constraints</b> on-device · MIT/Apache · SPM</span>
+      <span><b>Baseline</b> v1.9.0</span>
+      <span><b>Date</b> Sep 4, 2026</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head"><span class="eyebrow">How to read this</span><h2>Legend</h2></div>
+    <div class="legend">
+      <div class="leg"><b>Rank</b><div class="chips"><span class="rank lead">Lead</span><span class="rank found">Foundation</span><span class="rank sit">Situational</span><span class="rank util">Utility</span></div></div>
+      <div class="leg"><b>Effort</b><div class="chips"><span class="t s">S · ≤1 session</span><span class="t m">M · a few</span><span class="t l">L · multi-session / migration</span></div></div>
+      <div class="leg"><b>License (ships clean)</b><div class="chips"><span class="t mit">MIT</span><span class="t apache">Apache-2</span><span class="t apple">Apple · free</span><span class="t bsd">BSD</span></div></div>
+      <div class="leg"><b>Every pick is</b><div class="chips"><span class="pill">on-device</span><span class="pill">no account</span><span class="pill">Apple-Silicon-friendly</span></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="eyebrow">Leverage</span><h2>Shared infrastructure already in the app</h2>
+      <p class="lede">Several features ride on dependencies StudyBar already ships — which is why they cost less than they look, and why the build order clusters them.</p></div>
+    <div class="infra">
+      <div class="row"><div class="src">swift-transformers</div><div class="tgt"><b>#2 In-app AI</b> (tokenizer) · <b>#4 Semantic search</b> (embeddings)<span class="already">already a dep</span></div></div>
+      <div class="row"><div class="src">KaTeX WKWebView</div><div class="tgt"><b>#7 Read-aloud math</b> (KaTeX→MathML→SRE)<span class="already">already bundled</span></div></div>
+      <div class="row"><div class="src">Apple Vision</div><div class="tgt"><b>#1 Slide OCR</b> (same call as scanned-PDF OCR)<span class="already">already used</span></div></div>
+      <div class="row"><div class="src">previewText / regex</div><div class="tgt"><b>#5 Markdown</b> replaces it · <b>#7 Read-aloud</b> reuses the stripping</div></div>
+      <div class="row"><div class="src">3-way merge / iCloud</div><div class="tgt"><b>#8 Automerge</b> replaces <code>mergeLists</code> · unlocks a phone companion</div></div>
+      <div class="row"><div class="src">GRDB + sqlite-vec</div><div class="tgt"><b>#9 SQLite store</b> would also host <b>#4</b>'s vectors</div></div>
+    </div>
+  </section>
+
+  <!-- LEADS -->
+  <section>
+    <div class="section-head"><span class="eyebrow">The leads</span><h2>Ship these first</h2></div>
+
+    <article class="dcard lead">
+      <div class="dhead"><span class="num">1</span><h3>Slide OCR</h3><span class="rank lead">Lead</span><span class="t apple">Apple · free</span><span class="t s">S</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Photograph a lecture slide → text into the open note, while recording</li>
+          <li>Grab a slide already on screen (Zoom / PDF) as a region</li>
+          <li>Textbook page → flashcard; whiteboard photo → note</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>Apple Vision</b> <code>VNRecognizeTextRequest(.accurate)</code> + <b>ScreenCaptureKit</b> <code>SCScreenshotManager</code> for on-screen region grab; drag/paste image as the low-tech path.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut"><b>Tesseract</b> — less accurate on Apple, extra dep, no benefit. Vision wins on quality + it's already integrated.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">reuse Reading-module Vision OCR · add "Insert from slide" in Notes + recording bar</span></div></div>
+        <div class="field"><div class="fl">Caveat</div><div class="fc mut">Vision reads <em>printed</em> text well; math on slides degrades to plain text.</div></div>
+      </div>
+    </article>
+
+    <article class="dcard lead">
+      <div class="dhead"><span class="num">2</span><h3>In-app local AI</h3><span class="rank lead">Lead · strategic</span><span class="t mit">MIT</span><span class="t l">L</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Summarize · organize transcript · plan-my-day · flashcards-from-note · syllabus extract</li>
+          <li>All with <b>zero setup</b> — no Ollama install, works offline on a fresh machine</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>mlx-swift + mlx-swift-examples (MLXLLM)</b> running a 4-bit <b>Qwen2.5-3B-Instruct</b> (matches the qwen family you already prompt) or Llama-3.2-3B. Tokenizer via <code>swift-transformers</code>.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut"><b>llama.cpp</b> — works, but mlx is native Swift + Metal-tuned + Apple-maintained. <b>Apple FoundationModels</b> (your existing <code>OnDeviceProvider</code>) — gated to macOS 26 + Apple Intelligence; MLX runs on <em>any</em> Apple Silicon → broader zero-setup path.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">new MLXProvider: AIProvider + AIMode.onDeviceMLX · reuse JSON-action protocol + Whisper-style model download</span></div></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- RECORDER -->
+  <section>
+    <div class="section-head"><span class="eyebrow">Harden what shipped</span><h2>Recorder upgrade</h2></div>
+    <article class="dcard">
+      <div class="dhead"><span class="num">3</span><h3>Better Whisper chunking (VAD)</h3><span class="rank util">Utility</span><span class="t mit">MIT</span><span class="t bsd">BSD</span><span class="t m">S→M</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Cut chunks at real pauses; kill the intermittent blank / len-0 chunks</li>
+          <li>Less lag between speech and transcript on long lectures</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>WebRTC VAD / libfvad</b> (BSD, tiny C, no ML runtime) for a pragmatic robust VAD — <em>or</em> <b>Silero VAD converted to Core ML</b> (MIT) for best accuracy, still native.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut">Bundling <b>onnxruntime</b> just for VAD — too heavy for the payoff. Convert Silero to Core ML instead if you want the ML model.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">replace the RMS-threshold logic in VoiceService.cutChunk / pause detection</span></div></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- QUALITY / SEARCH -->
+  <section>
+    <div class="section-head"><span class="eyebrow">Quality &amp; retrieval</span><h2>Cheap robustness, then search</h2></div>
+
+    <article class="dcard">
+      <div class="dhead"><span class="num">4</span><h3>Semantic note search</h3><span class="rank util">Utility</span><span class="t apache">Apache</span><span class="t m">M</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>"Find related notes" by meaning, not keyword · suggest <code>[[links]]</code> · flag near-duplicates</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>swift-transformers</b> running <b>bge-small-en-v1.5</b> / <b>all-MiniLM-L6-v2</b> as Core ML embeddings + <b>brute-force cosine in Swift</b> (you have hundreds of notes — no vector DB needed yet). Graduate to <b>USearch</b> / <b>sqlite-vec</b> at thousands.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut"><b>NLEmbedding</b> — already rejected (weaker; lost to keyword on math PDFs). This is over <em>clean note text</em> with a real sentence-transformer.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">extend UnifiedSearchView (semantic mode) · embed notes on save</span></div></div>
+      </div>
+    </article>
+
+    <article class="dcard">
+      <div class="dhead"><span class="num">5</span><h3>Robust Markdown</h3><span class="rank util">Utility</span><span class="t apache">Apache</span><span class="t m">S→M</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Kill the <code>previewText</code> regex leaks for good · reliable outline extraction · clean export</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>swift-markdown</b> (Apple, cmark-gfm) for a real <b>AST</b> — walk it for plaintext / outline. Keep KaTeX / SwiftMath for <em>rendering</em>.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut">Ripping out the renderer — swift-markdown doesn't render to SwiftUI. Use it for parsing/stripping only; keep the existing preview.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">replace Note.previewText regex chain + editor outline with AST walks</span></div></div>
+      </div>
+    </article>
+
+    <article class="dcard">
+      <div class="dhead"><span class="num">6</span><h3>Auto-tagging / NLP</h3><span class="rank util">Utility</span><span class="t apple">Apple · free</span><span class="t s">S</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Suggest tags from note content · detect note language (feed Whisper / spellcheck)</li>
+          <li>Pull key terms / people / dates for search + link suggestions</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>Apple NaturalLanguage</b> — <code>NLTagger</code> (lexicalClass, <code>.nameType</code> entities), <code>NLLanguageRecognizer</code>, <code>NLEmbedding.wordEmbedding</code> for word-level similar-terms. Nothing to bundle.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut">A bundled NER model — overkill; NaturalLanguage covers tags/entities/language on-device for free.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">feed the existing tag-autocomplete a "suggested tags" source · language → VoiceService</span></div></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- SITUATIONAL -->
+  <section>
+    <div class="section-head"><span class="eyebrow">Situational</span><h2>Scope it small</h2></div>
+    <article class="dcard">
+      <div class="dhead"><span class="num">7</span><h3>Read-aloud (TTS)</h3><span class="rank sit">Situational</span><span class="t apple">Apple · free</span><span class="t mit">Piper MIT</span><span class="t s">S→M</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Proofread an essay / notes <b>by ear</b> · accessibility · eye-rest review</li>
+          <li>Flashcard front → back audio · export note → <code>.m4a</code> for a phone (bridge)</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>AVSpeechSynthesizer</b> first (free; prefer <code>.premium</code>/<code>.enhanced</code> voices, nudge the user to download one). <b>Math layer (required for STEM):</b> run <b>SRE (Speech Rule Engine)</b> inside the already-bundled KaTeX WKWebView — KaTeX→MathML→SRE→spoken string. Upgrade voice later with <b>Piper</b>/<b>Kokoro</b>.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut"><b>Raw TTS on note text</b> — reads LaTeX as gibberish; math needs the SRE layer. <b>MathCAT</b> (Rust) is the alternative math engine but heavier than SRE-in-webview.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">note → previewText strip → SRE for $…$ → AVSpeech · export via AVSpeechSynthesizer.write(to:)</span></div></div>
+        <div class="field"><div class="fl">Reality</div><div class="fc mut">Mac-only kills the commute case; free voices are decent-not-great. Core value = proofreading + accessibility only.</div></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- FOUNDATIONS -->
+  <section>
+    <div class="section-head"><span class="eyebrow">Foundations · when the goal is sync/scale</span><h2>Big bets</h2></div>
+
+    <article class="dcard">
+      <div class="dhead"><span class="num">8</span><h3>Real multi-device sync (CRDT)</h3><span class="rank found">Foundation</span><span class="t mit">MIT</span><span class="t l">L</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Mac ↔ future iPhone conflict-free sync · offline edits merge cleanly</li>
+          <li>The delete-resurrection class solved <em>structurally</em>, not by hand</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>automerge-swift</b> (official Rust-core bindings). Transport: <b>CloudKit</b> (Automerge binary in a CKRecord) or the existing iCloud Drive file. <code>AppData</code> becomes an Automerge doc.</div></div>
+        <div class="field rej"><div class="fl">Rejected</div><div class="fc mut"><b>Yjs</b> — JS, not Swift-native. Automerge-swift is the fit and <em>replaces</em> the hand-rolled <code>mergeLists</code>.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">migrate/dual-write the JSON store to an Automerge doc · retire AppData.merged</span></div></div>
+      </div>
+    </article>
+
+    <article class="dcard">
+      <div class="dhead"><span class="num">9</span><h3>SQLite store + FTS5</h3><span class="rank found">Foundation · defer</span><span class="t mit">MIT</span><span class="t l">L</span></div>
+      <div class="dbody">
+        <div class="field"><div class="fl">Use cases</div><div class="fc"><ul class="ucs">
+          <li>Fast full-text search on a heavy notebook · scale past whole-JSON loads · migrations</li>
+        </ul></div></div>
+        <div class="field pick"><div class="fl">Recommended</div><div class="fc"><b>GRDB.swift</b> — FTS5 built in, and it can load <b>sqlite-vec</b> to unify with semantic search (#4).</div></div>
+        <div class="field rej"><div class="fl">When not</div><div class="fc mut">You're at ~200 assignments / 8 notes — JSON is fine. Adopt only when it outgrows that; then it also powers #4's vectors.</div></div>
+        <div class="field"><div class="fl">Integration</div><div class="fc"><span class="hook">replace the JSON AppState store; migrate on first launch</span></div></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- BUILD ORDER -->
+  <section>
+    <div class="section-head"><span class="eyebrow">Sequencing</span><h2>Build order</h2>
+      <p class="lede">By value-per-effort and shared infrastructure — cheap wins and recorder-hardening first, the strategic AI bet next, foundations when sync/scale is the goal.</p></div>
+    <div class="phases">
+      <div class="phase"><div class="n">1</div><div><b>Slide OCR</b> <span class="why">(#1 · S · reuses Vision)</span><p>Ship the capture-loop win — desk-native, small, no new deps.</p></div></div>
+      <div class="phase"><div class="n">2</div><div><b>VAD chunking</b> <span class="why">(#3 · S→M)</span><p>Harden the recorder you just shipped — fewer blank chunks, less lag.</p></div></div>
+      <div class="phase"><div class="n">3</div><div><b>Auto-tags + swift-markdown</b> <span class="why">(#6, #5 · S / S→M)</span><p>Cheap quality &amp; robustness; kills the previewText leaks.</p></div></div>
+      <div class="phase"><div class="n">4</div><div><b>MLX in-app AI</b> <span class="why">(#2 · L · strategic)</span><p>Zero-setup AI; brings swift-transformers into first-class use.</p></div></div>
+      <div class="phase"><div class="n">5</div><div><b>Semantic search</b> <span class="why">(#4 · M · rides #4 infra)</span><p>Reuses the embedding stack from the AI work.</p></div></div>
+      <div class="phase"><div class="n">6</div><div><b>Automerge → GRDB</b> <span class="why">(#8, #9 · L)</span><p>Foundations — when multi-device sync / scale becomes the goal.</p></div></div>
+      <div class="phase"><div class="n">7</div><div><b>Read-aloud</b> <span class="why">(#7 · opportunistic)</span><p>Scoped to proofread + accessibility (AVSpeech + SRE math).</p></div></div>
+    </div>
+  </section>
+
+  <!-- SUMMARY MATRIX -->
+  <section>
+    <div class="section-head"><span class="eyebrow">At a glance</span><h2>Decision matrix</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>#</th><th>Feature</th><th>Stack</th><th>License</th><th>Effort</th><th>Rank</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><b>Slide OCR</b></td><td class="lb">Apple Vision + ScreenCaptureKit</td><td><span class="t apple">Apple</span></td><td><span class="mini lo">S</span></td><td><span class="rank lead">Lead</span></td></tr>
+          <tr><td>2</td><td><b>In-app AI</b></td><td class="lb">mlx-swift + Qwen2.5-3B</td><td><span class="t mit">MIT</span></td><td><span class="mini md">L</span></td><td><span class="rank lead">Lead</span></td></tr>
+          <tr><td>3</td><td><b>VAD chunking</b></td><td class="lb">libfvad / Silero-CoreML</td><td><span class="t bsd">BSD</span><span class="t mit">MIT</span></td><td><span class="mini lo">S→M</span></td><td><span class="rank util">Utility</span></td></tr>
+          <tr><td>4</td><td><b>Semantic search</b></td><td class="lb">swift-transformers + MiniLM</td><td><span class="t apache">Apache</span></td><td><span class="mini md">M</span></td><td><span class="rank util">Utility</span></td></tr>
+          <tr><td>5</td><td><b>Robust Markdown</b></td><td class="lb">swift-markdown (AST)</td><td><span class="t apache">Apache</span></td><td><span class="mini lo">S→M</span></td><td><span class="rank util">Utility</span></td></tr>
+          <tr><td>6</td><td><b>Auto-tagging</b></td><td class="lb">NaturalLanguage</td><td><span class="t apple">Apple</span></td><td><span class="mini lo">S</span></td><td><span class="rank util">Utility</span></td></tr>
+          <tr><td>7</td><td><b>Read-aloud</b></td><td class="lb">AVSpeech + SRE (+Piper)</td><td><span class="t apple">Apple</span><span class="t mit">MIT</span></td><td><span class="mini lo">S→M</span></td><td><span class="rank sit">Situational</span></td></tr>
+          <tr><td>8</td><td><b>CRDT sync</b></td><td class="lb">automerge-swift + CloudKit</td><td><span class="t mit">MIT</span></td><td><span class="mini md">L</span></td><td><span class="rank found">Foundation</span></td></tr>
+          <tr><td>9</td><td><b>SQLite + FTS5</b></td><td class="lb">GRDB + sqlite-vec</td><td><span class="t mit">MIT</span></td><td><span class="mini md">L</span></td><td><span class="rank found">Foundation</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap" style="padding:0">StudyBar · feature stack decisions · Sep 4, 2026 · model/library names as commonly distributed — verify version, license &amp; Apple-Silicon support before adding a dependency.</div>
+  </footer>
+
+</div>

@@ -240,7 +240,10 @@ struct OpenAIProvider: AIProvider {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var msgs: [[String: String]] = [["role": "system", "content": system]]
         msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
-        let body: [String: Any] = ["model": model, "max_tokens": 2048, "messages": msgs]
+        // 4096, not 2048: a reasoning model (DeepSeek V4, o-series) burns completion budget
+        // on hidden reasoning tokens before it writes anything, and the visible answer gets
+        // truncated — or comes back empty — at the lower cap.
+        let body: [String: Any] = ["model": model, "max_tokens": 4096, "messages": msgs]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, resp) = try await URLSession.shared.data(for: req)
