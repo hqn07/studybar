@@ -478,8 +478,16 @@ final class VoiceService: ObservableObject {
             let opts = DecodingOptions(language: whisperLang == "auto" ? nil : whisperLang,
                                        detectLanguage: whisperLang == "auto",
                                        skipSpecialTokens: true, promptTokens: promptTokens)
+            // `ensureWhisper` can return without a handle: its load task starts with
+            // `guard let self else { return }`, so if the service is torn down mid-load the
+            // task completes successfully having assigned nothing. Force-unwrapping there
+            // crashed the app in the middle of transcribing a lecture.
+            guard let engine = whisper else {
+                status = .unavailable("The speech model didn't finish loading. Try again.")
+                return nil
+            }
             // The callback streams the decoded text so far — shown live so it doesn't look stuck.
-            let results = try await whisper!.transcribe(audioPath: url.path, decodeOptions: opts) { [weak self] progress in
+            let results = try await engine.transcribe(audioPath: url.path, decodeOptions: opts) { [weak self] progress in
                 let t = progress.text
                 Task { @MainActor in if !t.isEmpty { self?.transcript = t } }
                 return nil
