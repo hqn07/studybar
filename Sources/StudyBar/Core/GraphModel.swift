@@ -206,6 +206,24 @@ enum PlotMath {
         return out
     }
 
+    /// A number for the trace readout: enough decimals to tell neighbouring pixels apart, and
+    /// no more. The calculator's twelve significant digits are right for an answer and absurd
+    /// for a cursor position — "x = -9.5231097561" is reporting picometres on a plot 38 units
+    /// wide.
+    static func readout(_ value: Double, span: Double) -> String {
+        guard value.isFinite else { return "—" }
+        guard span > 0 else { return MathEval.format(value) }
+        let resolution = span / 800           // roughly one pixel
+        let decimals = max(0, min(6, Int(ceil(-log10(resolution)))))
+        if abs(value) >= 1e6 || (abs(value) < 1e-4 && value != 0) { return MathEval.format(value) }
+        var text = String(format: "%.\(decimals)f", value)
+        if text.contains(".") {
+            while text.hasSuffix("0") { text.removeLast() }
+            if text.hasSuffix(".") { text.removeLast() }
+        }
+        return text == "-0" ? "0" : text
+    }
+
     /// A y for a given x, for the trace readout.
     static func value(_ node: MathEval.Node, at x: Double, angle: MathEval.AngleMode) -> Double? {
         let y = (try? node.eval(variables: ["x": x], angle: angle)) ?? .nan
@@ -319,7 +337,11 @@ final class GraphModel: ObservableObject {
     init() { compileSurface(); compileODE() }
 
     func addCurve(_ source: String = "") {
-        var c = PlotCurve(source: source, colorIndex: curves.count)
+        // The lowest colour nobody is using, rather than the count — add, remove, add would
+        // otherwise hand out the same blue twice.
+        let taken = Set(curves.map { $0.colorIndex % PlotCurve.palette.count })
+        let next = (0..<PlotCurve.palette.count).first { !taken.contains($0) } ?? curves.count
+        var c = PlotCurve(source: source, colorIndex: next)
         c.compile()
         curves.append(c)
     }

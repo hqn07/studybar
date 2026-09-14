@@ -328,6 +328,10 @@ enum ODE {
 
     /// A short line segment at each grid point, in plane coordinates, with its slope clamped so a
     /// near-vertical field doesn't draw a full-height stroke through the plot.
+    /// The caller passes a column and row count derived from the view's pixel size, not fixed
+    /// numbers: a fixed 22×14 grid over a window that is squared to its aspect gives cells that
+    /// are wider than they are tall, and ticks of equal length on an uneven grid read as a moiré
+    /// rather than as a field.
     static func slopeField(_ node: MathEval.Node, viewport v: Viewport, columns: Int = 22, rows: Int = 14,
                            angle: MathEval.AngleMode = .radians) -> [(from: CGPoint, to: CGPoint)] {
         guard columns > 1, rows > 1 else { return [] }
@@ -335,10 +339,20 @@ enum ODE {
         let dx = v.width / Double(columns)
         let dy = v.height / Double(rows)
         let length = min(dx, dy) * 0.42
-        for i in 0...columns {
-            let x = v.xMin + Double(i) * dx
-            for j in 0...rows {
-                let y = v.yMin + Double(j) * dy
+        // Anchored to the plane, not to the window. Placing ticks at `xMin + i·dx` makes the
+        // whole field slide with the viewport while panning, as though the field belonged to the
+        // screen rather than to the equation. Multiples of dx stay put, which is the same reason
+        // `PlotMath.ticks` snaps gridlines to multiples of their step.
+        let firstX = (v.xMin / dx).rounded(.up) * dx
+        let firstY = (v.yMin / dy).rounded(.up) * dy
+        var i = 0
+        while firstX + Double(i) * dx <= v.xMax {
+            let x = firstX + Double(i) * dx
+            i += 1
+            var j = 0
+            while firstY + Double(j) * dy <= v.yMax {
+                let y = firstY + Double(j) * dy
+                j += 1
                 guard let slope = try? node.eval(variables: ["x": x, "y": y], angle: angle),
                       slope.isFinite else { continue }
                 // Normalize so every tick is the same length: the field shows direction, and a
@@ -532,6 +546,19 @@ enum CourseMathSelfTest {
         if let node = try? MathEval.parse("x + y") {
             let field = ODE.slopeField(node, viewport: Viewport(), columns: 10, rows: 10)
             check("slope field covers the grid", "\(field.count)", "121")
+            // Reported from use: the field slid with the window while panning. Ticks belong to
+            // the plane, so panning by a fraction of a cell must not move them — every tick
+            // centre stays on a multiple of the cell size.
+            let panned = ODE.slopeField(node, viewport: Viewport().panned(dx: 0.7, dy: 0.3),
+                                        columns: 10, rows: 10)
+            let dx = Viewport().width / 10
+            func centres(_ f: [(from: CGPoint, to: CGPoint)]) -> [Double] {
+                f.map { (Double($0.from.x) + Double($0.to.x)) / 2 }
+            }
+            let offGrid = centres(panned).filter { abs(($0 / dx).rounded() * dx - $0) > 1e-6 }
+            check("panning doesn't drag the field with it", "\(offGrid.count)", "0")
+            check("the unpanned field is on the same grid",
+                  "\(centres(field).filter { abs(($0 / dx).rounded() * dx - $0) > 1e-6 }.count)", "0")
             // Every tick is the same length, or a steep region reads as "more" rather than
             // "steeper".
             let lengths = field.map { hypot($0.to.x - $0.from.x, $0.to.y - $0.from.y) }

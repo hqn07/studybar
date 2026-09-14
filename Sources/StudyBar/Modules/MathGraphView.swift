@@ -9,8 +9,11 @@ import SwiftUI
 struct MathGraphView: View {
     @ObservedObject var model: GraphModel
     @State private var traceX: Double?
+    @State private var traceY: Double?
     /// Where the drag started, in plane coordinates — panning holds that point under the mouse.
     @State private var dragAnchor: (point: CGPoint, viewport: Viewport)?
+    /// The viewport a pinch started from, so the zoom is relative to the gesture, not cumulative.
+    @State private var magnifyBase: Viewport?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +38,7 @@ struct MathGraphView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 2)
                     .onChanged { g in
                         if dragAnchor == nil { dragAnchor = (g.startLocation, model.viewport) }
                         guard let anchor = dragAnchor else { return }
@@ -46,10 +49,24 @@ struct MathGraphView: View {
                     }
                     .onEnded { _ in dragAnchor = nil }
             )
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { g in
+                        let base = magnifyBase ?? model.viewport
+                        if magnifyBase == nil { magnifyBase = base }
+                        // Pinching out magnifies, which means a smaller window on the plane.
+                        model.viewport = base.zoomed(by: 1 / max(0.05, g.magnification))
+                    }
+                    .onEnded { _ in magnifyBase = nil }
+            )
+            .onTapGesture(count: 2) { model.resetViewport() }
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let p): traceX = v.x(atPixel: p.x, width: size.width)
-                case .ended:         traceX = nil
+                case .active(let p):
+                    traceX = v.x(atPixel: p.x, width: size.width)
+                    traceY = v.y(atPixel: p.y, height: size.height)
+                case .ended:
+                    traceX = nil; traceY = nil
                 }
             }
             .overlay(alignment: .topLeading) { traceReadout(v) }
@@ -102,7 +119,13 @@ struct MathGraphView: View {
         if model.mode == .slopeField, let node = model.odeNode {
             // Direction ticks first: the solution curve is read against them, so it sits on top.
             var field = Path()
-            for tick in ODE.slopeField(node, viewport: v, angle: model.angle) {
+            // One tick per ~38pt of screen, so the grid is square in pixels whatever the window
+            // shape. Fixed counts gave cells wider than they were tall and the field read as a
+            // moiré pattern.
+            let columns = max(6, Int(w / 38))
+            let rows = max(4, Int(h / 38))
+            for tick in ODE.slopeField(node, viewport: v, columns: columns, rows: rows,
+                                       angle: model.angle) {
                 field.move(to: CGPoint(x: v.pixelX(tick.from.x, width: w),
                                        y: v.pixelY(tick.from.y, height: h)))
                 field.addLine(to: CGPoint(x: v.pixelX(tick.to.x, width: w),
@@ -168,11 +191,26 @@ struct MathGraphView: View {
     @ViewBuilder private func traceReadout(_ v: Viewport) -> some View {
         if let tx = traceX {
             VStack(alignment: .leading, spacing: 1) {
-                Text("x = \(MathEval.format(tx))").font(.caption2.monospacedDigit())
-                ForEach(model.curves.filter { $0.visible && $0.node != nil }) { c in
-                    if let y = PlotMath.value(c.node!, at: tx, angle: model.angle) {
-                        Text("\(shortSource(c.source)) = \(MathEval.format(y))")
-                            .font(.caption2.monospacedDigit()).foregroundStyle(c.color)
+                Text("x = \(PlotMath.readout(tx, span: v.width))").font(.caption2.monospacedDigit())
+                if model.mode == .slopeField {
+                    // A slope field has no curves to list. What the cursor is over is a direction,
+                    // so that is what the readout says.
+                    if let y = traceY {
+                        Text("y = \(PlotMath.readout(y, span: v.height))")
+                            .font(.caption2.monospacedDigit())
+                        if let node = model.odeNode,
+                           let slope = try? node.eval(variables: ["x": tx, "y": y], angle: model.angle),
+                           slope.isFinite {
+                            Text("y′ = \(PlotMath.readout(slope, span: max(abs(slope), 1) * 2))")
+                                .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ForEach(model.curves.filter { $0.visible && $0.node != nil }) { c in
+                        if let y = PlotMath.value(c.node!, at: tx, angle: model.angle) {
+                            Text("\(shortSource(c.source)) = \(PlotMath.readout(y, span: v.height))")
+                                .font(.caption2.monospacedDigit()).foregroundStyle(c.color)
+                        }
                     }
                 }
             }
@@ -231,7 +269,7 @@ struct MathGraphView: View {
                 NumberField(label: "x₀", value: $model.odeX0)
                 NumberField(label: "y₀", value: $model.odeY0)
                 Spacer()
-                Text("RK4 · \(model.angle.short)").font(.caption2).foregroundStyle(.tertiary)
+                Text("RK4 · drag to pan · double-click to reset").font(.caption2).foregroundStyle(.tertiary)
             }
         }
     }
@@ -273,7 +311,7 @@ struct MathGraphView: View {
                 Button { model.addCurve() } label: { Label("Add a function", systemImage: "plus") }
                     .buttonStyle(.borderless).font(.caption)
                 Spacer()
-                Text("Drag to pan · \(model.angle.short)")
+                Text("Drag to pan · pinch to zoom · double-click to reset · \(model.angle.short)")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }

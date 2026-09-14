@@ -153,14 +153,16 @@ final class FinanceModel: ObservableObject {
         }
     }
 
-    /// The schedule only means anything for a loan being paid down, and only up to a length
-    /// worth putting on screen.
+    /// The schedule is about a balance being paid down, and which side of zero the present value
+    /// sits on is a bookkeeping convention — a student who typed the amount as negative (money
+    /// paid out) still wants the table. Magnitudes, therefore, not signs.
     var schedule: [TVM.Period] {
         let n = Int(inputs.periods.rounded())
-        guard inputs.presentValue > 0, n > 0, n <= 600, inputs.rate >= 0 else { return [] }
+        let principal = abs(inputs.presentValue)
+        guard principal > 0, n > 0, n <= 600, inputs.rate >= 0 else { return [] }
         let payment = unknown == .payment ? solved : inputs.payment
-        return TVM.schedule(principal: inputs.presentValue, rate: inputs.rate,
-                            periods: n, payment: payment)
+        return TVM.schedule(principal: principal, rate: inputs.rate,
+                            periods: n, payment: payment.map { -abs($0) })
     }
 
     var totalInterest: Double { schedule.reduce(0) { $0 + $1.interest } }
