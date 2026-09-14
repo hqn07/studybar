@@ -5,6 +5,32 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-09-14
+
+- **Math — a calculator you can reach without leaving what you're doing** — a new module with a keypad, a tape of past results and a display you can type into, plus variables (`x = 12`), `ans`, and a visible DEG/RAD switch so `sin(30)` means what your course means. Type arithmetic into ⌘K and the answer is the first row; ⌃⌥C summons the same calculator over any app; `studybar://calculator?expr=` lets a Shortcut hand it a number. All four share one history. `0.1 + 0.2` prints `0.3`, `2pi` and `3(4)` work as written on paper, and `1,250` is a number while `max(1,2)` keeps its comma.
+
+- **Graph** — plot several functions at once, drag to pan, pinch to zoom, double-click to reset, and trace every visible curve at the same x. Asymptotes break the line rather than drawing a stroke through them, so `tan(x)` and `1/x` look right. Axes are squared, so a circle is round and the slope you read off the screen is the slope the function has.
+
+- **3D** — `z = f(x, y)` as a lit surface you can spin, coloured by height with a legend, at a resolution and domain you choose. Points where the function has no value stay holes instead of collapsing to the floor, so `sqrt(1 - x² - y²)` is a dome rather than a dome with walls.
+
+- **Slope fields for differential equations** — switch the Graph tab to *Slope field*, type `y' = …`, and see the direction field with arrowheads at a density you set, plus the solution curve through an initial condition you can move. The solver adapts its step to the equation, so one that blows up in finite time draws as a curve running to its asymptote instead of an oscillating scribble.
+
+- **Finance for engineering economy** — the five time-value variables with any one solved for, and the amortization schedule that follows, copyable as a Markdown table that pastes into a note as a real table. A set of numbers with no answer says so rather than returning a plausible wrong one.
+
+- **Lab uncertainty and linear systems** — carry each measurement's uncertainty through your own formula in quadrature, with a bar showing which measurement dominates the total and the result written the way a lab report wants it. And solve `A x = b`, with determinant and inverse, from a grid you type.
+
+- **Fixed: the app stalled while a recording ran** — moving around StudyBar during a lecture recording could freeze for seconds at a time. A check for whether an AI key exists was reading the Keychain from inside the note editor's layout, which blocks; on the first read after any update it blocked for several seconds. Main-thread layout during a recording went from 95% busy to 2%.
+
+- **Fixed: a lecture recording slowed every other module** — the microphone level was published to the whole app about thirty times a second, rebuilding the sidebar, header and whichever module you were in to redraw a strip 44 points wide.
+
+- **Fixed: "Microphone or speech access off" was a dead end** — the screen offered only *Open Privacy Settings*, and granting access changed nothing until you relaunched, because nothing on that screen asked again. It now clears when you return to Voice, and has a **Try again** button.
+
+- **Fixed: AI lists put a label on its own bullet** — a summary that introduced a list wrote `- Sign of work:` as a bullet level with the two points under it. A lead-in is now its own line with its points nested beneath, and indented sub-points render as sub-points everywhere — the reading view, print and export.
+
+- **Fixed: Calendar showed imported coursework twice** — an item that arrived from a subscribed feed and was then tracked as an assignment appeared as two rows, one carrying the `[COURSE]` tag. They are matched by the feed's own identifier now, so two genuinely different events that share a title and a time still both show.
+
+- **Calendar opens with what it already had** — subscribed feeds are fetched together rather than one after another and held briefly, so returning to the module no longer fills the week in piecemeal. Refresh still goes to the network.
+
 ## [2.2.0] — 2026-09-09
 
 - **Route AI work by how much it costs to be wrong** — Settings ▸ Intelligence now assigns a stronger engine to the jobs that need accuracy (questions about a note, summaries and rewrites, turning recordings into notes, reading syllabi, spotting duplicates) while sorting and tidying stay on your local model and autocomplete always does. Each is a toggle, and the top of the screen shows which engine answers what.
