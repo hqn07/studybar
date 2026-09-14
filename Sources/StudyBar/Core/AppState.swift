@@ -263,8 +263,16 @@ final class AppState: ObservableObject {
         pomodoro.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
-        voice.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+        // Voice is the exception: while recording it publishes a new waveform ~30 times a
+        // second and a new transcript on every partial result, and forwarding all of that made
+        // *every* view observing AppState — the sidebar, the header, whichever module you were
+        // actually working in — rebuild at mic rate. That is what "the app is laggy while a
+        // lecture is recording" was. Only the coarse state is forwarded: whether a recording
+        // exists, and when it started. That is all any surface outside Voice reads (the
+        // recording bar's presence, the menu-bar clock). The meter and the live transcript are
+        // observed directly by the two views that draw them.
+        Publishers.Merge(voice.$status.map { _ in () }, voice.$startedAt.map { _ in () })
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
         BackupManager.maybeAuto(data)

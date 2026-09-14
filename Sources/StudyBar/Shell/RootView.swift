@@ -62,45 +62,7 @@ struct RootView: View {
     /// per-module `.id` swap) — so a lecture keeps recording while you take notes, check the
     /// schedule, etc., and Stop / the live clock are always one tap away.
     @ViewBuilder private var recordingBar: some View {
-        let v = state.voice
-        switch v.status {
-        case .recording:
-            Divider()
-            HStack(spacing: 10) {
-                Circle().fill(.red).frame(width: 9, height: 9)
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(recElapsed(v.startedAt)).font(.callout.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.red).contentTransition(.numericText())
-                }
-                LevelMeter(levels: v.waveform).frame(width: 44, height: 16)
-                Text("Recording").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Spacer(minLength: 8)
-                Button("Open") { openVoice() }.buttonStyle(.borderless).font(.caption)
-                Button { v.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
-                    .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(Color.red.opacity(0.06))
-            .contentShape(Rectangle()).onTapGesture { openVoice() }
-            .help("Recording — tap to open Voice, or Stop to finish")
-        case .transcribing:
-            Divider()
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("Transcribing your recording…").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Spacer(minLength: 8)
-                Button("Open") { openVoice() }.buttonStyle(.borderless).font(.caption)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(.tint.opacity(0.05))
-            .contentShape(Rectangle()).onTapGesture { openVoice() }
-        default:
-            EmptyView()
-        }
-    }
-    private func recElapsed(_ start: Date?) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(start ?? Date())))
-        return String(format: "%d:%02d", s / 60, s % 60)
+        RecordingBar(voice: state.voice, open: openVoice)
     }
     private func openVoice() {
         state.selectedModuleID = "voice"
@@ -330,6 +292,61 @@ struct RootView: View {
         .background {
             Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
+    }
+}
+
+/// The persistent recording control, pinned below every module on both surfaces.
+///
+/// Its own view, observing the recorder directly, for a performance reason: while recording,
+/// `VoiceService` publishes a waveform about thirty times a second. When this lived inside
+/// `RootView` — which observes `AppState`, which forwarded every voice change — each of those
+/// ticks invalidated the sidebar, the header and whichever module was on screen, and using the
+/// app during a lecture recording was visibly slow. `AppState` now forwards only `status` and
+/// `startedAt`, and the meter's churn stops at this bar.
+struct RecordingBar: View {
+    @ObservedObject var voice: VoiceService
+    let open: () -> Void
+
+    var body: some View {
+        switch voice.status {
+        case .recording:
+            Divider()
+            HStack(spacing: 10) {
+                Circle().fill(.red).frame(width: 9, height: 9)
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(elapsed(voice.startedAt)).font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.red).contentTransition(.numericText())
+                }
+                LevelMeter(meter: voice.meter).frame(width: 44, height: 16)
+                Text("Recording").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open", action: open).buttonStyle(.borderless).font(.caption)
+                Button { voice.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
+                    .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(Color.red.opacity(0.06))
+            .contentShape(Rectangle()).onTapGesture(perform: open)
+            .help("Recording — tap to open Voice, or Stop to finish")
+        case .transcribing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Transcribing your recording…").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open", action: open).buttonStyle(.borderless).font(.caption)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(.tint.opacity(0.05))
+            .contentShape(Rectangle()).onTapGesture(perform: open)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func elapsed(_ start: Date?) -> String {
+        let s = max(0, Int(Date().timeIntervalSince(start ?? Date())))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
