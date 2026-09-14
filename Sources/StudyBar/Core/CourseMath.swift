@@ -382,28 +382,75 @@ enum ODE {
 
     /// The solution curve through (x0, y0), integrated both ways so the initial condition sits in
     /// the middle of what is drawn rather than at its left edge.
+    ///
+    /// The step size is adaptive, and that is not a refinement — it is the difference between a
+    /// curve and a scribble. `y' = x² + y² − 75` is a Riccati equation: its solution blows up in
+    /// finite time, so y' grows like y², and a step chosen from the viewport's width (a quarter
+    /// of a unit, zoomed out) overshoots, flips sign, and rings. What reaches the screen then is
+    /// the method oscillating, which a student would read as the behaviour of their equation.
+    ///
+    /// Error control is step doubling: one whole step against two half steps, whose difference
+    /// estimates the local error. The tolerance is set from the viewport, because the only error
+    /// that matters here is one you could see — a plot 40 units tall does not care about 1e-12.
     static func solution(_ node: MathEval.Node, from x0: Double, y0: Double, viewport v: Viewport,
                          steps: Int = 400, angle: MathEval.AngleMode = .radians) -> [CGPoint] {
-        let h = v.width / Double(steps)
-        var forward: [CGPoint] = [CGPoint(x: x0, y: y0)]
-        var x = x0, y = y0
-        while x < v.xMax {
-            guard let next = step(node, x: x, y: y, h: h, angle: angle) else { break }
-            // Stop when the solution leaves the window by a wide margin: it has either blown up
-            // or is no longer the thing being looked at.
-            guard abs(next) < 1e6 else { break }
-            x += h; y = next
-            forward.append(CGPoint(x: x, y: y))
-        }
-        var backward: [CGPoint] = []
-        x = x0; y = y0
-        while x > v.xMin {
-            guard let next = step(node, x: x, y: y, h: -h, angle: angle) else { break }
-            guard abs(next) < 1e6 else { break }
-            x -= h; y = next
-            backward.append(CGPoint(x: x, y: y))
-        }
+        let backward = integrate(node, from: x0, y0: y0, viewport: v, direction: -1, angle: angle)
+        let forward = integrate(node, from: x0, y0: y0, viewport: v, direction: 1, angle: angle)
         return backward.reversed() + forward
+    }
+
+    /// Integrate in one direction until the curve leaves the window, blows up, or stalls.
+    private static func integrate(_ node: MathEval.Node, from x0: Double, y0: Double,
+                                  viewport v: Viewport, direction: Double,
+                                  angle: MathEval.AngleMode) -> [CGPoint] {
+        var out: [CGPoint] = direction > 0 ? [CGPoint(x: x0, y: y0)] : []
+        // A curve is worth following a little past the top of the window — it may come back —
+        // but a solution eight windows away has blown up and drawing it is drawing noise.
+        let escape = v.height * 8
+        let tolerance = max(v.height * 1e-6, 1e-12)
+        let hMax = v.width / 200
+        let hMin = v.width / 2_000_000     // below this the curve has a vertical asymptote
+        var h = hMax / 4
+        var x = x0, y = y0
+        var guardCount = 0
+
+        while (direction > 0 ? x < v.xMax : x > v.xMin) && guardCount < 20_000 {
+            guardCount += 1
+            // The last step lands exactly on the edge rather than past it. Overshooting draws a
+            // curve that stops a fraction beyond the window — invisible — but it also means the
+            // final point is not the value at the boundary, which is what anything reading the
+            // curve's end (a test, a trace) is asking for.
+            let remaining = direction > 0 ? v.xMax - x : x - v.xMin
+            guard remaining > 0 else { break }
+            let signedH = min(h, remaining) * direction
+            guard let whole = step(node, x: x, y: y, h: signedH, angle: angle),
+                  let half = step(node, x: x, y: y, h: signedH / 2, angle: angle),
+                  let twoHalves = step(node, x: x + signedH / 2, y: half, h: signedH / 2, angle: angle)
+            else { break }
+
+            // Richardson: the two-half-step result is a quarter-order better, and their
+            // difference over 15 estimates what the whole step got wrong.
+            let error = abs(twoHalves - whole) / 15
+            if error > tolerance && h > hMin {
+                h = max(hMin, h / 2)
+                continue                    // retry the same x with a smaller step
+            }
+            x += signedH
+            y = twoHalves + (twoHalves - whole) / 15
+            guard y.isFinite else { break }
+            if abs(y) > escape {
+                // Keep one point past the edge so the curve visibly leaves the window, but at the
+                // escape distance rather than at 1e30 — the line is identical on screen and the
+                // data stays bounded for anything that reads it.
+                out.append(CGPoint(x: x, y: y > 0 ? escape : -escape))
+                break
+            }
+            out.append(CGPoint(x: x, y: y))
+            // Grow the step again once the curve is calm, so a long flat stretch doesn't cost
+            // twenty thousand evaluations.
+            if error < tolerance / 20 { h = min(hMax, h * 2) }
+        }
+        return out
     }
 }
 
@@ -543,6 +590,32 @@ enum CourseMathSelfTest {
             let curve = ODE.solution(node, from: 0, y0: 1, viewport: v, steps: 200)
             near("RK4 on a non-autonomous equation", curve.last.map { Double($0.y) }, 0.367879, 5)
         }
+        // The equation that exposed a fixed step: y' = x² + y² − 75 is a Riccati equation whose
+        // solution blows up in finite time, so y' grows like y². With a step taken from the
+        // viewport's width the integrator overshot, flipped sign and rang — what reached the
+        // screen was dozens of oscillations that read as the behaviour of the equation.
+        // A solution curve should turn around a handful of times, not scores.
+        if let node = try? MathEval.parse("x ^ 2 + y ^ 2 - 75") {
+            let v = Viewport(xMin: -50, xMax: 50, yMin: -35, yMax: 35)
+            let curve = ODE.solution(node, from: 0, y0: 1, viewport: v)
+            var reversals = 0
+            for i in 2..<max(2, curve.count) {
+                let a = curve[i - 1].y - curve[i - 2].y
+                let b = curve[i].y - curve[i - 1].y
+                if a != 0, b != 0, (a > 0) != (b > 0) { reversals += 1 }
+            }
+            check("a blow-up is integrated, not rung", reversals <= 4 ? "few" : "\(reversals)", "few")
+            check("the curve stops once it has left the window",
+                  curve.allSatisfy { abs($0.y) <= v.height * 8 + 1 } ? "yes" : "no", "yes")
+        }
+        // A stiff decay must not overshoot into oscillation either.
+        if let node = try? MathEval.parse("-30 * y") {
+            let v = Viewport(xMin: 0, xMax: 2, yMin: -2, yMax: 2)
+            let curve = ODE.solution(node, from: 0, y0: 1, viewport: v)
+            check("a stiff decay stays positive", curve.allSatisfy { $0.y >= -1e-6 } ? "yes" : "no", "yes")
+            check("and decays", (curve.last?.y ?? 1) < 1e-6 ? "yes" : "no", "yes")
+        }
+
         if let node = try? MathEval.parse("x + y") {
             let field = ODE.slopeField(node, viewport: Viewport(), columns: 10, rows: 10)
             check("slope field covers the grid", "\(field.count)", "121")
