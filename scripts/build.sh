@@ -32,8 +32,13 @@ else
   echo "Ad-hoc signing — macOS will ask for Microphone/Speech/Keychain access again after each install."
 fi
 
+# `${SIGN_ARGS[@]+...}` rather than a bare `"${SIGN_ARGS[@]}"`: this script runs under `set -u`,
+# and bash 3.2 — which is what macOS ships and what the CI runner uses — treats an EMPTY array
+# expansion as an unbound variable and aborts. That is exactly the release path, where no signing
+# identity exists and the array is empty, so the first tagged build after this was added failed
+# while every local build passed.
 xcodebuild -project StudyBar.xcodeproj -scheme StudyBar \
-  -configuration "$CONFIG" -derivedDataPath .build "${SIGN_ARGS[@]}" build
+  -configuration "$CONFIG" -derivedDataPath .build ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build
 
 APP=$(find .build/Build/Products -name "StudyBar.app" -type d | head -1)
 echo "Built: $APP"
