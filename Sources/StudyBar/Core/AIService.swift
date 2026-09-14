@@ -141,10 +141,15 @@ enum AIConfig {
     /// memory back soon after you actually stop.
     static let ollamaAutocompleteKeepAlive = "2m"
 
+    /// Read from view bodies (`isReady` gates the ✨ menu, the proactive chip, Today's Plan my
+    /// day), so this must never block: `Keychain.has` answers from the warmed cache.
     static func hasKey(_ mode: AIMode) -> Bool {
         guard let acct = mode.keyAccount else { return false }
-        return Keychain.get(account: acct).map { !$0.isEmpty } ?? false
+        return Keychain.has(account: acct)
     }
+
+    /// Every account the UI asks about, warmed once at launch.
+    static var keyAccounts: [String] { [claudeKeyAccount, openaiKeyAccount] }
 
     static var onDeviceAvailable: Bool {
         #if canImport(FoundationModels)

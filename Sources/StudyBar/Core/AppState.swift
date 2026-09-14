@@ -275,6 +275,12 @@ final class AppState: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
+        // A warmed Keychain changes what `AIConfig.isReady` answers, and the views that ask are
+        // already observing this object — so tell them rather than making them poll.
+        NotificationCenter.default.addObserver(forName: Keychain.didWarm, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+
         BackupManager.maybeAuto(data)
 
         // Existing users (with real content) skip onboarding.
