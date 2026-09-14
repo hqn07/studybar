@@ -169,6 +169,18 @@ final class VoiceService: ObservableObject {
         }
     }
 
+    /// Drop a latched `.denied` so the module can ask again.
+    ///
+    /// `.denied` is remembered for the life of the process, and the permission it reflects is
+    /// granted *outside* the app — in System Settings, or by a prompt that was dismissed. Without
+    /// this, granting access changed nothing until the app was relaunched: the view stayed on the
+    /// "access off" screen, which never calls `start()`, so macOS was never asked again and the
+    /// user saw no prompt. Clearing on the module's appearance means coming back to Voice after
+    /// granting is enough.
+    func clearDenied() {
+        if status == .denied { status = .idle }
+    }
+
     func userStop() {
         wantsRecording = false
         if whisperMode { finishWhisperAndTranscribe() }

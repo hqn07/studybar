@@ -100,7 +100,9 @@ struct VoiceBody: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             }
-            .onAppear { updateVocab(); draftAvailable = VoiceService.draftText() != nil }
+            // Permission is granted outside the app, so coming back to this module is the
+            // moment to stop believing a remembered "denied".
+            .onAppear { voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.draftText() != nil }
             .onChange(of: courseID) { _, _ in updateVocab() }
         }
     }
@@ -344,12 +346,21 @@ struct VoiceBody: View {
     private var deniedState: some View {
         VStack(spacing: 12) {
             EmptyState(symbol: "mic.slash", title: "Microphone or speech access off",
-                       subtitle: "Allow StudyBar under System Settings ▸ Privacy & Security ▸ Microphone and Speech Recognition.")
-            Button("Open Privacy Settings") {
-                if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                    NSWorkspace.shared.open(u)
-                }
-            }.buttonStyle(.borderedProminent)
+                       subtitle: "Allow StudyBar under System Settings ▸ Privacy & Security ▸ Microphone and Speech Recognition, then try again.")
+            HStack(spacing: 8) {
+                Button("Open Privacy Settings") {
+                    if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                        NSWorkspace.shared.open(u)
+                    }
+                }.buttonStyle(.borderedProminent)
+                // Without this the screen is a dead end: granting access elsewhere leaves the
+                // module showing it, and since nothing here calls `start()`, macOS is never
+                // asked again and no prompt ever appears. The `.unavailable` state above has
+                // always had this button; this one was missing it.
+                Button("Try again") { voice.clearDenied(); voice.toggle() }.buttonStyle(.bordered)
+            }
+            Text("A rebuilt copy of StudyBar counts as a new app to macOS, so access granted to an earlier build doesn't carry over.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
     }
 
