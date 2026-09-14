@@ -69,6 +69,16 @@ enum NoteAI: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Only the actions that can emit a list carry the list rules. Proofread must not restructure
+    /// anything, and a summary is one paragraph — for those the rules are dead weight in a prompt
+    /// a 7B model is already struggling to hold.
+    var wantsListRules: Bool {
+        switch self {
+        case .keyPoints, .rewrite: return true
+        case .summarize, .proofread, .continueWriting: return false
+        }
+    }
+
     func system() -> String {
         """
         You are a writing assistant working inside a student's study note. Rules:
@@ -78,6 +88,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
         - Output ONLY the result as plain text (Markdown allowed) — no preamble, no explanation, no code fences, no surrounding quotes.
 
         Task: \(taskLine)
+        \(wantsListRules ? "\n" + NoteFormat.listRules : "")
         """
     }
 

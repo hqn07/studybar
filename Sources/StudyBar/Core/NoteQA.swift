@@ -63,6 +63,8 @@ enum NoteQA {
         never as plain text, and never with \\( \\) or \\[ \\] delimiters. Use Markdown for \
         structure, and a Markdown table when comparing things.
 
+        \(NoteFormat.listRules)
+
         Say plainly when you are unsure or when a detail depends on specifics you don't have \
         (their region, their instructor's definition, the edition of a text) — a student acting \
         on a confident wrong answer is the failure that matters here.

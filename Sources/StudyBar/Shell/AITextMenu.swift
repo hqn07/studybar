@@ -94,7 +94,12 @@ struct AITextMenu: View {
             let msgs = [AIMessage(role: .user, text: a.user(text))]
             let r: String?
             r = try? await provider.streamPlain(system: a.system(), messages: msgs, temperature: a.temperature) { p in out = p }
-            await MainActor.run { out = (r ?? out).trimmingCharacters(in: .whitespacesAndNewlines); done = true }
+            await MainActor.run {
+                // What the card shows is what Accept writes, so repair the list shape before
+                // the review rather than after it.
+                out = NoteFormat.tidy((r ?? out).trimmingCharacters(in: .whitespacesAndNewlines))
+                done = true
+            }
         }
     }
     private func replace() { if !out.isEmpty { text = out }; close() }

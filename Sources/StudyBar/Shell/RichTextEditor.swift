@@ -1802,6 +1802,29 @@ enum MathSelfTest {
         let tableHTML = MathMarkdown.html(realTable, dark: false)
         check("table becomes a <table>", tableHTML.contains("<table>") && tableHTML.contains("<th>Year</th>") ? "yes" : "no", "yes")
 
+        // Indentation survives to the page. The converter trimmed every line before matching
+        // `- `, so a sub-bullet came out a sibling of the point it belonged under — the model
+        // could not express hierarchy even when it indented correctly.
+        let nested = MathMarkdown.html("- Parent\n  - Child\n  - Child two\n- Sibling", dark: false)
+        check("a sub-list nests inside its parent item",
+              nested.contains("<li>Parent<ul><li>Child</li><li>Child two</li></ul></li>") ? "yes" : "no", "yes")
+        check("the sub-list closes before the next sibling",
+              nested.contains("</ul></li><li>Sibling</li></ul>") ? "yes" : "no", "yes")
+        check("a flat list stays one level",
+              "\(MathMarkdown.html("- a\n- b", dark: false).components(separatedBy: "<ul>").count - 1)", "1")
+        // An indent with no parent bullet above it can only go one level deep, or a model that
+        // indents by eight spaces opens three phantom lists.
+        check("an orphan indent does not open phantom lists",
+              "\(MathMarkdown.html("        - deep", dark: false).components(separatedBy: "<ul>").count - 1)", "1")
+        check("a bullet glyph is a bullet too",
+              MathMarkdown.html("• typed in the editor", dark: false).contains("<li>") ? "yes" : "no", "yes")
+        // The shape NoteFormat.tidy produces has to survive the converter it was written for.
+        let tidied = MathMarkdown.html(NoteFormat.tidy("- Sign of work:\n- Positive: same direction.\n- Negative: opposite."), dark: false)
+        check("a tidied lead-in renders as a bold line, not a bullet",
+              tidied.contains("<p><strong>Sign of work:</strong></p>") ? "yes" : "no", "yes")
+        check("the points under a tidied lead-in stay siblings",
+              tidied.contains("<li>Positive: same direction.</li><li>Negative: opposite.</li>") ? "yes" : "no", "yes")
+
         // Display math written across several lines — how models actually write it. The
         // converter is line-based and KaTeX only matches a delimiter pair inside one element,
         // so a split block used to reach the reader as raw LaTeX. Only notes that fall back to
@@ -1845,7 +1868,23 @@ enum MathSelfTest {
                 | 1    | $1,080   | $80             | $1,000        | $580    | $500                     |
                 | 2    | $540     | $40             | $500          | $540    | $0                       |
             """
-            try? MathMarkdown.html(sample, dark: false).write(toFile: out, atomically: true, encoding: .utf8)
+            // The second half is what a model actually writes when it introduces a list, run
+            // through the repair that now happens on the way into a note — so the dump shows
+            // the shape a reader will get, not the one the test author hoped for.
+            let lists = NoteFormat.tidy("""
+            ## Work
+
+            - Sign of work:
+            - **Positive work**: force and displacement are in the same direction.
+            - **Negative work**: force and displacement are in opposite directions.
+
+            - Special cases
+              - Force perpendicular to displacement does zero work.
+                - Circular motion at constant speed is the standard example.
+              - A force applied with no displacement does zero work.
+            """)
+            let page = MathMarkdown.html(sample + "\n\n" + lists, dark: false)
+            try? page.write(toFile: out, atomically: true, encoding: .utf8)
             print("  wrote \(out)")
         }
 

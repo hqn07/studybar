@@ -12,8 +12,13 @@ struct MarkdownText: View {
         }
     }
 
+    /// Indentation is read before the line is trimmed — trimming first is what made every
+    /// sub-bullet a sibling of the point it belongs under. `NoteFormat` owns the depth rule so
+    /// this, the reading view and print all agree on what "nested" means.
     @ViewBuilder private func line(_ s: String) -> some View {
         let t = s.trimmingCharacters(in: .whitespaces)
+        let depth = NoteFormat.indentLevel(s)
+        let inset = CGFloat(depth) * 14
         if t.hasPrefix("# ") {
             inline(String(t.dropFirst(2))).font(.title2.bold())
         } else if t.hasPrefix("## ") {
@@ -22,10 +27,13 @@ struct MarkdownText: View {
             inline(String(t.dropFirst(4))).font(.headline)
         } else if t.hasPrefix("- [ ] ") || t.hasPrefix("- [] ") {
             HStack(alignment: .top, spacing: 6) { Image(systemName: "square"); inline(String(t.drop(while: { $0 != "]" }).dropFirst(2))) }
+                .padding(.leading, inset)
         } else if t.lowercased().hasPrefix("- [x] ") {
             HStack(alignment: .top, spacing: 6) { Image(systemName: "checkmark.square.fill").foregroundStyle(.green); inline(String(t.dropFirst(6))).strikethrough().foregroundStyle(.secondary) }
-        } else if t.hasPrefix("- ") || t.hasPrefix("* ") {
-            HStack(alignment: .top, spacing: 6) { Text("•"); inline(String(t.dropFirst(2))) }
+                .padding(.leading, inset)
+        } else if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("• ") {
+            HStack(alignment: .top, spacing: 6) { Text(NoteFormat.bulletGlyph(depth)); inline(String(t.dropFirst(2))) }
+                .padding(.leading, inset)
         } else if t.hasPrefix("> ") {
             inline(String(t.dropFirst(2))).italic().foregroundStyle(.secondary)
                 .padding(.leading, 8).overlay(Rectangle().frame(width: 2).foregroundStyle(.tint), alignment: .leading)

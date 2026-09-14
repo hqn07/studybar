@@ -983,7 +983,9 @@ struct NoteEditor: View {
                     // Quotation marks assert the words are in the note. Check that against the
                     // notes actually sent, rather than trusting the model not to invent one.
                     let checked = QuoteCheck.verify(MathSupport.normalized(final), against: sources.map(\.body))
-                    askThread[idx].answer = checked.text
+                    // An answer can be inserted into the note, so it gets the same list repair
+                    // as anything else that lands there.
+                    askThread[idx].answer = NoteFormat.tidy(checked.text)
                     if checked.count > 0 { askUnverified[askThread[idx].id] = checked.count }
                 }
             }
@@ -1044,7 +1046,10 @@ struct NoteEditor: View {
                 // unrendered `\[…\]` in the store. Doing it before the card means what you
                 // review is what lands in the note — and it lands as `$…$`, which the editor
                 // renders inline too.
-                aiText = MathSupport.normalized((out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines))
+                // Same bargain for list shape: the prompt asks for a lead-in that isn't a
+                // bullet, and `tidy` repairs the times it comes back as one anyway.
+                aiText = NoteFormat.tidy(
+                    MathSupport.normalized((out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines)))
                 aiDone = true
                 if aiText.isEmpty { aiAction = nil }   // failed — close quietly; note untouched
             }

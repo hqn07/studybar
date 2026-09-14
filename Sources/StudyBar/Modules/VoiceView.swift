@@ -302,6 +302,8 @@ struct VoiceBody: View {
             write any math as LaTeX in $…$. Be faithful — do NOT add information that isn't in \
             the transcript, don't answer questions or editorialize. Output ONLY the notes as \
             markdown — no JSON, no code fences, no preamble.
+
+            \(NoteFormat.listRules)
             """
             let msgs = [AIMessage(role: .user, text: raw)]
             // completePlain drops Ollama's format:json (which would force a JSON blob).
@@ -314,7 +316,11 @@ struct VoiceBody: View {
                 organizing = false; organizeStream = ""
                 // Same reason as the Notes AI card: the system prompt above already asks for
                 // `$…$` and the model still returns `\[…\]`, so normalize deterministically.
-                let cleaned = MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                // `NoteFormat.tidy` is the same bargain for list shape — the rules above ask
+                // for a lead-in that isn't a bullet, and this is what happens when they don't
+                // hold and a label lands as a sibling of the points it introduces.
+                let cleaned = NoteFormat.tidy(
+                    MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)))
                 if isPlausibleNotes(cleaned) {
                     rawBeforeOrganize = raw            // keep the original — never lost, revertible
                     voice.transcript = cleaned

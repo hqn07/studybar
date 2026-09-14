@@ -92,7 +92,12 @@ private enum MathRows {
     /// math + inline markdown inside it.
     private static func blockLine(_ s: String, color: NSColor) -> AnyView? {
         let t = s.trimmingCharacters(in: .whitespaces)
+        // Read the indent before trimming it away: a sub-bullet that renders level with its
+        // parent loses the only thing that said it was a sub-bullet.
+        let depth = NoteFormat.indentLevel(s)
+        let inset = CGFloat(depth) * 14
         func styled(_ body: String, _ f: Font) -> AnyView? { inline(body, color: color).map { AnyView($0.font(f)) } }
+        func listRow<V: View>(_ v: V) -> AnyView { AnyView(v.padding(.leading, inset)) }
 
         if t.hasPrefix("### ") { return styled(String(t.dropFirst(4)), .headline) }
         if t.hasPrefix("## ")  { return styled(String(t.dropFirst(3)), .title3.bold()) }
@@ -101,7 +106,7 @@ private enum MathRows {
         if t.hasPrefix("☑ ") || t.lowercased().hasPrefix("- [x] ") {
             let body = t.hasPrefix("☑ ") ? String(t.dropFirst(2)) : String(t.dropFirst(6))
             guard let it = inline(body, color: color) else { return nil }
-            return AnyView(HStack(alignment: .top, spacing: 6) {
+            return listRow(HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "checkmark.square.fill").foregroundStyle(.green)
                 it.strikethrough().foregroundStyle(.secondary)
             })
@@ -109,11 +114,11 @@ private enum MathRows {
         if t.hasPrefix("☐ ") || t.hasPrefix("- [ ] ") || t.hasPrefix("- [] ") {
             let body = t.hasPrefix("☐ ") ? String(t.dropFirst(2)) : String(t[t.range(of: "] ")!.upperBound...])
             guard let it = inline(body, color: color) else { return nil }
-            return AnyView(HStack(alignment: .top, spacing: 6) { Image(systemName: "square"); it })
+            return listRow(HStack(alignment: .top, spacing: 6) { Image(systemName: "square"); it })
         }
         if t.hasPrefix("• ") || t.hasPrefix("- ") || t.hasPrefix("* ") {
             guard let it = inline(String(t.dropFirst(2)), color: color) else { return nil }
-            return AnyView(HStack(alignment: .top, spacing: 6) { Text("•"); it })
+            return listRow(HStack(alignment: .top, spacing: 6) { Text(NoteFormat.bulletGlyph(depth)); it })
         }
         if t.hasPrefix("> ") {
             guard let it = inline(String(t.dropFirst(2)), color: color) else { return nil }
