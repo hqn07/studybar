@@ -7,12 +7,29 @@ import SwiftUI
 /// tool. A tool that isn't built yet does not get a disabled tab.
 struct MathView: View {
     @ObservedObject private var model = CalculatorModel.shared
+    @ObservedObject private var graph = GraphModel.shared
+    @AppStorage("mathTab") private var tab = Tab.calculator.rawValue
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case calculator, graph, surface
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .calculator: return "Calculator"
+            case .graph:      return "Graph"
+            case .surface:    return "3D"
+            }
+        }
+    }
+
+    private var current: Tab { Tab(rawValue: tab) ?? .calculator }
 
     var body: some View {
         NavigationStack {
             ModulePane(title: "Math") {
                 // The one setting that changes an answer, so it sits in the header rather than
-                // in Settings: sin(30) is 0.5 in DEG and −0.988 in RAD.
+                // in Settings: sin(30) is 0.5 in DEG and −0.988 in RAD. The graphs read the same
+                // mode, so a plotted sine matches the number in the tape.
                 Picker("", selection: Binding(get: { model.angle },
                                               set: { model.angle = $0 })) {
                     ForEach(MathEval.AngleMode.allCases, id: \.self) { Text($0.short).tag($0) }
@@ -20,7 +37,20 @@ struct MathView: View {
                 .pickerStyle(.segmented).labelsHidden().frame(width: 128)
                 .help("Radians or degrees — ° always means degrees whichever is selected")
             } content: {
-                CalculatorSurface(model: model)
+                VStack(spacing: 0) {
+                    Picker("", selection: $tab) {
+                        ForEach(Tab.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden()
+                    .frame(maxWidth: 300)
+                    .padding(.horizontal, DS.Space.l).padding(.top, DS.Space.m)
+
+                    switch current {
+                    case .calculator: CalculatorSurface(model: model)
+                    case .graph:      MathGraphView(model: graph)
+                    case .surface:    MathSurfaceView(model: graph)
+                    }
+                }
             }
         }
     }
