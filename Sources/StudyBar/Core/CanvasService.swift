@@ -8,7 +8,9 @@ enum CanvasService {
         get { UserDefaults.standard.string(forKey: "canvasHost") ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: "canvasHost") }
     }
-    static var hasToken: Bool { Keychain.get(account: tokenAccount) != nil }
+    /// Cache-only, like `AIConfig.hasKey`: this is read from Settings and the Canvas banners
+    /// while they lay out, and a cold Keychain read there froze the UI for seconds.
+    static var hasToken: Bool { Keychain.has(account: tokenAccount) }
 
     // MARK: Canvas JSON
 

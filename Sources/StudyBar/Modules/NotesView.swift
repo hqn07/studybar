@@ -575,8 +575,9 @@ struct NoteEditor: View {
                 Image(systemName: showPreview ? "eye.fill" : "eye")
             }
             .buttonStyle(.borderless).foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .help("Full preview (renders Markdown & LaTeX)")
-            .onHover { setHint(showPreview ? "Back to editing" : "Preview (renders Markdown & LaTeX)", $0) }
+            .keyboardShortcut("e", modifiers: .command)
+            .help("Full preview (renders Markdown & LaTeX) — ⌘E")
+            .onHover { setHint(showPreview ? "Back to editing (⌘E)" : "Preview (renders Markdown & LaTeX) — ⌘E", $0) }
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
@@ -982,7 +983,9 @@ struct NoteEditor: View {
                     // Quotation marks assert the words are in the note. Check that against the
                     // notes actually sent, rather than trusting the model not to invent one.
                     let checked = QuoteCheck.verify(MathSupport.normalized(final), against: sources.map(\.body))
-                    askThread[idx].answer = checked.text
+                    // An answer can be inserted into the note, so it gets the same list repair
+                    // as anything else that lands there.
+                    askThread[idx].answer = NoteFormat.tidy(checked.text)
                     if checked.count > 0 { askUnverified[askThread[idx].id] = checked.count }
                 }
             }
@@ -1043,7 +1046,10 @@ struct NoteEditor: View {
                 // unrendered `\[…\]` in the store. Doing it before the card means what you
                 // review is what lands in the note — and it lands as `$…$`, which the editor
                 // renders inline too.
-                aiText = MathSupport.normalized((out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines))
+                // Same bargain for list shape: the prompt asks for a lead-in that isn't a
+                // bullet, and `tidy` repairs the times it comes back as one anyway.
+                aiText = NoteFormat.tidy(
+                    MathSupport.normalized((out ?? aiText).trimmingCharacters(in: .whitespacesAndNewlines)))
                 aiDone = true
                 if aiText.isEmpty { aiAction = nil }   // failed — close quietly; note untouched
             }
@@ -1111,9 +1117,16 @@ struct NoteEditor: View {
                     .frame(maxWidth: 680, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)   // center the reading column
                     .padding(.horizontal, 24).padding(.vertical, 20)
+                    // Selectable so a passage can be copied without entering the editor. The
+                    // math rows are SwiftMath images and stay unselectable; a note that falls
+                    // back to KaTeX is a web view, which selects on its own.
+                    .textSelection(.enabled)
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) { enterEditFromPreview() }
+                    )
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { enterEditFromPreview() }
             }
         } else if splitLive {
             VStack(spacing: 0) {
@@ -1158,7 +1171,8 @@ struct NoteEditor: View {
                 .help("Ask a question about this lecture — or about something it didn't cover")
                 Text("·").font(.caption2)
             }
-            Label("Click anywhere to edit", systemImage: "pencil").font(.caption2)
+            Label("⌘E to edit", systemImage: "pencil").font(.caption2)
+                .help("⌘E, the eye button, or a double-click in the margin. Text is selectable — drag to copy a passage.")
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16).padding(.vertical, 5)

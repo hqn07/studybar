@@ -96,6 +96,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--math-selftest") {
             exit(MathSelfTest.run())
         }
+        if CommandLine.arguments.contains("--course-selftest") {
+            exit(CourseMathSelfTest.run())
+        }
+        if CommandLine.arguments.contains("--graph-selftest") {
+            exit(GraphSelfTest.run())
+        }
+        if CommandLine.arguments.contains("--calc-selftest") {
+            exit(MathEvalSelfTest.run())
+        }
+        if CommandLine.arguments.contains("--format-selftest") {
+            exit(NoteFormatSelfTest.run())
+        }
         if CommandLine.arguments.contains("--pdf-selftest") {
             exit(PDFSelfTest.run())
         }
@@ -131,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || UserDefaults.standard.bool(forKey: "showDock") {
             NSApp.setActivationPolicy(.regular)
         }
+        // Warm the Keychain off the main thread before any view asks. `AIConfig.isReady` is read
+        // from view bodies, and a cold read there blocked the main thread for 3.6 seconds in a
+        // profile — a signature change (every update) makes macOS re-evaluate the item's access.
+        Keychain.warm(AIConfig.keyAccounts + [CanvasService.tokenAccount])
         applyAppearanceSetting()
         if let crash = CrashReporter.checkPreviousSession() {
             Diagnostics.shared.lastCrash = crash

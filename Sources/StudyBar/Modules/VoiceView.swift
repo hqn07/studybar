@@ -2,11 +2,21 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Voice Note: record a memo, transcribe it on-device, save it as a note.
+///
+/// A two-line shell around `VoiceBody` so the recorder can be observed directly. The live
+/// transcript and the ~30 Hz meter used to reach this view by way of `AppState` forwarding
+/// every `VoiceService` change, which re-rendered every other module along with it — see
+/// `RecordingBar`. `AppState` now forwards only the coarse recording state.
 struct VoiceView: View {
     @EnvironmentObject var state: AppState
-    /// The recorder now lives on AppState (app-lifetime) so recording survives leaving this
-    /// module — the view just observes and drives it.
-    private var voice: VoiceService { state.voice }
+    var body: some View { VoiceBody(voice: state.voice) }
+}
+
+struct VoiceBody: View {
+    @EnvironmentObject var state: AppState
+    /// The recorder lives on AppState (app-lifetime) so recording survives leaving this
+    /// module — this view just observes and drives it.
+    @ObservedObject var voice: VoiceService
     @State private var courseID: UUID?
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
@@ -90,7 +100,9 @@ struct VoiceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             }
-            .onAppear { updateVocab(); draftAvailable = VoiceService.draftText() != nil }
+            // Permission is granted outside the app, so coming back to this module is the
+            // moment to stop believing a remembered "denied".
+            .onAppear { voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.draftText() != nil }
             .onChange(of: courseID) { _, _ in updateVocab() }
         }
     }
@@ -195,7 +207,7 @@ struct VoiceView: View {
                 .font(.caption).foregroundStyle(.secondary)
 
             if voice.isRecording {
-                LevelMeter(levels: voice.waveform).frame(height: 42).padding(.horizontal, 36)
+                LevelMeter(meter: voice.meter).frame(height: 42).padding(.horizontal, 36)
                 Text("Aim the mic at the speaker — the bars move when it's picking up their voice.")
                     .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             }
@@ -292,6 +304,8 @@ struct VoiceView: View {
             write any math as LaTeX in $…$. Be faithful — do NOT add information that isn't in \
             the transcript, don't answer questions or editorialize. Output ONLY the notes as \
             markdown — no JSON, no code fences, no preamble.
+
+            \(NoteFormat.listRules)
             """
             let msgs = [AIMessage(role: .user, text: raw)]
             // completePlain drops Ollama's format:json (which would force a JSON blob).
@@ -304,7 +318,11 @@ struct VoiceView: View {
                 organizing = false; organizeStream = ""
                 // Same reason as the Notes AI card: the system prompt above already asks for
                 // `$…$` and the model still returns `\[…\]`, so normalize deterministically.
-                let cleaned = MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                // `NoteFormat.tidy` is the same bargain for list shape — the rules above ask
+                // for a lead-in that isn't a bullet, and this is what happens when they don't
+                // hold and a label lands as a sibling of the points it introduces.
+                let cleaned = NoteFormat.tidy(
+                    MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)))
                 if isPlausibleNotes(cleaned) {
                     rawBeforeOrganize = raw            // keep the original — never lost, revertible
                     voice.transcript = cleaned
@@ -328,12 +346,21 @@ struct VoiceView: View {
     private var deniedState: some View {
         VStack(spacing: 12) {
             EmptyState(symbol: "mic.slash", title: "Microphone or speech access off",
-                       subtitle: "Allow StudyBar under System Settings ▸ Privacy & Security ▸ Microphone and Speech Recognition.")
-            Button("Open Privacy Settings") {
-                if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                    NSWorkspace.shared.open(u)
-                }
-            }.buttonStyle(.borderedProminent)
+                       subtitle: "Allow StudyBar under System Settings ▸ Privacy & Security ▸ Microphone and Speech Recognition, then try again.")
+            HStack(spacing: 8) {
+                Button("Open Privacy Settings") {
+                    if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                        NSWorkspace.shared.open(u)
+                    }
+                }.buttonStyle(.borderedProminent)
+                // Without this the screen is a dead end: granting access elsewhere leaves the
+                // module showing it, and since nothing here calls `start()`, macOS is never
+                // asked again and no prompt ever appears. The `.unavailable` state above has
+                // always had this button; this one was missing it.
+                Button("Try again") { voice.clearDenied(); voice.toggle() }.buttonStyle(.bordered)
+            }
+            Text("A rebuilt copy of StudyBar counts as a new app to macOS, so access granted to an earlier build doesn't carry over.")
+                .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
     }
 
@@ -381,27 +408,39 @@ struct AnimatedEllipsis: View {
 /// Live input-level meter: centered bars whose height tracks recent loudness. Gray = quiet,
 /// green = good level, red = near clipping. Lets the user confirm the mic is catching the
 /// speaker (not silence, not overload).
+/// The mic level, drawn rather than built out of views.
+///
+/// It was 48 `Capsule` views in an `HStack` with an implicit animation over the whole array,
+/// rebuilt on every meter tick — about thirty times a second, and 48 bars across the 44pt
+/// recording bar is half a point each, which nobody can see. One `Canvas` pass costs no view
+/// identity, no diff and no layout, and the bar count follows the width it actually has.
 struct LevelMeter: View {
-    let levels: [Float]
+    @ObservedObject var meter: VoiceMeter
+
     var body: some View {
-        GeometryReader { geo in
-            let n = max(1, levels.count)
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(0..<levels.count, id: \.self) { i in
-                    let lv = CGFloat(max(0.02, levels[i]))
-                    Capsule()
-                        .fill(color(levels[i]))
-                        .frame(height: lv * geo.size.height)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                }
+        let levels = meter.levels
+        Canvas { ctx, size in
+            guard !levels.isEmpty, size.width > 0, size.height > 0 else { return }
+            let spacing: CGFloat = 2
+            let bars = max(1, min(levels.count, Int((size.width + spacing) / (1 + spacing))))
+            let width = (size.width - spacing * CGFloat(bars - 1)) / CGFloat(bars)
+            // Newest samples are at the end, so group from the end and keep the loudest of
+            // each group — a peak that lands in a dropped sample shouldn't vanish.
+            let per = Double(levels.count) / Double(bars)
+            for i in 0..<bars {
+                let lo = Int(Double(i) * per)
+                let hi = max(lo + 1, Int(Double(i + 1) * per))
+                let level = levels[lo..<min(hi, levels.count)].max() ?? 0
+                let h = max(1, CGFloat(max(0.02, level)) * size.height)
+                let rect = CGRect(x: CGFloat(i) * (width + spacing), y: (size.height - h) / 2,
+                                  width: width, height: h)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: min(width, h) / 2), with: .color(color(level)))
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .animation(.linear(duration: 0.05), value: levels)
-            .accessibilityHidden(true)
-            .id(n)
         }
+        .accessibilityHidden(true)
     }
+
     private func color(_ l: Float) -> Color {
-        l > 0.85 ? .red : (l > 0.14 ? .green : Color.secondary.opacity(0.35))
+        l > 0.85 ? .red : (l > 0.14 ? .green : Color.primary.opacity(0.28))
     }
 }

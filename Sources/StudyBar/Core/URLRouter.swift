@@ -6,6 +6,7 @@ import Foundation
 ///   studybar://focus?minutes=25&label=…
 ///   studybar://open?module=today
 ///   studybar://palette
+///   studybar://calculator?expr=2%2B2
 @MainActor
 enum URLRouter {
     static func handle(_ url: URL) {
@@ -23,6 +24,10 @@ enum URLRouter {
             AppActions.startFocus(minutes: q("minutes").flatMap { Int($0) }, label: q("label"))
         case "open":
             AppActions.open(module: q("module") ?? "today")
+        case "calculator", "calc":
+            // `expr` seeds the field, so a Shortcut or a script can hand the calculator a
+            // number it already has.
+            CalculatorPanel.shared.show(seed: q("expr"))
         case "palette":
             AppActions.open(module: AppState.current?.selectedModuleID ?? "today")
             AppState.current?.paletteRequested = true

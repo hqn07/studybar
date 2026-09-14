@@ -3,6 +3,27 @@ import Speech
 import AVFoundation
 import WhisperKit
 
+/// The mic level, deliberately kept off `VoiceService`.
+///
+/// Levels arrive about thirty times a second. Published on the recorder, each one invalidated
+/// every view observing it — the whole Voice module, and the recording bar that sits under every
+/// other module — to redraw a strip 44 points wide. As its own object, only the view that draws
+/// the meter is listening, and the recorder's coarse state stays cheap to observe.
+@MainActor
+final class VoiceMeter: ObservableObject {
+    static let bars = 48
+    @Published private(set) var levels: [Float] = Array(repeating: 0, count: bars)
+    /// Loudest sample still on screen — the watchdog uses it to tell a dead mic from a quiet room.
+    var peak: Float { levels.max() ?? 0 }
+
+    func push(_ level: Float) {
+        var next = levels
+        next.removeFirst(); next.append(level)
+        levels = next
+    }
+    func reset() { levels = Array(repeating: 0, count: Self.bars) }
+}
+
 /// Records a voice memo and transcribes it on-device — nothing leaves the Mac. Two engines:
 ///  • **Apple Speech** (default): live streaming transcript, instant. Segments chain past the
 ///    recognizer's ~1-minute auto-finalize so long dictation accumulates instead of resetting.
@@ -15,7 +36,9 @@ final class VoiceService: ObservableObject {
     enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
     @Published var status: Status = .idle
     @Published var transcript = ""
-    @Published var waveform: [Float] = Array(repeating: 0, count: 48)
+    /// Not `@Published`: see `VoiceMeter`. Its own object so a 30 Hz meter doesn't re-render
+    /// every view that observes the recorder.
+    let meter = VoiceMeter()
     @Published var prepProgress: Double = 0
     @Published var lastEngine = ""
     @Published private(set) var loadedModel: String?
@@ -138,12 +161,24 @@ final class VoiceService: ObservableObject {
 
     func start() {
         transcript = ""; committed = ""; currentPartial = ""; wantsRecording = true
-        waveform = Array(repeating: 0, count: 48)
+        meter.reset()
         whisperMode = useWhisper
         Task { @MainActor in
             guard await AVCaptureDevice.requestAccess(for: .audio) else { status = .denied; return }
             if whisperMode { beginWhisperRecording() } else { startAppleSpeech() }
         }
+    }
+
+    /// Drop a latched `.denied` so the module can ask again.
+    ///
+    /// `.denied` is remembered for the life of the process, and the permission it reflects is
+    /// granted *outside* the app — in System Settings, or by a prompt that was dismissed. Without
+    /// this, granting access changed nothing until the app was relaunched: the view stayed on the
+    /// "access off" screen, which never calls `start()`, so macOS was never asked again and the
+    /// user saw no prompt. Clearing on the module's appearance means coming back to Voice after
+    /// granting is enough.
+    func clearDenied() {
+        if status == .denied { status = .idle }
     }
 
     func userStop() {
@@ -194,7 +229,7 @@ final class VoiceService: ObservableObject {
     private func watchdog() {
         guard status == .recording, wantsRecording else { return }
         let elapsed = Date().timeIntervalSince(recordingStart)
-        let live = (waveform.max() ?? 0) > 0.03
+        let live = meter.peak > 0.03
         guard elapsed > 8, !everGotResult, !live else { return }
         status = .unavailable("The mic isn't picking up any sound. Grant Microphone and Speech Recognition to StudyBar in System Settings ▸ Privacy & Security (ad-hoc builds reset these on each update), then try again.")
         finish()
@@ -326,7 +361,7 @@ final class VoiceService: ObservableObject {
     nonisolated private func observe(_ buf: AVAudioPCMBuffer) {
         guard let r = Self.rms(buf) else { return }
         activity.consume(rms: r)
-        meter(rms: r)
+        pushLevel(rms: r)
     }
 
     private func maybeCutChunk() {
@@ -557,14 +592,14 @@ final class VoiceService: ObservableObject {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
             self.request?.append(buf)
-            if let r = Self.rms(buf) { self.meter(rms: r) }
+            if let r = Self.rms(buf) { self.pushLevel(rms: r) }
         }
         engine.prepare()
         return true
     }
 
     /// Throttled *before* the hop, not inside it.
-    nonisolated private func meter(rms: Float) {
+    nonisolated private func pushLevel(rms: Float) {
         let now = Date()
         meterLock.lock()
         let due = now.timeIntervalSince(lastMeterAt) > 0.033
@@ -572,9 +607,7 @@ final class VoiceService: ObservableObject {
         meterLock.unlock()
         guard due else { return }
         let level = max(0, min(1, (20 * log10(max(rms, 1e-7)) + 50) / 50))
-        Task { @MainActor in
-            var w = self.waveform; w.removeFirst(); w.append(level); self.waveform = w
-        }
+        Task { @MainActor in self.meter.push(level) }
     }
 
     private func saveDraft() {

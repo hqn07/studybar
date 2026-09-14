@@ -130,6 +130,20 @@ enum KatexAssets {
 
 // MARK: - WebView host (auto-sizes to content)
 
+/// A web view that does not keep the scroll wheel to itself.
+///
+/// This view is laid out at its full measured content height inside a SwiftUI ScrollView, so it
+/// has nothing of its own to scroll — but WKWebView still consumes every wheel event it is sent,
+/// and the enclosing scroll view never hears about them. On a note that falls back to KaTeX (any
+/// note with a table) the reading view became one tall web view and the whole note stopped
+/// scrolling, while the same note scrolled fine in the editor. Forwarding to the next responder
+/// hands the wheel back to the SwiftUI ScrollView's NSScrollView.
+private final class PassThroughWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
 struct MathWebView: NSViewRepresentable {
     let html: String
     @Binding var height: CGFloat
@@ -139,7 +153,7 @@ struct MathWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "h")
-        let web = WKWebView(frame: .zero, configuration: cfg)
+        let web = PassThroughWebView(frame: .zero, configuration: cfg)
         web.navigationDelegate = context.coordinator
         web.setValue(false, forKey: "drawsBackground")     // transparent over the popover
         if #available(macOS 12.0, *) { web.underPageBackgroundColor = .clear }
@@ -198,8 +212,12 @@ enum MathMarkdown {
         return false
     }
 
+    /// Same pipeline as `printable`, deliberately: the reading view used to call `convert`
+    /// with the raw note while print normalized and joined first, so the two disagreed about
+    /// what a note looked like. Normalizing also folds `\[…\]` into `$$…$$`, which is what
+    /// lets `joinDisplayBlocks` repair a model's multi-line display math in either delimiter.
     static func html(_ md: String, dark: Bool) -> String {
-        page(body: convert(md), dark: dark)
+        page(body: convert(joinDisplayBlocks(MathSupport.normalized(md))), dark: dark)
     }
 
     private static func page(body: String, dark: Bool) -> String {
@@ -214,6 +232,7 @@ enum MathMarkdown {
           body{color:\(fg);font:13px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;line-height:1.45;-webkit-text-size-adjust:100%;overflow:hidden;word-wrap:break-word;}
           p{margin:0 0 6px;} h1{font-size:1.5em;margin:.25em 0;} h2{font-size:1.25em;margin:.25em 0;} h3{font-size:1.08em;margin:.25em 0;}
           ul{margin:.2em 0;padding-left:1.3em;} li{margin:1px 0;}
+          ul ul{margin:0;list-style:circle;} ul ul ul{list-style:square;}
           code{background:\(codeBG);padding:1px 4px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.92em;}
           blockquote{margin:.3em 0;padding-left:.6em;border-left:2px solid currentColor;opacity:.7;}
           a{color:#0a84ff;text-decoration:none;}
@@ -238,10 +257,91 @@ enum MathMarkdown {
         """
     }
 
+    /// Put a display-math block that was written across several lines back onto one line.
+    ///
+    /// `convert` is line-based, so
+    ///
+    ///     $$Q_{\text{enclosed}}
+    ///
+    ///     = \sigma_1 A+\sigma_2 A$$
+    ///
+    /// became three separate `<p>` elements, and KaTeX matches a delimiter pair only within a
+    /// single element — so the raw LaTeX showed through while single-line `$$…$$` rendered
+    /// fine. The native renderer never had this bug (`MathSupport.displayRE` sets
+    /// `.dotMatchesLineSeparators`), which is why it only ever appeared on notes that fall
+    /// back to KaTeX: the ones with tables. Models write display math this way constantly.
+    ///
+    /// A `$$` that never closes is left exactly as it was, so a stray delimiter can't swallow
+    /// the rest of the note.
+    static func joinDisplayBlocks(_ s: String) -> String {
+        guard s.contains("$$") else { return s }
+        let lines = s.components(separatedBy: "\n")
+        var out: [String] = []
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            // An odd number of delimiters opens a block that this line doesn't close.
+            if line.components(separatedBy: "$$").count % 2 == 0 {
+                var block = [line]
+                var j = i + 1
+                var closed = false
+                while j < lines.count {
+                    block.append(lines[j])
+                    if lines[j].contains("$$") { closed = true; break }
+                    j += 1
+                }
+                if closed {
+                    // Blank lines inside the block collapse; a space keeps `\\` row breaks and
+                    // adjacent tokens from running together.
+                    out.append(block.map { $0.trimmingCharacters(in: .whitespaces) }
+                                    .filter { !$0.isEmpty }
+                                    .joined(separator: " "))
+                    i = j + 1
+                    continue
+                }
+            }
+            out.append(line)
+            i += 1
+        }
+        return out.joined(separator: "\n")
+    }
+
     private static func convert(_ md: String) -> String {
         var html = ""
-        var inList = false
-        func closeList() { if inList { html += "</ul>"; inList = false } }
+        // A stack, not a bool: a sub-list belongs *inside* the `<li>` above it, so the parent's
+        // item stays open until the nested list closes. One entry per open `<ul>`, saying
+        // whether that list's current `<li>` is still unclosed. `NoteFormat.indentLevel` is the
+        // shared depth rule — before this, every line was trimmed before `- ` was matched, so a
+        // model's indentation meant nothing and sub-points rendered as siblings.
+        /// One entry per open `<ul>`: the indent level that opened it, and whether its current
+        /// `<li>` is still unclosed. The level is stored rather than inferred from the stack
+        /// depth — two bullets indented two spaces with nothing above them are siblings, and
+        /// depth alone would make the second one a child of the first.
+        var lists: [(level: Int, itemOpen: Bool)] = []
+        func closeList() {
+            // Innermost first: close its open item, close the list; the item that contained it
+            // is the next entry down, closed on the following pass.
+            while let last = lists.popLast() {
+                if last.itemOpen { html += "</li>" }
+                html += "</ul>"
+            }
+        }
+        /// Emit one list item at `level`, opening or closing lists to get there.
+        func item(_ level: Int, _ content: String) {
+            while let last = lists.last, last.level > level {
+                if last.itemOpen { html += "</li>" }
+                html += "</ul>"
+                lists.removeLast()
+            }
+            if let last = lists.last, last.level == level {
+                if last.itemOpen { html += "</li>" }          // sibling
+            } else {
+                html += "<ul>"                                // deeper, or the first list
+                lists.append((level, false))
+            }
+            html += "<li>\(content)"
+            lists[lists.count - 1].itemOpen = true
+        }
         let lines = md.components(separatedBy: "\n")
         var i = 0
         while i < lines.count {
@@ -270,16 +370,14 @@ enum MathMarkdown {
             if t.hasPrefix("# ")   { closeList(); html += "<h1>\(inlineHTML(String(t.dropFirst(2))))</h1>"; continue }
             if t.hasPrefix("> ")   { closeList(); html += "<blockquote>\(inlineHTML(String(t.dropFirst(2))))</blockquote>"; continue }
             if t.lowercased().hasPrefix("- [x] ") {
-                if !inList { html += "<ul>"; inList = true }
-                html += "<li>☑︎ \(inlineHTML(String(t.dropFirst(6))))</li>"; continue
+                item(NoteFormat.indentLevel(rawLine), "☑︎ \(inlineHTML(String(t.dropFirst(6))))"); continue
             }
             if t.hasPrefix("- [ ] ") || t.hasPrefix("- [] ") {
-                if !inList { html += "<ul>"; inList = true }
-                html += "<li>☐ \(inlineHTML(String(t.drop(while: { $0 != "]" }).dropFirst(2))))</li>"; continue
+                item(NoteFormat.indentLevel(rawLine),
+                     "☐ \(inlineHTML(String(t.drop(while: { $0 != "]" }).dropFirst(2))))"); continue
             }
-            if t.hasPrefix("- ") || t.hasPrefix("* ") {
-                if !inList { html += "<ul>"; inList = true }
-                html += "<li>\(inlineHTML(String(t.dropFirst(2))))</li>"; continue
+            if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("• ") {
+                item(NoteFormat.indentLevel(rawLine), inlineHTML(String(t.dropFirst(2)))); continue
             }
             closeList(); html += "<p>\(inlineHTML(rawLine))</p>"
         }
@@ -318,12 +416,13 @@ enum MathMarkdown {
     /// `##` and `**` and raw LaTeX — the source, not the note.
     @MainActor
     static func printable(_ md: String) -> NSAttributedString? {
-        let body = convert(MathSupport.normalized(md))
+        let body = convert(joinDisplayBlocks(MathSupport.normalized(md)))
         let html = """
         <!doctype html><html><head><meta charset="utf-8"><style>
           body{font:11pt -apple-system,"SF Pro Text",system-ui,sans-serif;line-height:1.45;color:#000;}
           h1{font-size:17pt;margin:0 0 8pt;} h2{font-size:14pt;margin:12pt 0 4pt;} h3{font-size:12pt;margin:10pt 0 3pt;}
           p{margin:0 0 5pt;} ul{margin:2pt 0 5pt 0;} li{margin:1pt 0;}
+          ul ul{margin:0;list-style:circle;} ul ul ul{list-style:square;}
           table{border-collapse:collapse;margin:6pt 0;width:100%;}
           th,td{border:1px solid #999;padding:3pt 6pt;font-size:10pt;text-align:left;}
           th{background:#f0f0f0;font-weight:600;}

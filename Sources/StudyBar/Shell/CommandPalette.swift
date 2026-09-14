@@ -27,6 +27,9 @@ struct CommandPalette: View {
                          subtitle: "Time & Focus", symbol: "timer") {
             state.pomodoro.toggle(); isPresented = false
         })
+        out.append(.init(title: "Calculator", subtitle: "Math · ⌃⌥C", symbol: "function") {
+            isPresented = false; CalculatorPanel.shared.show()
+        })
         out.append(.init(title: "Open in Window", subtitle: "View", symbol: "macwindow") {
             WindowOpener.open?("main"); isPresented = false
         })
@@ -47,6 +50,18 @@ struct CommandPalette: View {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return actions }
         var out = actions.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.subtitle.localizedCaseInsensitiveContains(q) }
+        // Arithmetic answers itself, at the top, without opening anything. `looksCalculable`
+        // requires an operator and a successful evaluation, so a note title or a course code
+        // never turns the palette into a calculator.
+        if MathEval.looksCalculable(q),
+           let r = try? MathEval.evaluate(q, angle: CalculatorPanel.shared.model.angle) {
+            out.insert(.init(title: "= \(r.display)", subtitle: "Copy · ↩ · open in Calculator with ⌥↩",
+                             symbol: "function") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(r.display, forType: .string)
+                isPresented = false
+            }, at: 0)
+        }
         if AIConfig.isReady {
             out.append(.init(title: "Ask Assistant: “\(q)”", subtitle: "Intelligence", symbol: "sparkles") {
                 isPresented = false
