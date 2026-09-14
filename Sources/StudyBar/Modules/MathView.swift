@@ -2,22 +2,25 @@ import SwiftUI
 
 /// Math — the module the calculator lives in.
 ///
-/// Structured for tabs from the start (Calculator now; graphing and the course-shaped tools
-/// next) the way Time & Focus holds Timer/Stopwatch/Focus/History, rather than one module per
-/// tool. A tool that isn't built yet does not get a disabled tab.
+/// Tabs the way Time & Focus holds Timer/Stopwatch/Focus/History, rather than one module per
+/// tool: Calculator, Graph (functions or a slope field), 3D surfaces, Finance for engineering
+/// economy, and Tools for lab uncertainty and linear systems. A tool that isn't built yet does
+/// not get a disabled tab.
 struct MathView: View {
     @ObservedObject private var model = CalculatorModel.shared
     @ObservedObject private var graph = GraphModel.shared
     @AppStorage("mathTab") private var tab = Tab.calculator.rawValue
 
     enum Tab: String, CaseIterable, Identifiable {
-        case calculator, graph, surface
+        case calculator, graph, surface, finance, tools
         var id: String { rawValue }
         var title: String {
             switch self {
             case .calculator: return "Calculator"
             case .graph:      return "Graph"
             case .surface:    return "3D"
+            case .finance:    return "Finance"
+            case .tools:      return "Tools"
             }
         }
     }
@@ -42,13 +45,15 @@ struct MathView: View {
                         ForEach(Tab.allCases) { Text($0.title).tag($0.rawValue) }
                     }
                     .pickerStyle(.segmented).labelsHidden()
-                    .frame(maxWidth: 300)
+                    .frame(maxWidth: 460)
                     .padding(.horizontal, DS.Space.l).padding(.top, DS.Space.m)
 
                     switch current {
                     case .calculator: CalculatorSurface(model: model)
                     case .graph:      MathGraphView(model: graph)
                     case .surface:    MathSurfaceView(model: graph)
+                    case .finance:    MathFinanceView(model: FinanceModel.shared)
+                    case .tools:      MathToolsView(model: ToolsModel.shared)
                     }
                 }
             }

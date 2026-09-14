@@ -16,7 +16,7 @@ struct MathGraphView: View {
         VStack(spacing: 0) {
             plot
             Divider()
-            curveList
+            controls
         }
     }
 
@@ -99,6 +99,38 @@ struct MathGraphView: View {
                      at: CGPoint(x: axisX - 5, y: v.pixelY(y, height: h)), anchor: .trailing)
         }
 
+        if model.mode == .slopeField, let node = model.odeNode {
+            // Direction ticks first: the solution curve is read against them, so it sits on top.
+            var field = Path()
+            for tick in ODE.slopeField(node, viewport: v, angle: model.angle) {
+                field.move(to: CGPoint(x: v.pixelX(tick.from.x, width: w),
+                                       y: v.pixelY(tick.from.y, height: h)))
+                field.addLine(to: CGPoint(x: v.pixelX(tick.to.x, width: w),
+                                          y: v.pixelY(tick.to.y, height: h)))
+            }
+            ctx.stroke(field, with: .color(.primary.opacity(0.33)), lineWidth: 1.2)
+
+            if model.showSolution {
+                let points = ODE.solution(node, from: model.odeX0, y0: model.odeY0,
+                                          viewport: v, angle: model.angle)
+                var path = Path()
+                var started = false
+                for p in points {
+                    let point = CGPoint(x: v.pixelX(p.x, width: w), y: v.pixelY(p.y, height: h))
+                    guard point.y.isFinite else { continue }
+                    let clamped = CGPoint(x: point.x, y: min(max(point.y, -h), 2 * h))
+                    if started { path.addLine(to: clamped) } else { path.move(to: clamped); started = true }
+                }
+                ctx.stroke(path, with: .color(PlotCurve.palette[1]), lineWidth: 2)
+                // The initial condition, marked: the curve is one of infinitely many, and which
+                // one is the whole content of an initial-value problem.
+                let p = CGPoint(x: v.pixelX(model.odeX0, width: w), y: v.pixelY(model.odeY0, height: h))
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)),
+                           with: .color(PlotCurve.palette[1]), lineWidth: 2)
+            }
+            return
+        }
+
         for curve in model.curves where curve.visible {
             guard let node = curve.node else { continue }
             var path = Path()
@@ -172,19 +204,58 @@ struct MathGraphView: View {
 
     // MARK: - Curves
 
+    @ViewBuilder private var controls: some View {
+        VStack(spacing: DS.Space.s) {
+            Picker("", selection: $model.mode) {
+                ForEach(GraphModel.Mode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+            if model.mode == .function { curveList } else { odeControls }
+        }
+        .padding(DS.Space.l)
+    }
+
+    private var odeControls: some View {
+        VStack(spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.m) {
+                Text("y′ =").font(.callout.monospaced()).foregroundStyle(.secondary)
+                TextField("a function of x and y", text: $model.odeSource)
+                    .textFieldStyle(.plain).font(.callout.monospaced())
+                if let e = model.odeError {
+                    Text(e).font(.caption2).foregroundStyle(.orange).lineLimit(1)
+                }
+            }
+            HStack(spacing: DS.Space.m) {
+                Toggle("Solution through", isOn: $model.showSolution)
+                    .toggleStyle(.checkbox).font(.caption)
+                NumberField(label: "x₀", value: $model.odeX0)
+                NumberField(label: "y₀", value: $model.odeY0)
+                Spacer()
+                Text("RK4 · \(model.angle.short)").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
     private var curveList: some View {
         VStack(spacing: DS.Space.s) {
             ForEach(model.curves) { curve in
                 HStack(spacing: DS.Space.m) {
+                    // Hollow when nothing is being drawn, filled when it is. A solid colour dot
+                    // beside an empty row said a curve was on the plot when none was.
                     Button { toggle(curve) } label: {
                         Circle()
-                            .fill(curve.visible ? curve.color : Color.secondary.opacity(0.3))
+                            .strokeBorder(curve.color.opacity(curve.node == nil ? 0.45 : 1), lineWidth: 2)
+                            .background(Circle().fill(
+                                curve.node != nil && curve.visible ? curve.color : .clear))
                             .frame(width: 10, height: 10)
                     }
                     .buttonStyle(.plain)
+                    .disabled(curve.node == nil)
                     .help(curve.visible ? "Hide this curve" : "Show this curve")
 
-                    TextField("y = x^2", text: Binding(
+                    // A prompt, not an example: "y = x^2" as placeholder text read as a function
+                    // already typed into the row.
+                    TextField("Type a function of x", text: Binding(
                         get: { curve.source },
                         set: { model.update(curve.id, source: $0) }))
                         .textFieldStyle(.plain)
@@ -206,11 +277,32 @@ struct MathGraphView: View {
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(DS.Space.l)
     }
 
     private func toggle(_ curve: PlotCurve) {
         guard let i = model.curves.firstIndex(where: { $0.id == curve.id }) else { return }
         model.curves[i].visible.toggle()
+    }
+}
+
+/// A small labelled number field. Used wherever a tool needs a bare number rather than an
+/// expression — an initial condition, a rate, a measurement.
+struct NumberField: View {
+    let label: String
+    @Binding var value: Double
+    var width: CGFloat = 62
+
+    var body: some View {
+        HStack(spacing: DS.Space.xs) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            TextField("", text: Binding(
+                get: { MathEval.format(value) },
+                // Typed with an expression, since "1/3" and "2*pi" are things a student has in
+                // hand more often than their decimals.
+                set: { if let r = try? MathEval.evaluate($0) { value = r.value } }))
+                .textFieldStyle(.roundedBorder)
+                .font(.caption.monospacedDigit())
+                .frame(width: width)
+        }
     }
 }

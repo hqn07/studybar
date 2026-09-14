@@ -277,10 +277,46 @@ final class GraphModel: ObservableObject {
     @Published var surfaceResolution = 60
     @Published var wireframe = false
 
+    // MARK: Slope fields (MAP2302)
+
+    /// The 2D tab plots either functions of x or the direction field of y' = f(x, y). Same
+    /// viewport, same pan and zoom — a slope field is a 2D plot, not a separate module.
+    enum Mode: String, CaseIterable, Identifiable {
+        case function, slopeField
+        var id: String { rawValue }
+        var title: String { self == .function ? "Function" : "Slope field" }
+    }
+    @Published var mode = Mode.function
+    @Published var odeSource = "x + y" { didSet { compileODE() } }
+    @Published private(set) var odeNode: MathEval.Node?
+    @Published private(set) var odeError: String?
+    /// The initial condition the solution curve is drawn through.
+    @Published var odeX0: Double = 0
+    @Published var odeY0: Double = 1
+    @Published var showSolution = true
+
+    private func compileODE() {
+        let body = PlotCurve.rightHandSide(odeSource.trimmingCharacters(in: .whitespaces))
+        guard !body.isEmpty else { odeNode = nil; odeError = nil; return }
+        do {
+            let n = try MathEval.parse(body)
+            let unknown = n.names.subtracting(["x", "y"])
+            if let first = unknown.sorted().first {
+                odeNode = nil; odeError = "Unknown name “\(first)”"
+                return
+            }
+            odeNode = n; odeError = nil
+        } catch let e as MathEval.EvalError {
+            odeNode = nil; odeError = e.message
+        } catch {
+            odeNode = nil; odeError = "Couldn't read that"
+        }
+    }
+
     /// Shared with the calculator, so a plot drawn in degrees matches the numbers in the tape.
     var angle: MathEval.AngleMode { CalculatorModel.shared.angle }
 
-    init() { compileSurface() }
+    init() { compileSurface(); compileODE() }
 
     func addCurve(_ source: String = "") {
         var c = PlotCurve(source: source, colorIndex: curves.count)
