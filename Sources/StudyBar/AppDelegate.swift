@@ -96,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--math-selftest") {
             exit(MathSelfTest.run())
         }
+        if CommandLine.arguments.contains("--calc-selftest") {
+            exit(MathEvalSelfTest.run())
+        }
         if CommandLine.arguments.contains("--format-selftest") {
             exit(NoteFormatSelfTest.run())
         }
