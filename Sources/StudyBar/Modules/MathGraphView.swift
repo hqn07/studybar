@@ -119,19 +119,37 @@ struct MathGraphView: View {
         if model.mode == .slopeField, let node = model.odeNode {
             // Direction ticks first: the solution curve is read against them, so it sits on top.
             var field = Path()
-            // One tick per ~38pt of screen, so the grid is square in pixels whatever the window
-            // shape. Fixed counts gave cells wider than they were tall and the field read as a
-            // moiré pattern.
-            let columns = max(6, Int(w / 38))
-            let rows = max(4, Int(h / 38))
+            // Spacing in points, so the grid is square in pixels whatever the window shape and
+            // whatever the zoom. Fixed counts gave cells wider than they were tall, and the
+            // field read as a moiré rather than as a flow.
+            let spacing = max(14, model.fieldSpacing)
+            let columns = max(6, Int(w / spacing))
+            let rows = max(4, Int(h / spacing))
             for tick in ODE.slopeField(node, viewport: v, columns: columns, rows: rows,
                                        angle: model.angle) {
-                field.move(to: CGPoint(x: v.pixelX(tick.from.x, width: w),
-                                       y: v.pixelY(tick.from.y, height: h)))
-                field.addLine(to: CGPoint(x: v.pixelX(tick.to.x, width: w),
-                                          y: v.pixelY(tick.to.y, height: h)))
+                let from = CGPoint(x: v.pixelX(tick.from.x, width: w),
+                                   y: v.pixelY(tick.from.y, height: h))
+                let to = CGPoint(x: v.pixelX(tick.to.x, width: w),
+                                 y: v.pixelY(tick.to.y, height: h))
+                field.move(to: from)
+                field.addLine(to: to)
+                guard model.showArrowheads else { continue }
+                // The head is built in pixel space, not plane space: a head sized in plane units
+                // would grow and shrink with the zoom, and stretch wherever the axes disagree.
+                let dx = to.x - from.x, dy = to.y - from.y
+                let length = max(1e-6, (dx * dx + dy * dy).squareRoot())
+                let ux = dx / length, uy = dy / length
+                let head = min(5.0, length * 0.55)
+                // Two barbs at ±30° off the shaft.
+                for sign in [1.0, -1.0] {
+                    let angle = 0.5236 * sign
+                    let bx = ux * cos(angle) - uy * sin(angle)
+                    let by = ux * sin(angle) + uy * cos(angle)
+                    field.move(to: to)
+                    field.addLine(to: CGPoint(x: to.x - bx * head, y: to.y - by * head))
+                }
             }
-            ctx.stroke(field, with: .color(.primary.opacity(0.33)), lineWidth: 1.2)
+            ctx.stroke(field, with: .color(.primary.opacity(0.38)), lineWidth: 1.2)
 
             if model.showSolution {
                 let points = ODE.solution(node, from: model.odeX0, y0: model.odeY0,
@@ -268,6 +286,19 @@ struct MathGraphView: View {
                     .toggleStyle(.checkbox).font(.caption)
                 NumberField(label: "x₀", value: $model.odeX0)
                 NumberField(label: "y₀", value: $model.odeY0)
+                Divider().frame(height: 14)
+                HStack(spacing: DS.Space.xs) {
+                    Text("Arrows").font(.caption2).foregroundStyle(.secondary)
+                    // Inverted: dragging right means more arrows, which is the direction the
+                    // label implies.
+                    Slider(value: Binding(get: { 90 - model.fieldSpacing },
+                                          set: { model.fieldSpacing = 90 - $0 }),
+                           in: 14...76)
+                        .frame(width: 90)
+                        .help("How densely the direction field is drawn")
+                }
+                Toggle("Heads", isOn: $model.showArrowheads)
+                    .toggleStyle(.checkbox).font(.caption2)
                 Spacer()
                 Text("RK4 · drag to pan · double-click to reset").font(.caption2).foregroundStyle(.tertiary)
             }

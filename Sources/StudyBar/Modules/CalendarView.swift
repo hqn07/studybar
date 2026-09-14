@@ -17,6 +17,9 @@ struct AgendaItem: Identifiable {
     let link: String?
     var jump: String? = nil          // module id to open on tap
     var assignmentID: UUID? = nil    // set for items already tracked as assignments
+    /// The RFC 5545 UID an item came from: the feed event's own, or the one stored on the
+    /// assignment that was materialized out of it. Identity, rather than a title match.
+    var sourceUID: String? = nil
     /// Full-title key — course-distinct (keeps the `[CODE]`), for StudyBar-vs-StudyBar dedup.
     var dedupKey: String { "\(title.lowercased())|\(Int(start.timeIntervalSince1970 / 60))" }
     /// Title minus a trailing `[CODE]` tag, plus the minute — for matching the same event
@@ -35,12 +38,19 @@ struct AgendaItem: Identifiable {
     /// title at the same time both survive. Prefer a tracked assignment, then class, feed.
     static func deduped(_ items: [AgendaItem]) -> [AgendaItem] {
         let sbStripped = Set(items.filter { $0.kind != .calendar }.map(\.strippedTitleKey))
+        // A feed event that has already been materialized into an assignment is the same thing
+        // twice. Title matching can't see it — the feed keeps the "[MAP2302]" tag the importer
+        // strips — so the agenda showed "Practice Exam 1" and "Practice Exam 1 [MAP2302]" side by
+        // side. The UID is the same item's identity, and matching on it can't collapse two
+        // genuinely different events that happen to share a title and a minute.
+        let materialized = Set(items.compactMap { $0.kind == .assignment ? $0.sourceUID : nil })
         func priority(_ k: Kind) -> Int {
             switch k { case .assignment: return 0; case .klass: return 1; case .feed: return 2; case .calendar: return 3 }
         }
         var seen = Set<String>()
         var out: [AgendaItem] = []
         for item in items.sorted(by: { priority($0.kind) < priority($1.kind) }) {
+            if item.kind == .feed, let uid = item.sourceUID, materialized.contains(uid) { continue }
             if item.kind == .calendar, sbStripped.contains(item.strippedTitleKey) { continue }
             if seen.insert(item.dedupKey).inserted { out.append(item) }
         }
@@ -304,7 +314,8 @@ struct CalendarView: View {
                         id: "feed-\(feed.id)-\(e.id)", start: s, end: e.end, allDay: false,
                         title: e.title, subtitle: feed.name.isEmpty ? "Feed" : feed.name,
                         color: state.course(feed.courseID)?.color ?? .purple,
-                        kind: .feed, link: e.url.isEmpty ? nil : e.url))
+                        kind: .feed, link: e.url.isEmpty ? nil : e.url,
+                        sourceUID: e.uid.isEmpty ? nil : e.uid))
                 }
             }
         }
@@ -318,7 +329,7 @@ struct CalendarView: View {
                     subtitle: state.course(a.courseID)?.name ?? "Due",
                     color: state.course(a.courseID)?.color ?? .orange,
                     kind: .assignment, link: a.link.isEmpty ? nil : a.link,
-                    jump: "assignments", assignmentID: a.id))
+                    jump: "assignments", assignmentID: a.id, sourceUID: a.sourceUID))
             }
         }
         // Class schedule occurrences
@@ -364,13 +375,38 @@ struct CalendarView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(24)
     }
 
-    private func reload() { if cal.authorized { cal.load(days: rangeDays) }; Task { await loadFeeds() } }
-    private func loadFeeds() async {
+    /// The refresh button: go past the cache.
+    private func reload() {
+        if cal.authorized { cal.load(days: rangeDays) }
+        CalendarService.clearFeedCache()
+        Task { await loadFeeds(force: true) }
+    }
+
+    /// Feeds are fetched together rather than one after another, and served from the cache when
+    /// they are fresh. Serial fetches over a campus connection are what made the week appear in
+    /// instalments — four feeds meant four round-trips before the last column was right.
+    private func loadFeeds(force: Bool = false) async {
         guard !state.data.icsFeeds.isEmpty else { return }
-        loadingFeeds = true
-        for feed in state.data.icsFeeds {
-            if let evs = await cal.fetchFeed(feed.url) { feedEvents[feed.id] = evs }
+        let feeds = state.data.icsFeeds
+        // Anything already cached is shown immediately, so switching back to Calendar doesn't
+        // start from an empty grid.
+        var pending: [ICSFeed] = []
+        for feed in feeds {
+            if !force, let hit = CalendarService.cachedFeed(feed.url) { feedEvents[feed.id] = hit }
+            else { pending.append(feed) }
         }
+        guard !pending.isEmpty else { return }
+        loadingFeeds = true
+        let service = cal
+        let fetched = await withTaskGroup(of: (UUID, [ICSEvent]?).self) { group -> [(UUID, [ICSEvent]?)] in
+            for feed in pending {
+                group.addTask { (feed.id, await service.feed(feed.url, force: force)) }
+            }
+            var out: [(UUID, [ICSEvent]?)] = []
+            for await result in group { out.append(result) }
+            return out
+        }
+        for (id, events) in fetched where events != nil { feedEvents[id] = events }
         // Materialize assignment-type feed events into real Assignments (deduped).
         _ = await CanvasFeedImport.run(state: state)
         loadingFeeds = false
@@ -534,9 +570,10 @@ enum CalendarDedupTest {
         var fail = 0
         func check(_ n: String, _ c: Bool) { print((c ? "  ok   " : "FAIL   ") + n); if !c { fail += 1 } }
         let t = Date(timeIntervalSince1970: 1_700_000_000)
-        func item(_ title: String, _ kind: AgendaItem.Kind) -> AgendaItem {
+        func item(_ title: String, _ kind: AgendaItem.Kind, uid: String? = nil) -> AgendaItem {
             AgendaItem(id: UUID().uuidString, start: t, end: nil, allDay: false,
-                       title: title, subtitle: "", color: .blue, kind: kind, link: nil)
+                       title: title, subtitle: "", color: .blue, kind: kind, link: nil,
+                       sourceUID: uid)
         }
         // 1. macOS-Calendar copy + StudyBar feed copy (coded) → collapse to the StudyBar one.
         let r1 = AgendaItem.deduped([item("L2 section 1.2", .calendar), item("L2 section 1.2 [MAP2302]", .feed)])
@@ -554,6 +591,20 @@ enum CalendarDedupTest {
         let r5 = AgendaItem.deduped([item("Quiz 1", .calendar), item("Quiz 1", .calendar),
                                      item("Quiz 1 [MAP2302]", .feed), item("Quiz 1 [PHY2049]", .feed)])
         check("2 cal + 2 courses → 2 kept", r5.count == 2 && r5.allSatisfy { $0.kind == .feed })
+        // 6. Reported from use: a feed event and the assignment materialized out of it appeared
+        //    as two rows, because the importer strips the "[CODE]" the feed carries. They share a
+        //    UID, which is what settles it.
+        let r6 = AgendaItem.deduped([item("Practice Exam 1 [MAP2302]", .feed, uid: "evt-1"),
+                                     item("Practice Exam 1", .assignment, uid: "evt-1")])
+        check("materialized feed event isn't shown twice", r6.count == 1)
+        check("and the assignment is the copy kept", r6.first?.kind == .assignment)
+        // 7. The same guard must not collapse two different events that share a title and a time.
+        let r7 = AgendaItem.deduped([item("Quiz 1 [MAP2302]", .feed, uid: "evt-a"),
+                                     item("Quiz 1", .assignment, uid: "evt-b")])
+        check("different UIDs are different items", r7.count == 2)
+        // 8. A feed event nobody has imported yet still shows.
+        let r8 = AgendaItem.deduped([item("Lab 3 [PHY2049]", .feed, uid: "evt-c")])
+        check("an unimported feed event is kept", r8.count == 1)
         print(fail == 0 ? "CALENDAR DEDUP TEST: ALL PASS" : "CALENDAR DEDUP TEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1
     }

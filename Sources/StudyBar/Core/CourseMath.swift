@@ -326,8 +326,9 @@ enum Uncertainty {
 /// would be comparing against the method's error.
 enum ODE {
 
-    /// A short line segment at each grid point, in plane coordinates, with its slope clamped so a
-    /// near-vertical field doesn't draw a full-height stroke through the plot.
+    /// A short segment at each grid point, in plane coordinates, oriented so that `to` is always
+    /// the downstream end — the direction x increases, which is the direction a solution is
+    /// integrated. That orientation is what lets the view put an arrowhead on it.
     /// The caller passes a column and row count derived from the view's pixel size, not fixed
     /// numbers: a fixed 22×14 grid over a window that is squared to its aspect gives cells that
     /// are wider than they are tall, and ticks of equal length on an uneven grid read as a moiré
@@ -467,6 +468,17 @@ enum CourseMathSelfTest {
             if !ok { print("       want \(want)   got \(got)") }
         }
         /// Compare to a number of decimals, since these are numerical answers, not exact ones.
+        /// For angles, where the meaningful question is "within a degree or two", not "equal to
+        /// N decimals" — a grid point lands where it lands, and the nearest one to a test point
+        /// is a degree or so off the exact spot.
+        func within(_ name: String, _ got: Double?, _ want: Double, _ tolerance: Double) {
+            guard let got else { failures += 1; print("  FAIL \(name): no answer"); return }
+            let ok = abs(got - want) <= tolerance
+            if !ok { failures += 1 }
+            print("  \(ok ? "ok  " : "FAIL") \(name)")
+            if !ok { print(String(format: "       want %.2f ± %.2f   got %.2f", want, tolerance, got)) }
+        }
+
         func near(_ name: String, _ got: Double?, _ want: Double, _ places: Int = 2) {
             guard let got else { failures += 1; print("  FAIL \(name): no answer"); return }
             check(name, String(format: "%.\(places)f", got), String(format: "%.\(places)f", want))
@@ -615,6 +627,41 @@ enum CourseMathSelfTest {
             check("a stiff decay stays positive", curve.allSatisfy { $0.y >= -1e-6 } ? "yes" : "no", "yes")
             check("and decays", (curve.last?.y ?? 1) < 1e-6 ? "yes" : "no", "yes")
         }
+
+        // "The arrows look wrong" — so check the angle that actually reaches the screen, in
+        // pixels, not the one in plane coordinates. A squared viewport maps a plane slope to the
+        // same slope on screen, with the sign flipped because screen y grows downward.
+        func pixelAngle(_ expression: String, at x: Double, y: Double) -> Double? {
+            guard let node = try? MathEval.parse(expression) else { return nil }
+            let canvas = CGSize(width: 800, height: 600)
+            let v = Viewport(xMin: -10, xMax: 10, yMin: -6, yMax: 6)
+                .squared(forAspect: canvas.width / canvas.height)
+            let ticks = ODE.slopeField(node, viewport: v, columns: 20, rows: 15)
+            // The tick nearest the point asked about.
+            guard let tick = ticks.min(by: {
+                hypot(($0.from.x + $0.to.x) / 2 - x, ($0.from.y + $0.to.y) / 2 - y)
+                    < hypot(($1.from.x + $1.to.x) / 2 - x, ($1.from.y + $1.to.y) / 2 - y)
+            }) else { return nil }
+            let dx = v.pixelX(Double(tick.to.x), width: canvas.width)
+                   - v.pixelX(Double(tick.from.x), width: canvas.width)
+            let dy = v.pixelY(Double(tick.to.y), height: canvas.height)
+                   - v.pixelY(Double(tick.from.y), height: canvas.height)
+            return atan2(-dy, dx) * 180 / .pi      // degrees above the horizontal, on screen
+        }
+        within("slope 0 draws horizontal", pixelAngle("0", at: 3, y: 2), 0, 0.01)
+        within("slope 1 draws at 45°", pixelAngle("1", at: 3, y: 2), 45, 0.01)
+        within("slope -1 draws at -45°", pixelAngle("-1", at: 3, y: 2), -45, 0.01)
+        within("a steep slope draws near-vertical", pixelAngle("50", at: 3, y: 2), 88.85, 0.05)
+        // The equation from the report: at (-10, -4.5) the slope is 45, so that arrow is steep.
+        within("the reported field is steep where the equation says so",
+               pixelAngle("x ^ 2 + y ^ 2 - 75", at: -10, y: -4.5), 88.7, 1.5)
+        // The field flips across the circle x² + y² = 75, which is this equation's structure.
+        // (Testing a point *on* the circle would test the grid, not the field: ticks sit on
+        // multiples of the cell size and rarely land on a curve.)
+        within("inside the circle the field points down",
+               pixelAngle("x ^ 2 + y ^ 2 - 75", at: 0, y: 0), -89.24, 0.5)
+        within("outside it points up",
+               pixelAngle("x ^ 2 + y ^ 2 - 75", at: 10, y: 0), 87.7, 0.5)
 
         if let node = try? MathEval.parse("x + y") {
             let field = ODE.slopeField(node, viewport: Viewport(), columns: 10, rows: 10)

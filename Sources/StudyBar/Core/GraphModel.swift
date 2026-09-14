@@ -312,6 +312,11 @@ final class GraphModel: ObservableObject {
     @Published var odeX0: Double = 0
     @Published var odeY0: Double = 1
     @Published var showSolution = true
+    /// Points of screen between arrows. A field that is too sparse reads as scattered marks
+    /// rather than a flow, and one that is too dense is a grey wash — which is right depends on
+    /// the equation and the zoom, so it is a control rather than a constant.
+    @Published var fieldSpacing: Double = 34
+    @Published var showArrowheads = true
 
     private func compileODE() {
         let body = PlotCurve.rightHandSide(odeSource.trimmingCharacters(in: .whitespaces))

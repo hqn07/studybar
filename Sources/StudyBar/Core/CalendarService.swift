@@ -74,6 +74,31 @@ final class CalendarService: ObservableObject {
     }
 
     /// Fetch + parse a subscribed iCal feed (Canvas / Google / school).
+    /// Parsed feeds, kept for the life of the process.
+    ///
+    /// The agenda re-fetched every subscribed feed over the network each time the module was
+    /// opened, serially, and drew whatever had arrived so far — so the week filled in piecemeal
+    /// and looked like it was lagging. A feed is a file that changes a few times a day; holding
+    /// the parse for a few minutes makes coming back to Calendar instant, and a refresh is still
+    /// one button away.
+    private struct CachedFeed { let events: [ICSEvent]; let fetched: Date }
+    private static var feedCache: [String: CachedFeed] = [:]
+    static let feedFreshness: TimeInterval = 300
+
+    static func cachedFeed(_ url: String) -> [ICSEvent]? {
+        guard let hit = feedCache[url], Date().timeIntervalSince(hit.fetched) < feedFreshness else { return nil }
+        return hit.events
+    }
+    static func clearFeedCache() { feedCache.removeAll() }
+
+    /// Fetch, honouring the cache unless `force` is set (the refresh button).
+    func feed(_ raw: String, force: Bool = false) async -> [ICSEvent]? {
+        if !force, let hit = Self.cachedFeed(raw) { return hit }
+        guard let events = await fetchFeed(raw) else { return nil }
+        Self.feedCache[raw] = CachedFeed(events: events, fetched: Date())
+        return events
+    }
+
     func fetchFeed(_ raw: String) async -> [ICSEvent]? {
         var s = raw.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("webcal://") { s = "https://" + s.dropFirst("webcal://".count) }
