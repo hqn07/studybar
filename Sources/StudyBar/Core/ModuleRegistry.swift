@@ -71,6 +71,9 @@ enum ModuleRegistry {
         .init(id: "wordcount", title: "Word Count", symbol: "textformat",
               category: .research) { AnyView(WordCountView()) },
 
+        .init(id: "math", title: "Math", symbol: "function",
+              category: .research) { AnyView(MathView()) },
+
         // Study
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
               category: .study) { AnyView(FlashcardsView()) },
