@@ -46,10 +46,41 @@ struct CommandPalette: View {
         return out
     }
 
+    /// The student's own material, ranked — see `PaletteSearch`, which is where the ranking
+    /// lives so it can be tested (`StudyBar --palette-selftest`).
+    ///
+    /// The palette could jump to *Notes* but not to *a note*: opening one meant the window,
+    /// the list, a mouse-only search field, then a click. This is the shortest path in the app
+    /// and it should reach the thing, not the room it lives in.
+    private var contentMatches: [Action] {
+        let hits = PaletteSearch.hits(query, data: state.data) { id in
+            state.course(id).map { $0.code.isEmpty ? $0.name : $0.code }
+        }
+        return hits.prefix(6).map { hit in
+            switch hit.kind {
+            case .note(let id):
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "note.text") {
+                    isPresented = false
+                    WindowOpener.open?("main")
+                    state.globalSearch = ""
+                    state.pendingOpenNote = id
+                    state.selectedModuleID = "notes"
+                }
+            case .assignment:
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "checklist") { go("assignments") }
+            case .deck:
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "rectangle.on.rectangle.angled") {
+                    go("flashcards")
+                }
+            }
+        }
+    }
+
     private var filtered: [Action] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return actions }
-        var out = actions.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.subtitle.localizedCaseInsensitiveContains(q) }
+        var out = contentMatches
+        out += actions.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.subtitle.localizedCaseInsensitiveContains(q) }
         // Arithmetic answers itself, at the top, without opening anything. `looksCalculable`
         // requires an operator and a successful evaluation, so a note title or a course code
         // never turns the palette into a calculator.

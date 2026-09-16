@@ -7,6 +7,7 @@ import SwiftUI
 struct TodayView: View {
     @EnvironmentObject var state: AppState
     @State private var quickTask = ""
+    @FocusState private var quickFocused: Bool
     @State private var aiLine: String?
     @State private var aiForID: UUID?
     @AppStorage("scheduleMode") private var scheduleMode = "week"
@@ -59,12 +60,15 @@ struct TodayView: View {
         ModulePane(title: greeting) { headerAccessory } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.l) {
+                    // First thing on the surface, and focused when the popover opens: a
+                    // student reaching for the menu bar mid-lecture wants to type, not to
+                    // look. Everything below is the glance.
+                    quickAddBlock
                     heroCard
                     if !overdue.isEmpty { overdueBanner }
                     weekStrip
                     planSection
                     wrapUpSection
-                    quickAddBlock
                     if !todayClasses.isEmpty {
                         section("Today", todayClasses.count, "clock") {
                             ForEach(todayClasses) { classRow($0) }
@@ -282,16 +286,34 @@ struct TodayView: View {
     private var quickAddBlock: some View {
         VStack(spacing: DS.Space.m) {
             HStack(spacing: DS.Space.m) {
-                TextField("Quick add — “essay fri for chem”", text: $quickTask, onCommit: addTask)
+                TextField("Type to capture — “essay fri for chem”, or ⌥↩ for a note",
+                          text: $quickTask, onCommit: addTask)
                     .textFieldStyle(.roundedBorder)
+                    .focused($quickFocused)
+                    .onKeyPress(.return, phases: .down) { press in
+                        // ⌥↩ files the same text as a note instead of a task.
+                        guard press.modifiers.contains(.option) else { return .ignored }
+                        addAsNote(); return .handled
+                    }
                 Button { addTask() } label: { Image(systemName: "plus.circle.fill") }
                     .buttonStyle(.borderless).disabled(quickTask.isEmpty)
-                Button { state.pendingNew = "notes"; state.selectedModuleID = "notes" } label: {
-                    Image(systemName: "note.text.badge.plus")
-                }.buttonStyle(.borderless).help("New note")
+                    .help("Add as a task (↩)")
+                Button { addAsNote() } label: { Image(systemName: "note.text.badge.plus") }
+                    .buttonStyle(.borderless).help("Add as a note (⌥↩)")
             }
             if showParsePreview { parsePreview }
+            else if let c = state.course(state.currentCourseID) {
+                // Say what it will be filed under before it happens, so the guess is never a
+                // surprise — and the parse ("for chem") still wins over the schedule.
+                HStack(spacing: 5) {
+                    Image(systemName: "clock").font(.caption2).foregroundStyle(.secondary)
+                    Text("Class now:").font(.caption2).foregroundStyle(.secondary)
+                    CourseChip(course: c)
+                }
+                .padding(.horizontal, DS.Space.xs)
+            }
         }
+        .onAppear { quickFocused = true }
     }
 
     private var parsePreview: some View {
@@ -318,9 +340,25 @@ struct TodayView: View {
         let raw = quickTask.trimmingCharacters(in: .whitespaces)
         guard !raw.isEmpty else { return }
         let p = QuickParse.parse(raw, courses: state.data.courses)
-        var a = Assignment(title: p.title, courseID: p.courseID, due: p.due)
+        var a = Assignment(title: p.title, courseID: p.courseID ?? state.currentCourseID, due: p.due)
         a.urgency = p.priority >= 2 ? 2 : nil
         state.data.assignments.append(a)
+        quickTask = ""
+    }
+
+    /// The same line, filed as a note — for the thought you have in the room rather than the
+    /// task you owe. Titled by the week and course when the schedule says which class this is.
+    private func addAsNote() {
+        let raw = quickTask.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        let p = QuickParse.parse(raw, courses: state.data.courses)
+        let courseID = p.courseID ?? state.currentCourseID
+        let code = state.course(courseID).map { $0.code.isEmpty ? $0.name : $0.code }
+        let week = SemesterWeek.noteTitlePrefix(termStart: state.data.termStart)
+        let title = [week, code].compactMap { $0 }.joined().trimmingCharacters(in: .whitespaces)
+        var note = Note(title: title, body: MathSupport.normalized(raw), courseID: courseID)
+        note.updatedAt = .now
+        state.data.notes.append(note)
         quickTask = ""
     }
 

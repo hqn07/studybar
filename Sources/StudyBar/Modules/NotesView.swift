@@ -16,11 +16,25 @@ struct NotesView: View {
     @State private var selection: UUID?         // wide window: selected note in the split
     @State private var newDraft: Note?          // wide window: a not-yet-saved new note
     @State private var search = ""
-    @State private var sort = NoteSort.updated
+    // Notes are taken on a date and looked for by that date, so "Date created" is the
+    // default order. @AppStorage, not @State: the sort a user picks is a preference, and
+    // it used to reset to "Last edited" on every launch.
+    @AppStorage("notesSort") private var sort = NoteSort.created
     @State private var scope: NoteScope = .all
 
     /// The split (list + editor) needs real width; below this we push one note at a time.
     private let splitMinWidth: CGFloat = 640
+    /// Width of the list pane in the split, dragged by the divider between the two. Persisted:
+    /// how much list you want beside a note is a working preference, not a per-session whim.
+    @AppStorage("notesListWidth") private var listWidth: Double = 268
+    /// Hide the list and give the whole pane to the note you're in. Lighter than focus mode —
+    /// the module header, the rail and the editor's own chrome all stay.
+    @AppStorage("notesListHidden") private var listHidden = false
+    /// The note that was open when you last left. Reopening to a list you then have to search
+    /// is a step; reopening to what you were reading is none.
+    @AppStorage("lastOpenNote") private var lastOpenNote = ""
+    @State private var restoredLastNote = false
+    private static let listWidthRange: ClosedRange<CGFloat> = 200...460
 
     /// Which course slice the list is showing. Tabs across the top switch it.
     enum NoteScope: Hashable { case all, untagged, course(UUID) }
@@ -55,9 +69,9 @@ struct NotesView: View {
         return list.sorted { ($0.pinned ? 1 : 0) > ($1.pinned ? 1 : 0) }
     }
 
-    /// The list broken into labelled sections: Pinned first, then — when sorting by last edited —
-    /// soft date buckets (Today / This week / Earlier). Flat (one unlabelled section) while
-    /// searching or sorting by title/created, so the header never contradicts the order.
+    /// The list broken into labelled sections: Pinned first, then soft date buckets (Today /
+    /// This week / Earlier) on whichever date the sort uses. Flat (one unlabelled section)
+    /// while searching or sorting by title, so the header never contradicts the order.
     private var notesSections: [(id: String, title: String?, notes: [Note])] {
         let all = notes
         if !search.isEmpty { return [("all", nil, all)] }
@@ -69,7 +83,7 @@ struct NotesView: View {
         // is the axis that matches how they were written — "Week 3" beside the three notes
         // the user titled that by hand. Outside a course (All / Untagged) the soft date
         // buckets stay, since weeks from different courses interleave meaninglessly.
-        if case .course = scope, sort == .updated, state.data.termStart != nil {
+        if case .course = scope, sort != .title, state.data.termStart != nil {
             var buckets: [Int: [Note]] = [:]
             var undated: [Note] = []
             for n in rest {
@@ -85,12 +99,15 @@ struct NotesView: View {
             if !undated.isEmpty { out.append(("before", "Before the term", undated)) }
             return out
         }
-        if sort == .updated {
+        if sort != .title {
+            // Bucket on the date the list is ordered by, or the headers describe one date
+            // while the rows are in the order of another.
+            let date: (Note) -> Date = sort == .created ? { $0.createdAt } : { $0.updatedAt }
             let cal = Calendar.current
             let weekAgo = cal.date(byAdding: .day, value: -7, to: .now) ?? .now
-            let today = rest.filter { cal.isDateInToday($0.updatedAt) }
-            let week = rest.filter { !cal.isDateInToday($0.updatedAt) && $0.updatedAt >= weekAgo }
-            let earlier = rest.filter { $0.updatedAt < weekAgo }
+            let today = rest.filter { cal.isDateInToday(date($0)) }
+            let week = rest.filter { !cal.isDateInToday(date($0)) && date($0) >= weekAgo }
+            let earlier = rest.filter { date($0) < weekAgo }
             for (id, t, g) in [("today", "Today", today), ("week", "This week", week), ("earlier", "Earlier", earlier)] where !g.isEmpty {
                 out.append((id, t, g))
             }
@@ -110,23 +127,61 @@ struct NotesView: View {
     var body: some View {
         GeometryReader { geo in
             let split = geo.size.width >= splitMinWidth
+            // In focus mode the note is the whole module: no "Notes" header, no list, and
+            // RootView has already dropped the rail and the window header around us.
+            let writing = state.focusMode && split && selection != nil
             NavigationStack {
-                ModulePane(title: "Notes") { toolbar(split: split) } content: {
-                    if split { splitBody } else { stackBody }
+                Group {
+                    if writing {
+                        // Nothing is drawn above the note in focus mode, so it leaves its own
+                        // room for the traffic lights floating in the titlebar strip.
+                        detailPane.padding(.top, 26)
+                    } else {
+                        ModulePane(title: "Notes") { toolbar(split: split) } content: {
+                            if split { splitBody(available: geo.size.width) } else { stackBody }
+                        }
+                    }
                 }
                 .navigationDestination(item: $editing) { target in
                     NoteEditor(note: target.note, startInPreview: target.preview, onNavigate: { id in
                         if let n = state.data.notes.first(where: { $0.id == id }) { editing = OpenNote(note: n, preview: true) }
                     })
                 }
-                .onAppear { consumePending(split: split) }
+                .onAppear { consumePending(split: split); restoreLastNote(split: split) }
+                // The first layout pass can report a zero width, so `split` is only truthful
+                // on the second — restore has to survive that, or it silently never runs.
+                .onChange(of: split) { _, s in restoreLastNote(split: s) }
                 .onChange(of: state.pendingNew) { _, _ in consumePending(split: split) }
+                .onChange(of: state.pendingOpenNote) { _, _ in consumePending(split: split) }
+                .onChange(of: selection) { _, id in if let id { lastOpenNote = id.uuidString } }
             }
         }
     }
 
     @ViewBuilder private func toolbar(split: Bool) -> some View {
         HStack(spacing: 8) {
+            if split {
+                Button { withAnimation(.snappy(duration: 0.22)) { listHidden.toggle() } } label: {
+                    Image(systemName: listHidden ? "sidebar.left" : "sidebar.leading")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(listHidden ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .help(listHidden ? "Show the note list (⇧⌘L)" : "Hide the note list — keep just this note (⇧⌘L)")
+                // Without this VoiceOver reads the SF Symbol's name — "Toggle Sidebar" — which
+                // is also what the module rail's button is called.
+                .accessibilityLabel(listHidden ? "Show the note list" : "Hide the note list")
+            }
+            // Focus mode with no note on screen (nothing selected, or a window too narrow to
+            // split) would otherwise be a room with the door painted over: the shell has hidden
+            // the rail and the header, and the editor's own exit button isn't showing either.
+            if state.focusMode {
+                Button { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode = false } } label: {
+                    Label("Exit focus", systemImage: "arrow.down.right.and.arrow.up.left")
+                }
+                .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.tint)
+                .help("Exit focus mode (⇧⌘F)")
+            }
             Menu {
                 Section("Sort") {
                     ForEach(NoteSort.allCases) { s in
@@ -181,7 +236,7 @@ struct NotesView: View {
                     LazyVStack(spacing: 6) {
                         ForEach(notesSections, id: \.id) { sec in
                             if let t = sec.title { sectionHeader(t) }
-                            ForEach(sec.notes) { n in NoteRow(note: n) { editing = OpenNote(note: n, preview: true) } }
+                            ForEach(sec.notes) { n in NoteRow(note: n, showCreated: sort == .created) { editing = OpenNote(note: n, preview: true) } }
                         }
                     }.padding(10)
                 }
@@ -191,12 +246,24 @@ struct NotesView: View {
 
     // MARK: Wide window — master-detail split
 
-    private var splitBody: some View {
-        HStack(spacing: 0) {
-            listPane.frame(width: 268)
-            Divider()
+    private func splitBody(available: CGFloat) -> some View {
+        // The editor keeps at least 340pt whatever the saved list width says, so narrowing the
+        // window squeezes the list rather than the note.
+        let maxList = max(Self.listWidthRange.lowerBound, available - 340)
+        let shown = min(CGFloat(listWidth), maxList)
+        // Hiding the list only makes sense while a note is open: with nothing selected it
+        // would leave "No note selected" and no way to select one.
+        let hideList = listHidden && selection != nil
+        return HStack(spacing: 0) {
+            if !hideList {
+                listPane.frame(width: shown)
+                PaneDivider(width: Binding(get: { CGFloat(listWidth) }, set: { listWidth = Double($0) }),
+                            range: Self.listWidthRange.lowerBound...min(Self.listWidthRange.upperBound, maxList),
+                            resetTo: 268)
+            }
             detailPane.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .animation(.snappy(duration: 0.22), value: hideList)
     }
 
     private var listPane: some View {
@@ -212,7 +279,7 @@ struct NotesView: View {
                             ForEach(notesSections, id: \.id) { sec in
                                 if let t = sec.title { sectionHeader(t) }
                                 ForEach(sec.notes) { n in
-                                    NoteRow(note: n, selected: n.id == selection) { select(n.id) }
+                                    NoteRow(note: n, selected: n.id == selection, showCreated: sort == .created) { select(n.id) }
                                         .id(n.id)
                                 }
                             }
@@ -244,7 +311,9 @@ struct NotesView: View {
     private var notesEmptyState: some View {
         EmptyState(symbol: "note.text",
                    title: state.data.notes.isEmpty ? "No notes yet" : "No matches",
-                   subtitle: state.data.notes.isEmpty ? "Capture ideas, lecture notes and reminders. Markdown supported." : "Try a different search.")
+                   subtitle: state.data.notes.isEmpty ? "Capture ideas, lecture notes and reminders. Markdown supported." : "Try a different search.",
+                   actionTitle: state.data.notes.isEmpty ? "New note" : "Clear search",
+                   action: { if state.data.notes.isEmpty { newNote(split: true) } else { search = "" } })
     }
 
     /// The note behind the current selection — a saved note, or the pending new draft.
@@ -255,8 +324,26 @@ struct NotesView: View {
 
     // MARK: Actions (fork by surface width)
 
+    /// Reopen whatever was last being read, once per appearance.
+    private func restoreLastNote(split: Bool) {
+        guard split, !restoredLastNote, selection == nil, newDraft == nil,
+              state.pendingOpenNote == nil, state.pendingNew == nil,
+              let id = UUID(uuidString: lastOpenNote),
+              state.data.notes.contains(where: { $0.id == id }) else { return }
+        restoredLastNote = true
+        selection = id
+    }
+
     private func consumePending(split: Bool) {
         if state.pendingNew == "notes" { state.pendingNew = nil; newNote(split: split) }
+
+        // A note the palette asked for: clear whatever filter would hide it, then open it.
+        if let id = state.pendingOpenNote, let note = state.data.notes.first(where: { $0.id == id }) {
+            state.pendingOpenNote = nil
+            search = ""
+            scope = .all
+            if split { selection = note.id } else { editing = OpenNote(note: note, preview: true) }
+        }
     }
     private func newNote(split: Bool) {
         var n = Note()
@@ -292,10 +379,13 @@ struct NoteRow: View {
     @EnvironmentObject var state: AppState
     let note: Note
     var selected: Bool = false
+    /// Show the created date rather than the edited one — set when the list is sorted by
+    /// creation, so the row's date is the one the reader is scanning for.
+    var showCreated: Bool = false
     let onOpen: () -> Void
 
-    init(note: Note, selected: Bool = false, onOpen: @escaping () -> Void) {
-        self.note = note; self.selected = selected; self.onOpen = onOpen
+    init(note: Note, selected: Bool = false, showCreated: Bool = false, onOpen: @escaping () -> Void) {
+        self.note = note; self.selected = selected; self.showCreated = showCreated; self.onOpen = onOpen
     }
 
     private var isEmpty: Bool { note.previewText.isEmpty }
@@ -354,7 +444,7 @@ struct NoteRow: View {
                 Text(c.code.isEmpty ? c.name : c.code).lineLimit(1)
                 Text("·")
             }
-            Text(isEmpty ? "created \(note.createdAt.relativeShort)" : "edited \(note.updatedAt.relativeShort)")
+            Text(isEmpty || showCreated ? "created \(note.createdAt.relativeShort)" : "edited \(note.updatedAt.relativeShort)")
             if !isEmpty {
                 Text("·")
                 Text("\(note.wordCount) word\(note.wordCount == 1 ? "" : "s")").monospacedDigit()
@@ -364,6 +454,10 @@ struct NoteRow: View {
             }
             if note.tags.count > 2 { Text("+\(note.tags.count - 2)") }
         }
+        // One line, truncated — not wrapped. In a narrow list "created 1 day ago" broke across
+        // two lines mid-phrase and pushed the row taller than its neighbours.
+        .lineLimit(1)
+        .truncationMode(.tail)
         .font(.caption2).foregroundStyle(.tertiary)
         .padding(.top, 1)
     }
@@ -388,7 +482,9 @@ struct NoteEditor: View {
     @State private var toolHint: String?
     @State private var liveWords = 0
     @State private var showEquation = false
-    @State private var focusMode = false
+    /// Lives on AppState, not here: the shell hides the rail and the window header for the
+    /// same flag, and it has to survive switching from one note to the next.
+    private var focusMode: Bool { state.focusMode }
     @State private var outlineHeadings: [(title: String, location: Int)] = []
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
@@ -397,13 +493,35 @@ struct NoteEditor: View {
     @State private var aiDone = false
     @State private var asking = false
     @State private var askQuestion = ""
-    @State private var askThread: [NoteQA.Turn] = []
     @State private var askLoading = false
-    @State private var askExtras: [UUID] = []      // notes attached by hand, in the order added
     @State private var askPicking = false
     @State private var askBlocked: String?      // the question the guard stopped, for the method offer
-    @State private var askUnverified: [UUID: Int] = [:]   // turn id -> quotations that weren't in the notes
+
+    // The thread, its attached notes and its quote warnings live on AppState, keyed by this
+    // note — see AppState.askThreads. Computed rather than @State so closing the panel or
+    // switching notes no longer throws the conversation away.
+    private var askThread: [NoteQA.Turn] {
+        get { state.askThreads[draft.id]?.turns ?? [] }
+        nonmutating set { state.askThreads[draft.id, default: .init()].turns = newValue }
+    }
+    private var askExtras: [UUID] {
+        get { state.askThreads[draft.id]?.extras ?? [] }
+        nonmutating set { state.askThreads[draft.id, default: .init()].extras = newValue }
+    }
+    private var askUnverified: [UUID: Int] {
+        get { state.askThreads[draft.id]?.unverified ?? [:] }
+        nonmutating set { state.askThreads[draft.id, default: .init()].unverified = newValue }
+    }
     @State private var askTask: Task<Void, Never>?
+    @State private var askPickerQuery = ""
+    @State private var askCardsBusy = false
+    @State private var askCardsNote: String?
+    @State private var askError: String?
+    /// Width of the Ask column beside the note, dragged by the rule between them. Persisted,
+    /// like the notes list width.
+    @AppStorage("askColumnWidth") private var askWidth: Double = 360
+    /// Height it falls back to when the pane is too narrow to sit two columns side by side.
+    @AppStorage("askDockHeight") private var askHeight: Double = 300
     @FocusState private var askFocused: Bool
     @State private var aiStart: Date?
     @State private var aiRange = NSRange(location: 0, length: 0)
@@ -485,9 +603,8 @@ struct NoteEditor: View {
             }
             if let defineResult { defineCard(defineResult) }
             if aiAction != nil { aiCard }
-            else if asking { askPanel }
-            else if showProactiveChip { proactiveChip }
-            editorOrPreview
+            else if showProactiveChip && !asking { proactiveChip }
+            askAndEditor
             if editor.slashQuery != nil { Divider(); slashBar }
             else if editor.linkQuery != nil { Divider(); linkAutocompleteBar }
             else if !backlinks.isEmpty && !focusMode { Divider(); backlinksBar }
@@ -582,10 +699,13 @@ struct NoteEditor: View {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
             .onHover { setHint(draft.pinned ? "Unpin note" : "Pin note", $0) }
-            Button { withAnimation(.easeInOut(duration: 0.2)) { focusMode.toggle() } } label: {
+            Button { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode.toggle() } } label: {
                 Image(systemName: focusMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
             }.buttonStyle(.borderless).foregroundStyle(focusMode ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .onHover { setHint(focusMode ? "Exit focus mode" : "Focus mode — hide the chrome", $0) }
+            // The ⇧⌘F key equivalent lives once, on the shell (RootView.shortcutKeys), so the
+            // two definitions can't both claim the chord.
+            .help(focusMode ? "Exit focus mode (⇧⌘F)" : "Focus mode — hide the list and chrome (⇧⌘F)")
+            .onHover { setHint(focusMode ? "Exit focus mode (⇧⌘F)" : "Focus mode — hide the list and chrome (⇧⌘F)", $0) }
         }.padding(12)
     }
 
@@ -736,6 +856,7 @@ struct NoteEditor: View {
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
         .padding(.horizontal, 10).padding(.vertical, 6)
+        .onExitCommand { closeAsk() }       // Esc hides it; the thread stays
     }
 
     // MARK: Ask this note
@@ -744,6 +865,41 @@ struct NoteEditor: View {
     // for a question that may go past it. Sits on the note, like every other AI surface here,
     // rather than sending you to a chat module.
 
+    /// "Ask this note" beside the note when the editor is wide enough, above it when it isn't.
+    /// Stacked was the only option, so asking about a note pushed the note off screen — the
+    /// answer and the thing it was about could never be read together.
+    @ViewBuilder private var askAndEditor: some View {
+        GeometryReader { geo in
+            // Note on the left, the conversation in its own column on the right: answers fill
+            // the column from the top and the question box sits at its bottom edge, the way a
+            // chat is built. Drag the rule between them to set the split. Only when the pane
+            // is too narrow for two columns does it fall back to a strip under the note.
+            let side = asking && geo.size.width >= 720
+            let maxCol = max(280, geo.size.width - 380)
+            let column = min(CGFloat(askWidth), maxCol)
+            let dockCap = max(180, geo.size.height - 200)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    editorOrPreview
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if asking && !side {
+                        HeightDivider(height: Binding(get: { CGFloat(askHeight) }, set: { askHeight = Double($0) }),
+                                      range: 180...dockCap, resetTo: 300)
+                        askPanel.frame(height: min(CGFloat(askHeight), dockCap))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if side {
+                    PaneDivider(width: Binding(get: { CGFloat(askWidth) }, set: { askWidth = Double($0) }),
+                                range: 280...maxCol, resetTo: 360, inverted: true)
+                    askPanel
+                        .frame(width: column)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
     private var askPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -751,56 +907,25 @@ struct NoteEditor: View {
                 Text("Ask this note").font(.caption.weight(.semibold))
                 if askLoading { ProgressView().controlSize(.small) }
                 Spacer()
-                Text((AIConfig.askMode ?? AIConfig.mode).title).font(.caption2).foregroundStyle(.secondary)
+                Text(askEngineLabel).font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).help("The engine answering here — Settings ▸ Intelligence")
                 if !askThread.isEmpty {
-                    Button { askThread = [] } label: { Image(systemName: "arrow.counterclockwise") }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Start a new thread")
+                    Button { resetAskThread() } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Start a new thread")
+                    .accessibilityLabel("Start a new thread")
                 }
                 Button { closeAsk() } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Close")
+                    .accessibilityLabel("Close Ask")
             }
 
-            if !askThread.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(askThread) { turn in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(turn.question).font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary).textSelection(.enabled)
-                                if turn.answer.isEmpty {
-                                    Text("Thinking…").font(.callout).foregroundStyle(.secondary)
-                                } else {
-                                    RichText(text: turn.answer)     // Markdown + math, same as the reading view
-                                        .textSelection(.enabled)
-                                    if let n = askUnverified[turn.id] {
-                                        Label(QuoteCheck.notice(n), systemImage: "quote.closing")
-                                            .font(.caption2).foregroundStyle(Color.dsWeek)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }.frame(maxHeight: 260)
-
-                if let blocked = askBlocked, !askLoading {
-                    HStack(spacing: 8) {
-                        Button {
-                            askBlocked = nil
-                            ask(HomeworkGuard.methodQuestion(from: blocked))
-                        } label: { Label("Explain the method instead", systemImage: "figure.walk") }
-                            .buttonStyle(.borderedProminent).controlSize(.small)
-                        Spacer()
-                    }
-                } else if let last = askThread.last, !last.answer.isEmpty, !askLoading {
-                    HStack(spacing: 8) {
-                        Button { insertAnswer(last) } label: { Label("Insert into note", systemImage: "text.insert") }
-                            .buttonStyle(.bordered).controlSize(.small)
-                        Button { copyAnswer(last) } label: { Label("Copy", systemImage: "doc.on.doc") }
-                            .buttonStyle(.bordered).controlSize(.small)
-                        Spacer()
-                    }
-                }
+            if askThread.isEmpty {
+                askEmptyState
+            } else {
+                askThreadView
+                askThreadActions
             }
 
             askContextRow
@@ -811,9 +936,18 @@ struct NoteEditor: View {
                     .textFieldStyle(.plain).font(.callout).lineLimit(1...4)
                     .focused($askFocused)
                     .onSubmit { ask() }
-                Button { ask() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) }
-                    .buttonStyle(.plain).foregroundStyle(.tint)
-                    .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty || askLoading)
+                if askLoading {
+                    // A local 7B can take half a minute. Leaving the only way out as "close the
+                    // panel" threw the thread away with it.
+                    Button { stopAsk() } label: { Image(systemName: "stop.circle.fill").font(.title3) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Stop generating")
+                        .accessibilityLabel("Stop generating")
+                } else {
+                    Button { ask() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) }
+                        .buttonStyle(.plain).foregroundStyle(.tint)
+                        .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityLabel("Ask")
+                }
             }
             .padding(8)
             .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 8))
@@ -822,6 +956,122 @@ struct NoteEditor: View {
         .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.tint.opacity(0.25)))
         .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    /// The thread, sized to its content up to a cap — a fixed-height box left dead space under
+    /// a one-line answer and hid a long one. It follows the newest turn as it streams, which a
+    /// plain ScrollView did not: an answer could finish entirely below the fold.
+    private var askThreadView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(askThread.enumerated()), id: \.element.id) { i, turn in
+                        if i > 0 { Divider().opacity(0.6) }
+                        askTurnView(turn)
+                    }
+                    Color.clear.frame(height: 1).id("askBottom")
+                }
+                .padding(.bottom, 2)
+            }
+            .frame(maxHeight: .infinity)
+            .onChange(of: askThread.count) { _, _ in scrollAsk(proxy) }
+            .onChange(of: askThread.last?.answer) { _, _ in scrollAsk(proxy) }
+        }
+    }
+
+    /// Before the first question the dock would otherwise be an empty box. Offer the two
+    /// openings that actually get used on a lecture note.
+    @ViewBuilder private var askEmptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Pinned to the bottom of the transcript, just above the box you type in — the
+            // same place the first answer will appear from.
+            Spacer(minLength: 0)
+            ForEach(["Explain this like I missed the lecture",
+                     "What would an exam ask about this?"], id: \.self) { starter in
+                Button { ask(starter) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").font(.caption2).foregroundStyle(.tint)
+                        Text(starter).font(.caption)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 5).padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+                    .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .disabled(askLoading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+    }
+
+    private func scrollAsk(_ proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("askBottom", anchor: .bottom) }
+    }
+
+    @ViewBuilder private func askTurnView(_ turn: NoteQA.Turn) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(turn.question).font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary).textSelection(.enabled)
+            if turn.answer.isEmpty {
+                Text("Thinking…").font(.callout).foregroundStyle(.secondary)
+            } else {
+                RichText(text: turn.answer)     // Markdown + math, same as the reading view
+                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    if let n = askUnverified[turn.id] {
+                        Label(QuoteCheck.notice(n), systemImage: "quote.closing")
+                            .font(.caption2).foregroundStyle(Color.dsWeek)
+                    }
+                    Spacer(minLength: 0)
+                    if !turn.engine.isEmpty {
+                        Text(turn.engine).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var askThreadActions: some View {
+        if let blocked = askBlocked, !askLoading {
+            HStack(spacing: 8) {
+                Button {
+                    askBlocked = nil
+                    ask(HomeworkGuard.methodQuestion(from: blocked))
+                } label: { Label("Explain the method instead", systemImage: "figure.walk") }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                Spacer()
+            }
+        } else if let last = askThread.last, !last.answer.isEmpty, !askLoading {
+            HStack(spacing: 8) {
+                Button { insertAnswer(last) } label: { Label("Insert into note", systemImage: "text.insert") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("Insert this answer under its question (⌘↩)")
+                Button { copyAnswer(last) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                // An answer worth keeping is usually worth revising from — and the machinery
+                // for turning text into cards already exists on the assistant surface.
+                Button { cardsFromAnswer(last) } label: { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .disabled(askCardsBusy)
+                    .help("Turn this answer into flashcards for this course")
+                if askCardsBusy { ProgressView().controlSize(.small) }
+                if let note = askCardsNote {
+                    Text(note).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    /// The engine that will answer here, named by its model rather than its mode — with a
+    /// per-surface override the Ask panel and the rest of the app often run different models.
+    private var askEngineLabel: String {
+        let mode = AIConfig.askMode ?? AIConfig.mode
+        let model = AIConfig.modelName(for: mode)
+        return model.isEmpty ? mode.title : "\(model) · \(mode.title)"
     }
 
     /// The note being read, then the ones attached by hand — order matters, the question is
@@ -859,15 +1109,20 @@ struct NoteEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "doc.on.doc").font(.caption2).foregroundStyle(.secondary)
-                Text("\(askSources.count) note\(askSources.count == 1 ? "" : "s") · ~\(askChars / 4)k".replacingOccurrences(of: "~0k", with: "~1k"))
+                // `chars / 4` is a token count, and it used to be printed with a "k" glued on:
+                // a 12k-character note read as "~3024k", claiming three million tokens.
+                Text("\(askSources.count) note\(askSources.count == 1 ? "" : "s") · ~\(ContextPill.format(max(1, askChars / 4))) tokens")
                     .font(.caption2).foregroundStyle(.secondary)
                     .help("Roughly how much of the model's context window this fills")
                 Spacer()
                 if !askCandidates.isEmpty {
-                    Button { withAnimation(.snappy(duration: 0.18)) { askPicking.toggle() } } label: {
-                        Label(askPicking ? "Done" : "Add notes", systemImage: askPicking ? "checkmark" : "plus")
-                            .font(.caption2)
-                    }.buttonStyle(.plain).foregroundStyle(.tint)
+                    Button { askPicking = true } label: {
+                        Label("Add notes", systemImage: "plus").font(.caption2)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.tint)
+                    // A popover, not an inline list: inline, the picker got whatever vertical
+                    // room the thread left it — which on a real note was one row out of 21.
+                    .popover(isPresented: $askPicking, arrowEdge: .bottom) { askPicker }
                 }
             }
             if !askExtras.isEmpty {
@@ -884,45 +1139,91 @@ struct NoteEditor: View {
                     }
                 }
             }
-            if askPicking { askPicker }
         }
     }
 
+    /// Everything else in the store, searchable, with what each one costs in context.
     private var askPicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.caption2).foregroundStyle(.secondary)
+                TextField("Search notes", text: $askPickerQuery)
+                    .textFieldStyle(.plain).font(.callout)
+                if !askPickerQuery.isEmpty {
+                    Button { askPickerQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+            }
+            .padding(7)
+            .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 7))
+
             if let cid = draft.courseID, let c = state.course(cid) {
                 let mine = state.data.notes.filter { $0.courseID == cid && $0.id != draft.id }
                 if mine.count > 1, !mine.allSatisfy({ askExtras.contains($0.id) }) {
                     Button {
                         for n in mine where !askExtras.contains(n.id) { askExtras.append(n.id) }
                     } label: {
-                        Text("Add all of \(c.code.isEmpty ? c.name : c.code) (\(mine.count) notes)")
-                            .font(.caption2)
+                        Label("Add all of \(c.code.isEmpty ? c.name : c.code) (\(mine.count) notes)",
+                              systemImage: "text.badge.plus").font(.caption)
                     }.buttonStyle(.plain).foregroundStyle(.tint)
                 }
             }
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(askCandidates) { n in
-                        Button { askExtras.append(n.id) } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(askPickerMatches) { n in
+                        let added = askExtras.contains(n.id)
+                        Button {
+                            if added { askExtras.removeAll { $0 == n.id } } else { askExtras.append(n.id) }
+                        } label: {
                             HStack(spacing: 6) {
+                                Image(systemName: added ? "checkmark.circle.fill" : "circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(added ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
                                 if let c = state.course(n.courseID) {
                                     Circle().fill(c.color).frame(width: 6, height: 6)
                                 }
                                 Text(n.title.isEmpty ? "Untitled" : n.title).font(.caption).lineLimit(1)
-                                Spacer()
-                                Text("~\(max(1, n.body.count / 4))").font(.caption2).foregroundStyle(.tertiary)
-                                    .help("Approximate tokens")
+                                Spacer(minLength: 8)
+                                Text("+\(ContextPill.format(max(1, n.body.count / 4)))")
+                                    .font(.caption2).foregroundStyle(.tertiary)
                             }
+                            .padding(.vertical, 3).padding(.horizontal, 4)
                             .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        }
+                        .buttonStyle(.plain)
+                        .background(added ? AnyShapeStyle(.tint.opacity(0.08)) : AnyShapeStyle(.clear),
+                                    in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    if askPickerMatches.isEmpty {
+                        Text("No notes match “\(askPickerQuery)”")
+                            .font(.caption2).foregroundStyle(.secondary).padding(.vertical, 6)
                     }
                 }
             }
-            .frame(maxHeight: 120)
+            .frame(height: 220)
+
+            Divider()
+            HStack {
+                Text("\(askSources.count) note\(askSources.count == 1 ? "" : "s") · ~\(ContextPill.format(max(1, askChars / 4))) tokens")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button("Done") { askPicking = false }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            }
         }
-        .padding(6)
-        .background(.sbSurface2, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+        .frame(width: 320)
+    }
+
+    /// Candidates filtered by the picker's search field — title first, then body text.
+    private var askPickerMatches: [Note] {
+        let q = askPickerQuery.trimmingCharacters(in: .whitespaces)
+        let pool = state.data.notes.filter { $0.id != draft.id }
+        guard !q.isEmpty else { return askCandidates }
+        return pool.filter {
+            $0.title.localizedCaseInsensitiveContains(q) || $0.body.localizedCaseInsensitiveContains(q)
+        }
     }
 
     private func openAsk() {
@@ -931,10 +1232,63 @@ struct NoteEditor: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { askFocused = true }
     }
 
+    /// Closing hides the panel and stops any request — it no longer deletes the conversation.
+    /// Reopening Ask on this note brings the thread back; the ↺ button is what clears it.
     private func closeAsk() {
         askTask?.cancel(); askTask = nil
-        asking = false; askLoading = false; askQuestion = ""; askThread = []
-        askExtras = []; askPicking = false; askBlocked = nil; askUnverified = [:]
+        asking = false; askLoading = false; askQuestion = ""
+        askPicking = false; askBlocked = nil
+        askCardsNote = nil
+    }
+
+    /// Throw the conversation away, deliberately.
+    private func resetAskThread() {
+        askTask?.cancel(); askTask = nil
+        askLoading = false
+        state.askThreads[draft.id] = .init()
+        askBlocked = nil; askCardsNote = nil
+    }
+
+    /// Cancel the request but keep the thread — closing the panel was the only way to stop a
+    /// slow local model, and that threw the conversation away with it.
+    private func stopAsk() {
+        askTask?.cancel(); askTask = nil
+        askLoading = false
+        if let i = askThread.indices.last, askThread[i].answer.isEmpty {
+            askThread[i].answer = "_Stopped._"
+        }
+    }
+
+    /// An answer → a handful of cards in a deck for this course.
+    private func cardsFromAnswer(_ turn: NoteQA.Turn) {
+        guard !askCardsBusy, let provider = AIService.makeProvider(for: .ask) else { return }
+        askCardsBusy = true
+        askCardsNote = nil
+        Task {
+            let raw = (try? await provider.completePlain(
+                system: NoteQA.cardSystem,
+                messages: NoteQA.cardMessages(question: turn.question, answer: turn.answer))) ?? ""
+            let cards = NoteQA.parseCards(raw)
+            await MainActor.run {
+                askCardsBusy = false
+                guard !cards.isEmpty else { askCardsNote = "No cards came back"; return }
+                let deckName = state.course(draft.courseID).map { $0.code.isEmpty ? $0.name : $0.code }
+                    ?? "Ask answers"
+                state.withUndo("Added \(cards.count) card\(cards.count == 1 ? "" : "s")") {
+                    let deck: Deck
+                    if let existing = state.data.decks.first(where: { $0.name.caseInsensitiveCompare(deckName) == .orderedSame }) {
+                        deck = existing
+                    } else {
+                        deck = Deck(name: deckName, courseID: draft.courseID)
+                        state.data.decks.append(deck)
+                    }
+                    for c in cards {
+                        state.data.flashcards.append(Flashcard(deckID: deck.id, front: c.front, back: c.back))
+                    }
+                }
+                askCardsNote = "\(cards.count) card\(cards.count == 1 ? "" : "s") → \(deckName)"
+            }
+        }
     }
 
     private func ask(_ override: String? = nil) {
@@ -963,22 +1317,36 @@ struct NoteEditor: View {
         let idx = askThread.count - 1
         askLoading = true
         askTask?.cancel()
+        let engine = askEngineLabel
+        askError = nil
         askTask = Task {
-            let out: String?
+            var out: String?
+            var failure: Error?
             // Prose, so the streaming path — never the format:json one, which returns `{}`.
             // Raw while it streams: normalizing each delta re-scanned the whole answer per
             // token. The finished text is normalized and quote-checked below.
-            out = try? await provider.streamPlain(system: sys, messages: msgs,
-                                                  numCtx: NoteQA.contextTokens(chars: askChars),
-                                                  temperature: 0.4) { p in
-                if askThread.indices.contains(idx) { askThread[idx].answer = p }
+            do {
+                out = try await provider.streamPlain(system: sys, messages: msgs,
+                                                     numCtx: NoteQA.contextTokens(chars: askChars),
+                                                     temperature: 0.4) { p in
+                    if askThread.indices.contains(idx) { askThread[idx].answer = p }
+                }
+            } catch {
+                failure = error
             }
             await MainActor.run {
                 askLoading = false
                 guard askThread.indices.contains(idx) else { return }
+                askThread[idx].engine = engine
                 let final = (out ?? askThread[idx].answer).trimmingCharacters(in: .whitespacesAndNewlines)
                 if final.isEmpty {
-                    askThread[idx].answer = "No answer came back — try rephrasing, or a stronger engine in Settings ▸ Intelligence."
+                    // Say which thing went wrong: a missing key, a model name with a typo and
+                    // an Ollama that isn't running used to produce one identical sentence.
+                    let mode = AIConfig.askMode ?? AIConfig.mode
+                    let why = failure.map { AIError.plainMessage($0, mode: mode, model: AIConfig.modelName(for: mode)) }
+                        ?? "No answer came back — try rephrasing, or a stronger engine in Settings ▸ Intelligence."
+                    askThread[idx].answer = why
+                    askError = failure == nil ? nil : why
                 } else {
                     // Quotation marks assert the words are in the note. Check that against the
                     // notes actually sent, rather than trusting the model not to invent one.
@@ -1164,11 +1532,12 @@ struct NoteEditor: View {
             Text("Reading").font(.caption2.weight(.semibold))
             Spacer()
             if AIConfig.isReady(for: .ask) {
-                Button { openAsk() } label: {
+                Button { asking ? closeAsk() : openAsk() } label: {
                     Label("Ask", systemImage: "questionmark.bubble").font(.caption2)
                 }
                 .buttonStyle(.plain).foregroundStyle(.tint)
-                .help("Ask a question about this lecture — or about something it didn't cover")
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .help("Ask a question about this lecture — or about something it didn't cover (⇧⌘A)")
                 Text("·").font(.caption2)
             }
             Label("⌘E to edit", systemImage: "pencil").font(.caption2)
@@ -1261,9 +1630,12 @@ struct NoteEditor: View {
                     Button { exportPDF() } label: { Label("Export as PDF", systemImage: "arrow.down.doc.fill") }
                     Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
                     Button { exportNote(markdown: false) } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
+                    Divider()
+                    // Out of the footer row: a permanent red target beside Share is a mis-click
+                    // waiting to happen. Undo covers the delete itself.
+                    Button(role: .destructive) { delete() } label: { Label("Delete Note", systemImage: "trash") }
                 } label: { Image(systemName: "square.and.arrow.up") }
                 .menuStyle(.borderlessButton).fixedSize()
-                Button("Delete", role: .destructive) { delete() }
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
             if tagFieldFocused && !tagSuggestions.isEmpty {
@@ -1478,7 +1850,16 @@ struct NoteEditor: View {
             draft.body = attr.string
         }
         draft.tags = tagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        draft.updatedAt = .now
+        // Only stamp the edit time when something actually changed. Closing the editor calls
+        // save() → persist() whether or not a key was pressed, so opening a note to read it
+        // used to move it to the top of "Last edited" — which made that order a record of
+        // what was opened, not what was written.
+        if var stored = state.data.notes.first(where: { $0.id == draft.id }) {
+            stored.updatedAt = draft.updatedAt          // compare everything but the timestamp
+            if stored != draft { draft.updatedAt = .now }
+        } else {
+            draft.updatedAt = .now
+        }
         // A new note in a course opens with "Week 3 — " already in the title. That is the
         // app's typing, not the user's, so it must not keep an untouched note alive.
         let titleText = draft.title.trimmingCharacters(in: .whitespaces)
