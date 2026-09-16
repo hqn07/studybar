@@ -96,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--perf-notes") {
             exit(PerfProbe.run(state: state))
         }
+        if CommandLine.arguments.contains("--title-selftest") {
+            exit(NoteTitleSelfTest.run())
+        }
         if CommandLine.arguments.contains("--palette-selftest") {
             exit(PaletteSearchSelfTest.run())
         }

@@ -25,6 +25,9 @@ final class AppState: ObservableObject {
     @Published var pendingNew: String? = nil
     /// A specific note the palette (or a link) asked to open, consumed by NotesView.
     @Published var pendingOpenNote: UUID? = nil
+    /// Open that note with its title selected — set when the app named the note for you, so
+    /// disagreeing with the name costs one keystroke.
+    @Published var pendingTitleFocus = false
     /// Toggled by the global hotkey to request the command palette.
     @Published var paletteRequested = false
     /// Distraction-free writing: the module rail, the window header, the notes list and the
@@ -628,6 +631,19 @@ final class AppState: ObservableObject {
     /// hour. Capture during a lecture should already know which course it belongs to — the
     /// schedule is right there, and asking the student to pick from a menu they just walked
     /// into the room for is the kind of small tax that makes an app feel like work.
+    /// The class in session at a given moment — used when naming a recording made earlier,
+    /// where "now" is the wrong question to ask of the timetable.
+    func courseID(at date: Date) -> UUID? {
+        let cal = Calendar.current
+        let wd = cal.component(.weekday, from: date)
+        let c = cal.dateComponents([.hour, .minute], from: date)
+        let minute = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        let inSession = data.classes.first {
+            $0.meets(on: wd) && minute >= $0.startMinutes - 10 && minute <= $0.endMinutes + 20
+        }
+        return inSession?.courseID
+    }
+
     var currentCourseID: UUID? {
         guard let next = nextClassToday else { return nil }
         let wd = Calendar.current.component(.weekday, from: .now)

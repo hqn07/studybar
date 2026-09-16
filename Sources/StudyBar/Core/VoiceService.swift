@@ -45,6 +45,10 @@ final class VoiceService: ObservableObject {
     /// When the current recording began — nil when not recording. Drives the persistent
     /// recording bar + menu-bar elapsed clock so recording is visible/controllable from any module.
     @Published private(set) var startedAt: Date?
+    /// When the recording that produced the current transcript began. `startedAt` is cleared
+    /// the moment transcription starts, and saving happens after that — but which class you
+    /// were in is a fact about when you pressed record, not about when you pressed save.
+    private(set) var lastRecordingStart: Date?
     var vocabPrompt: String?
     private nonisolated let meterLock = NSLock()
     private nonisolated(unsafe) var lastMeterAt = Date.distantPast
@@ -214,7 +218,8 @@ final class VoiceService: ObservableObject {
         guard installTap() else { return }
         do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
         status = .recording
-        emptyStreak = 0; everGotResult = false; recordingStart = Date(); startedAt = Date()
+        emptyStreak = 0; everGotResult = false
+        recordingStart = Date(); startedAt = Date(); lastRecordingStart = recordingStart
         startSegment()
         // 1s timer: watchdog for a silent/dead mic, and rotate before SFSpeech's ~60s wall.
         rotateTimer?.invalidate()

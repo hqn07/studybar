@@ -523,6 +523,7 @@ struct NoteEditor: View {
     /// Height it falls back to when the pane is too narrow to sit two columns side by side.
     @AppStorage("askDockHeight") private var askHeight: Double = 300
     @FocusState private var askFocused: Bool
+    @FocusState private var titleFocused: Bool
     @State private var aiStart: Date?
     @State private var aiRange = NSRange(location: 0, length: 0)
     @State private var aiTask: Task<Void, Never>?
@@ -672,6 +673,12 @@ struct NoteEditor: View {
                     .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
             }
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
+                .focused($titleFocused)
+                .onAppear {
+                    guard state.pendingTitleFocus else { return }
+                    state.pendingTitleFocus = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { titleFocused = true }
+                }
             Menu {
                 if outlineHeadings.isEmpty { Text("No headings yet") }
                 else { ForEach(outlineHeadings.indices, id: \.self) { i in Button(outlineHeadings[i].title) { editor.scrollTo(outlineHeadings[i].location) } } }

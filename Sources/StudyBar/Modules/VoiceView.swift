@@ -27,6 +27,8 @@ struct VoiceBody: View {
     @State private var organizeStart: Date?
     @State private var rawBeforeOrganize: String?
     @State private var organizeError: String?
+    /// True while the model is being asked which course this belongs to.
+    @State private var naming = false
     @State private var draftAvailable = false
 
     private var idle: Bool { voice.status == .idle }
@@ -256,7 +258,10 @@ struct VoiceBody: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else if idle {
                     HStack(spacing: DS.Space.m) {
-                        Button { saveNote() } label: { Label("Save as note", systemImage: "note.text.badge.plus") }
+                        Button { saveNote() } label: {
+                            Label(naming ? "Naming…" : "Save as note", systemImage: "note.text.badge.plus")
+                        }
+                        .disabled(naming)
                             .buttonStyle(.borderedProminent)
                         if let raw = rawBeforeOrganize {
                             Button { voice.transcript = raw; rawBeforeOrganize = nil; organizeError = nil } label: {
@@ -364,14 +369,57 @@ struct VoiceBody: View {
         }
     }
 
+    /// Save the transcript as a note, named and filed the way this course's notes already are.
+    ///
+    /// "Voice note Sep 15" told you nothing and sorted next to nothing. The course comes from
+    /// the timetable at the moment you pressed record — a fact, not a guess — and only when
+    /// nothing was in session does the model get asked to place it. The title is then written
+    /// in whatever convention that course's existing notes follow (see NoteTitleConvention),
+    /// which differs per course and is read rather than imposed.
     private func saveNote() {
         let text = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        let title = "Voice note \(Date().dayMonth)"
-        state.data.notes.append(Note(title: title, body: text, courseID: courseID))
+        guard !text.isEmpty, !naming else { return }
+
+        // An explicit pick wins; then the schedule; then, if there is anything to go on, AI.
+        let scheduled = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
+        guard scheduled == nil, AIConfig.isReady(for: .judge),
+              let provider = AIService.makeProvider(for: .judge),
+              !state.data.courses.isEmpty else {
+            finishSave(text: text, course: scheduled)
+            return
+        }
+
+        naming = true
+        let codes = state.data.courses.map { c in (id: c.id, code: c.code.isEmpty ? c.name : c.code) }
+        Task {
+            let reply = (try? await provider.completePlain(
+                system: CourseGuess.system(codes: codes.map(\.code)),
+                messages: [AIMessage(role: .user, text: String(text.prefix(CourseGuess.sampleChars)))])) ?? ""
+            await MainActor.run {
+                naming = false
+                finishSave(text: text, course: CourseGuess.match(reply, courses: codes))
+            }
+        }
+    }
+
+    private func finishSave(text: String, course: UUID?) {
+        let code = state.course(course).map { $0.code.isEmpty ? $0.name : $0.code }
+        let siblings = state.data.notes.filter { $0.courseID == course }.map(\.title)
+        let shape = NoteTitleConvention.detect(titles: siblings, courseCode: code)
+        let title = NoteTitleConvention.title(topic: NoteTitleConvention.topic(fromNoteBody: text),
+                                              shape: shape, existing: siblings,
+                                              date: voice.lastRecordingStart ?? .now,
+                                              termStart: state.data.termStart)
+        var note = Note(title: title, body: text, courseID: course)
+        note.updatedAt = .now
+        state.data.notes.append(note)
         voice.transcript = ""
         rawBeforeOrganize = nil
         VoiceService.clearDraft(); draftAvailable = false     // saved for real — clear the crash-safe draft
+        // Open it with the title selected: a generated name should be one keystroke from
+        // being the name you wanted.
+        state.pendingOpenNote = note.id
+        state.pendingTitleFocus = true
         state.selectedModuleID = "notes"
     }
 }
