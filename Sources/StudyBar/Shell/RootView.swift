@@ -41,8 +41,12 @@ struct RootView: View {
             .overlay(alignment: .bottomTrailing) {
                 if surface == .popover { PopoverResizeGrip() }
             }
-            .overlay { if showPalette { CommandPalette(isPresented: $showPalette) } }
+            // One overlay at a time: ⌘/ over an open ⌘K drew the sheet on top of the palette's
+            // list, with both still live underneath.
+            .overlay { if showPalette && !showShortcuts { CommandPalette(isPresented: $showPalette) } }
             .overlay { if showShortcuts { ShortcutSheet(isPresented: $showShortcuts) } }
+            .onChange(of: showShortcuts) { _, on in if on { showPalette = false } }
+            .onChange(of: showPalette) { _, on in if on { showShortcuts = false } }
             .overlay { if breakScreen && inBreak { BreakOverlay() } }
             .overlay { if !onboarded { OnboardingView(done: { onboarded = true }) } }
             .overlay(alignment: .bottom) { undoToast }
