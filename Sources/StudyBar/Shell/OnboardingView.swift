@@ -43,6 +43,27 @@ struct OnboardingView: View {
             Text("Add your courses").font(.title3.bold())
             Text("Assignments, notes, timers and links all attach to a course.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            // The fastest way in is the document the student already has. This reads the
+            // syllabus and proposes the course, its meetings and its dated assignments —
+            // typing them in by hand is the fallback, not the first offer.
+            if AIConfig.isReady {
+                Button { SyllabusImport.pickAndTriage() } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text.viewfinder").font(.title3).foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Import a syllabus…").font(.callout.weight(.semibold))
+                            Text("Pulls the course, its meeting times and every dated assignment")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint.opacity(0.35)))
+                }
+                .buttonStyle(.plain)
+                Text("or add them by hand").font(.caption2).foregroundStyle(.tertiary)
+            }
             HStack {
                 Circle().fill(Color(hex: colorHex) ?? .blue).frame(width: 16, height: 16)
                 TextField("Course name (e.g. Biology 101)", text: $courseName, onCommit: addCourse)

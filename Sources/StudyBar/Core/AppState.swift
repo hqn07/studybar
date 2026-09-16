@@ -23,8 +23,29 @@ final class AppState: ObservableObject {
     @Published var globalSearch: String = ""
     /// Set by the command palette to ask a module to open its "new item" editor.
     @Published var pendingNew: String? = nil
+    /// A specific note the palette (or a link) asked to open, consumed by NotesView.
+    @Published var pendingOpenNote: UUID? = nil
     /// Toggled by the global hotkey to request the command palette.
     @Published var paletteRequested = false
+    /// Distraction-free writing: the module rail, the window header, the notes list and the
+    /// editor's own chrome all step aside, leaving the note. App-level rather than per-editor
+    /// state so it survives switching notes, and so the shell can get out of the way too.
+    /// Deliberately not persisted — a relaunch should never start with the app's UI missing.
+    @Published var focusMode = false
+
+    /// "Ask this note" conversations, keyed by note. They used to live in the editor's own
+    /// `@State`, which meant closing the panel or clicking another note erased the thread —
+    /// including the answer you were halfway through reading. Session-scoped by design: the
+    /// notes themselves are the durable record, not the chat about them.
+    @Published var askThreads: [UUID: AskThread] = [:]
+
+    struct AskThread {
+        var turns: [NoteQA.Turn] = []
+        /// Notes attached by hand, in the order added.
+        var extras: [UUID] = []
+        /// Turn id → quotations that weren't found in the notes sent.
+        var unverified: [UUID: Int] = [:]
+    }
 
     @Published var modulePrefs = ModulePrefs()
 
@@ -601,6 +622,20 @@ final class AppState: ObservableObject {
             .sorted { $0.startMinutes < $1.startMinutes }
         guard let s = upcoming.first else { return nil }
         return (s, max(0, s.startMinutes - now))
+    }
+
+    /// The course to assume right now: the class in session, or one starting within half an
+    /// hour. Capture during a lecture should already know which course it belongs to — the
+    /// schedule is right there, and asking the student to pick from a menu they just walked
+    /// into the room for is the kind of small tax that makes an app feel like work.
+    var currentCourseID: UUID? {
+        guard let next = nextClassToday else { return nil }
+        let wd = Calendar.current.component(.weekday, from: .now)
+        let c = Calendar.current.dateComponents([.hour, .minute], from: .now)
+        let now = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        let inSession = next.session.meets(on: wd)
+            && now >= next.session.startMinutes && now <= next.session.endMinutes
+        return (inSession || next.minutesUntil <= 30) ? next.session.courseID : nil
     }
 
     // MARK: Reading mutations (log pages read, track start/finish)

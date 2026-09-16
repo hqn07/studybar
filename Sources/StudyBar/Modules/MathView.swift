@@ -148,7 +148,7 @@ struct CalculatorSurface: View {
                     Label(e, systemImage: "exclamationmark.triangle")
                         .font(.caption2).foregroundStyle(.orange).lineLimit(1)
                 } else if !model.variables.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    FadingHScroll {
                         HStack(spacing: DS.Space.xs) {
                             ForEach(model.variables.sorted(by: { $0.key < $1.key }), id: \.key) { name, value in
                                 Button { model.append(name) } label: {
@@ -177,7 +177,7 @@ struct CalculatorSurface: View {
     private let functionKeys = ["sin", "cos", "tan", "√", "ln", "log", "π", "e", "^", "%", "ans"]
 
     private var functions: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        FadingHScroll {
             HStack(spacing: DS.Space.xs) {
                 ForEach(functionKeys, id: \.self) { key in
                     Button { model.append(insertion(for: key)) } label: {

@@ -88,11 +88,20 @@ struct EmptyState: View {
     let symbol: String
     let title: String
     var subtitle: String = ""
+    /// The one action that fills this space. An empty screen that only explains itself leaves
+    /// the reader to go find the control it was describing.
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
     var body: some View {
         ContentUnavailableView {
             Label(title, systemImage: symbol)
         } description: {
             if !subtitle.isEmpty { Text(subtitle) }
+        } actions: {
+            if let actionTitle, let action {
+                Button(actionTitle, action: action).buttonStyle(.borderedProminent)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -182,3 +191,84 @@ extension Date {
         return f.string(from: self)
     }
 }
+
+/// A vertical divider that resizes the pane on its left.
+///
+/// Panes in this app were fixed `frame(width:)` values, so the notes list was 268pt at the
+/// minimum window size (44% of it) and still 268pt at full screen. This is the split-view
+/// behaviour a Mac user expects — drag to size, double-click to reset — without adopting
+/// `NSSplitView`; the caller owns the number and decides whether to persist it.
+struct PaneDivider: View {
+    @Binding var width: CGFloat
+    var range: ClosedRange<CGFloat>
+    var resetTo: CGFloat
+    /// The pane being sized is on the RIGHT of the divider (an inspector), so dragging left
+    /// widens it. Without this the gesture ran backwards for right-hand panes.
+    var inverted: Bool = false
+
+    @State private var dragStart: CGFloat?
+    @State private var cursorPushed = false
+
+    var body: some View {
+        Divider()
+            .overlay {
+                Rectangle()
+                    .fill(.clear)
+                    .frame(width: 9)               // a 1pt divider is not a drag target
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        // Balanced by hand: an unmatched pop resets someone else's cursor.
+                        if inside, !cursorPushed { NSCursor.resizeLeftRight.push(); cursorPushed = true }
+                        else if !inside, cursorPushed { NSCursor.pop(); cursorPushed = false }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                let base = dragStart ?? width
+                                if dragStart == nil { dragStart = base }
+                                let delta = inverted ? -value.translation.width : value.translation.width
+                                width = min(max(base + delta, range.lowerBound), range.upperBound)
+                            }
+                            .onEnded { _ in dragStart = nil })
+                    .onTapGesture(count: 2) { width = resetTo }
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
+/// The horizontal twin of `PaneDivider`: drag up/down to size the pane *below* it.
+struct HeightDivider: View {
+    @Binding var height: CGFloat
+    var range: ClosedRange<CGFloat>
+    var resetTo: CGFloat
+
+    @State private var dragStart: CGFloat?
+    @State private var cursorPushed = false
+
+    var body: some View {
+        Divider()
+            .overlay {
+                Rectangle()
+                    .fill(.clear)
+                    .frame(height: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside, !cursorPushed { NSCursor.resizeUpDown.push(); cursorPushed = true }
+                        else if !inside, cursorPushed { NSCursor.pop(); cursorPushed = false }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                let base = dragStart ?? height
+                                if dragStart == nil { dragStart = base }
+                                // Dragging up (negative) makes the pane below taller.
+                                height = min(max(base - value.translation.height, range.lowerBound),
+                                             range.upperBound)
+                            }
+                            .onEnded { _ in dragStart = nil })
+                    .onTapGesture(count: 2) { height = resetTo }
+                    .accessibilityHidden(true)
+            }
+    }
+}
+

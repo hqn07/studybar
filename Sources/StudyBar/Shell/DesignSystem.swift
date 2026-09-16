@@ -181,3 +181,47 @@ extension View {
 //   ghost     → .buttonStyle(.borderless)  (tinted)
 //   danger    → Button(role: .destructive)
 // No custom button style needed — native gives the right look + accent.
+
+// MARK: - Horizontal strip that admits it scrolls
+
+/// A horizontal scroller that fades its trailing edge while there is more content than fits.
+///
+/// A plain `ScrollView(.horizontal, showsIndicators: false)` of chips is honest until the window
+/// narrows: then the last chip is sliced down the middle with nothing on screen saying the row
+/// can be scrolled, which reads as a broken layout rather than a scrollable one. The fade only
+/// appears when the content actually overflows, so a row that fits looks untouched.
+struct FadingHScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var contentWidth: CGFloat = 0
+    @State private var viewportWidth: CGFloat = 0
+
+    private var overflowing: Bool { contentWidth > viewportWidth + 1 }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            content.background(
+                GeometryReader { g in Color.clear.preference(key: StripWidth.self, value: g.size.width) })
+        }
+        .background(
+            GeometryReader { g in Color.clear.preference(key: StripViewport.self, value: g.size.width) })
+        .onPreferenceChange(StripWidth.self) { contentWidth = $0 }
+        .onPreferenceChange(StripViewport.self) { viewportWidth = $0 }
+        .mask {
+            LinearGradient(stops: overflowing
+                           ? [.init(color: .black, location: 0),
+                              .init(color: .black, location: 0.9),
+                              .init(color: .black.opacity(0.05), location: 1)]
+                           : [.init(color: .black, location: 0), .init(color: .black, location: 1)],
+                           startPoint: .leading, endPoint: .trailing)
+        }
+    }
+}
+
+private struct StripWidth: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+private struct StripViewport: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}

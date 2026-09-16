@@ -28,6 +28,7 @@ struct RootView: View {
     @AppStorage("onboarded") private var onboarded = false
     @AppStorage("breakScreen") private var breakScreen = true
     @State private var showPalette = false
+    @State private var showShortcuts = false
 
     private var inBreak: Bool {
         state.pomodoro.running &&
@@ -36,7 +37,12 @@ struct RootView: View {
 
     var body: some View {
         shell
+            // The popover has no window edge to grab, so it carries its own grip.
+            .overlay(alignment: .bottomTrailing) {
+                if surface == .popover { PopoverResizeGrip() }
+            }
             .overlay { if showPalette { CommandPalette(isPresented: $showPalette) } }
+            .overlay { if showShortcuts { ShortcutSheet(isPresented: $showShortcuts) } }
             .overlay { if breakScreen && inBreak { BreakOverlay() } }
             .overlay { if !onboarded { OnboardingView(done: { onboarded = true }) } }
             .overlay(alignment: .bottom) { undoToast }
@@ -52,6 +58,9 @@ struct RootView: View {
             .onChange(of: state.selectedModuleID) { _, id in
                 if surface == .popover { WindowOpener.routeToWindow?(id) }
                 else { WindowOpener.setWindowTitle?(ModuleRegistry.info(id)?.title ?? "StudyBar") }
+                // Focus mode belongs to writing. Leaving Notes with the chrome hidden would
+                // strand a module with no rail, no header and no button to bring them back.
+                if id != "notes" { state.focusMode = false }
             }
             // Drive the window appearance at the AppKit level so switching to "Device"
             // reliably re-follows the system (preferredColorScheme(nil) alone doesn't).
@@ -77,13 +86,23 @@ struct RootView: View {
                 Divider()
                 popoverBody
             } else {
-                header
-                Divider()
+                // Focus mode takes the whole shell down to the module: no header row, and
+                // windowBody drops the rail. `fullSizeContentView` leaves the traffic lights
+                // floating over the content, which is what a distraction-free surface wants.
+                if !state.focusMode {
+                    header
+                    Divider()
+                }
                 windowBody
             }
             recordingBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The window is `fullSizeContentView` with a transparent titlebar, but SwiftUI still
+        // inset the content below it — so the app drew an empty 28pt strip and then its own
+        // header underneath, two rows of chrome before any content. Taking the top safe area
+        // lets the header sit *in* the titlebar; `header` leaves room for the traffic lights.
+        .ignoresSafeArea(.container, edges: surface == .window ? .top : [])
         .background(baseFill)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
@@ -155,6 +174,11 @@ struct RootView: View {
         }
         Button("") { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } }
             .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
+        Button("") { showShortcuts.toggle() }
+            .keyboardShortcut("/", modifiers: .command).opacity(0).accessibilityHidden(true)
+        // ⌘⇧F is what iA Writer, Bear and Ulysses all use for this.
+        Button("") { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode.toggle() } }
+            .keyboardShortcut("f", modifiers: [.command, .shift]).opacity(0).accessibilityHidden(true)
     }
 
     private func onAppearSetup() {
@@ -187,7 +211,10 @@ struct RootView: View {
                 Image(systemName: "ellipsis.circle")
             }.menuStyle(.borderlessButton).controlSize(.small).fixedSize().help("Menu")
         }
-        .padding(.horizontal, 12).padding(.vertical, 7)
+        // 78pt of leading room: the header now shares the titlebar strip with the traffic
+        // lights, which AppKit draws over the content.
+        .padding(.leading, 78).padding(.trailing, 12).padding(.vertical, 6)
+        .frame(height: 38)
         // Hidden quit shortcut so ⌘Q still works even though the button is gone.
         .background {
             Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
@@ -219,15 +246,21 @@ struct RootView: View {
     @ViewBuilder private var windowBody: some View {
         if state.globalSearch.isEmpty {
             GeometryReader { geo in
-                let forced = geo.size.width < 440          // narrow window → auto-rail
+                // 760, not 440: at a half-screen width the 176pt labelled sidebar pushed Notes
+                // under its 640pt split threshold, so a window sized to sit beside a PDF showed
+                // the list *instead of* the note. Railed, the same window fits list + editor.
+                let forced = geo.size.width < 760          // narrow window → auto-rail
                 let railed = forced || sidebarCollapsed
                 HStack(spacing: 0) {
-                    SidebarView(prefs: state.modulePrefs, collapsed: railed)
-                        .frame(width: railed ? 48 : 176)
-                    Divider()
+                    if !state.focusMode {
+                        SidebarView(prefs: state.modulePrefs, collapsed: railed)
+                            .frame(width: railed ? 48 : 176)
+                        Divider()
+                    }
                     content
                 }
                 .animation(.snappy(duration: 0.28), value: railed)
+                .animation(.easeInOut(duration: 0.2), value: state.focusMode)
             }
         } else {
             UnifiedSearchView(query: state.globalSearch)
@@ -423,6 +456,12 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .help(collapsed ? m.title : "")
+        // Collapsed, the row is a bare SF Symbol, and VoiceOver then reads the symbol's own
+        // name — "Books Standing Vertically On A Shelf" for Library, "Gear Shape" for
+        // Settings. Name the row after the module, and fold the badge into the same label.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(badge(for: m.id).map { "\(m.title), \($0) due soon" } ?? m.title)
+        .accessibilityAddTraits(state.selectedModuleID == m.id ? [.isButton, .isSelected] : .isButton)
     }
     private func badge(for id: String) -> Int? {
         switch id {
@@ -501,5 +540,40 @@ struct UndoToast: View {
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.separator))
         .shadow(radius: 12)
         .frame(maxWidth: 320)
+    }
+}
+
+
+/// The bottom-right corner grip that resizes the menu-bar popover.
+///
+/// `NSPopover` gives the user no way to resize it, which left three presets buried in Settings
+/// as the only answer to "this is too small". Dragging here resizes the live popover and the
+/// size is remembered for next time (see `PopoverSizing`).
+private struct PopoverResizeGrip: View {
+    @State private var startSize: CGSize?
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: "line.diagonal")
+            .font(.system(size: 11, weight: .semibold))
+            .rotationEffect(.degrees(90))
+            .foregroundStyle(hovering ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .help("Drag to resize — the size is remembered")
+            .accessibilityHidden(true)
+            .gesture(
+                // Global space: the view itself moves as the popover grows, and a local
+                // translation would then chase its own tail.
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let base = startSize ?? PopoverSizing.current?() ?? .zero
+                        if startSize == nil { startSize = base }
+                        guard base.width > 0 else { return }
+                        PopoverSizing.apply?(CGSize(width: base.width + value.translation.width,
+                                                    height: base.height + value.translation.height))
+                    }
+                    .onEnded { _ in startSize = nil })
     }
 }

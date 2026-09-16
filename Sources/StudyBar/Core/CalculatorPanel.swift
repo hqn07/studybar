@@ -41,8 +41,14 @@ final class CalculatorPanel {
             p.standardWindowButton(.miniaturizeButton)?.isHidden = true
             p.standardWindowButton(.zoomButton)?.isHidden = true
             p.contentView = hosting
-            p.setContentSize(NSSize(width: 380, height: 460))
-            positionTopTrailing(p)
+            // Remember where it was put and how big it was made. Without this the panel was
+            // rebuilt at 380×460 in the top-right corner every single time it opened, so any
+            // resize lasted exactly as long as the panel did.
+            p.setFrameAutosaveName("StudyBarCalculator")
+            if !p.setFrameUsingName("StudyBarCalculator") {
+                p.setContentSize(NSSize(width: 380, height: 460))
+                positionTopTrailing(p)
+            }
             panel = p
         }
         panel?.makeKeyAndOrderFront(nil)
@@ -157,7 +163,9 @@ struct CalculatorPanelView: View {
             Divider()
             CalculatorSurface(model: model, compact: true)
         }
-        .frame(minWidth: 300, minHeight: 380)
+        // 350, not 300: the function chips (sin … ans) need ~346pt, and below that the row
+        // scrolled its last chip out of sight with nothing on screen saying it could scroll.
+        .frame(minWidth: 350, minHeight: 380)
         .background(.regularMaterial)
     }
 }

@@ -23,9 +23,11 @@ final class ModulePrefs: ObservableObject {
 
     /// The calm starter set shown to a brand-new user — everything else is hidden but one
     /// tap away in Settings ▸ Modules (philosophy: calm default, breadth opt-in).
+    /// Six, not nine: the sidebar is the first thing a new student sees, and every extra row
+    /// is a decision before any work happens. Voice, Courses and Calendar are one tap away in
+    /// Settings ▸ Modules (and reachable by name from ⌘K), which is where breadth belongs.
     static let starterVisible: Set<String> = [
-        "today", "assignments", "notes", "calendar",
-        "courses", "flashcards", "voice", "timefocus", "settings",
+        "today", "assignments", "notes", "schedule", "flashcards", "settings",
     ]
     /// The modules a new install starts with hidden. Pure — safe to call anytime.
     static func starterHidden() -> Set<String> {

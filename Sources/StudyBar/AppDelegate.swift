@@ -93,6 +93,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--week-selftest") {
             exit(WeekSelfTest.run())
         }
+        if CommandLine.arguments.contains("--perf-notes") {
+            exit(PerfProbe.run(state: state))
+        }
+        if CommandLine.arguments.contains("--palette-selftest") {
+            exit(PaletteSearchSelfTest.run())
+        }
         if CommandLine.arguments.contains("--math-selftest") {
             exit(MathSelfTest.run())
         }
@@ -180,6 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.popover.performClose(nil)
             self.showWindow()
         }
+        PopoverSizing.apply = { [weak self] size in
+            guard let self else { return }
+            let clamped = PopoverSizing.clamp(size)
+            self.popover.contentSize = clamped
+            UserDefaults.standard.set(NSStringFromSize(clamped), forKey: PopoverSizing.key)
+        }
+        PopoverSizing.current = { [weak self] in self?.popover.contentSize ?? .zero }
         WindowOpener.setWindowTitle = { [weak self] t in
             self?.window?.title = (t.isEmpty || t == "StudyBar") ? "StudyBar" : "StudyBar — \(t)"
         }
@@ -232,8 +245,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            let size = (PopoverSize(rawValue: UserDefaults.standard.string(forKey: "popoverSize") ?? "") ?? .medium).dimensions
-            popover.contentSize = size
+            // A size the user dragged the popover to wins over the preset.
+            let preset = (PopoverSize(rawValue: UserDefaults.standard.string(forKey: "popoverSize") ?? "") ?? .medium).dimensions
+            popover.contentSize = PopoverSizing.custom ?? preset
             // Activating the app for the popover's text fields would drag the workspace
             // window in front of whatever the student is doing — hide it first so the
             // menu bar shows only the popover. Reopen the window explicitly (click the
@@ -290,7 +304,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+
+        // Find, routed to the text view's find bar (RichTextEditor sets usesFindBar). The tags
+        // are NSTextFinder.Action raw values — that is how the responder knows which one.
+        let findItem = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
+        let find = NSMenu(title: "Find")
+        func finder(_ title: String, _ key: String, _ tag: Int, _ mods: NSEvent.ModifierFlags = .command) {
+            let item = find.addItem(withTitle: title, action: Selector(("performTextFinderAction:")),
+                                    keyEquivalent: key)
+            item.tag = tag
+            item.keyEquivalentModifierMask = mods
+        }
+        finder("Find…", "f", NSTextFinder.Action.showFindInterface.rawValue)
+        finder("Find Next", "g", NSTextFinder.Action.nextMatch.rawValue)
+        finder("Find Previous", "g", NSTextFinder.Action.previousMatch.rawValue, [.command, .shift])
+        finder("Use Selection for Find", "e", NSTextFinder.Action.setSearchString.rawValue)
+        findItem.submenu = find
+        edit.addItem(findItem)
         editItem.submenu = edit
+
+        // A Window menu, which the app simply didn't have: no ⌘M, no ⌘W, no ⌃⌘F, and none of
+        // the standard window commands a Mac user reaches for without thinking.
+        let windowItem = NSMenuItem(); main.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        let full = windowMenu.addItem(withTitle: "Enter Full Screen",
+                                      action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        full.keyEquivalentModifierMask = [.control, .command]
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = main
     }
@@ -364,12 +410,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showWindow() {
         if window == nil {
+            // Read the autosaved frame before the window exists. Installing the hosting
+            // controller below resizes the window to the SwiftUI view's fitting size — which
+            // is smaller than `minSize`, so the window lands on the minimum — and the autosave
+            // writes that back over the real saved frame. The size a user picked therefore
+            // never survived a relaunch: every launch opened at 720×480 and saved 720×480.
+            // Captured here, re-applied after the content is in, it round-trips.
+            let savedFrame = UserDefaults.standard.string(forKey: "NSWindow Frame StudyBarMain")
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.title = "StudyBar"
             w.titlebarAppearsTransparent = true
-            w.minSize = NSSize(width: 720, height: 480)
+            // The app's own header row is drawn up into the titlebar strip (RootView.shell),
+            // so the strip must not also draw a title. `w.title` still feeds the Window menu,
+            // the app switcher and accessibility.
+            w.titleVisibility = .hidden
+            // Low enough that the window fits a half-screen split next to a PDF or a lecture
+            // stream, which is how a note gets taken. Notes already lays out as a single pane
+            // under 640pt (NotesView.splitMinWidth) — that layout was unreachable while the
+            // window could not go below 720.
+            w.minSize = NSSize(width: 560, height: 420)
             w.center()
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("StudyBarMain")
@@ -379,6 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The content fills the window instead; wide content wraps or scrolls inside it.
             if #available(macOS 13.0, *) { host.sizingOptions = [] }
             w.contentViewController = host
+            if let savedFrame { w.setFrame(from: savedFrame) }
             window = w
         }
         clampToScreen()          // self-heal a saved frame that ended up oversized/off-screen
@@ -391,8 +453,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func clampToScreen() {
         guard let w = window, let vis = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
         var f = w.frame
-        // Undo a runaway width saved by the autosave from a past content-driven blow-up.
-        if f.size.width > 1100 { f.size.width = 900 }
+        // Only the screen constrains the width. This used to snap anything over 1100pt back to
+        // 900, to undo a runaway width the autosave had picked up — but that fired on every
+        // showWindow(), so a window deliberately dragged wider was yanked back to 900 the next
+        // time the menu bar item or a module was clicked. The content no longer drives the
+        // window size (see showWindow), so there is nothing left to undo.
         f.size.width = min(f.size.width, vis.size.width)
         f.size.height = min(f.size.height, vis.size.height)
         f.origin.x = max(vis.minX, min(f.origin.x, vis.maxX - f.size.width))

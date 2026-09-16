@@ -46,6 +46,7 @@ struct SettingsView: View {
     // Intelligence
     @State private var aiOpenAIHost = AIConfig.openaiHost
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
+    @AppStorage("settingsShowAdvanced") private var showAdvanced = false
     @State private var autocompleteStatus = ""
     /// Which engine the credentials section is editing. Defaults to the main engine, but the
     /// ask engine can be selected without changing what the app runs on — gating this on the
@@ -169,15 +170,25 @@ struct SettingsView: View {
         }.buttonStyle(.plain)
     }
 
+    /// Settings carries 80-odd stored preferences. Most of them are answers to questions a
+    /// student never asked, so the second rank is folded away until it is wanted — the standard
+    /// fix for a screen that has become a list of decisions.
+    @ViewBuilder private var advancedToggle: some View {
+        Section {
+            Toggle("Show advanced settings", isOn: $showAdvanced)
+                .help("Per-surface engines, model ids, hosts, and the rest of the fine print")
+        }
+    }
+
     @ViewBuilder private var tabSections: some View {
         switch selectedTab {
-        case .general:      generalSections
+        case .general:      generalSections; advancedToggle
         case .appearance:   appearanceSections
         case .shortcuts:    shortcutsSections
         case .modules:      Section("Modules") { ModuleManagerSection(prefs: state.modulePrefs) }
         case .data:         dataSections
         case .integrations: integrationsSections
-        case .intelligence: intelligenceSections
+        case .intelligence: intelligenceSections; advancedToggle
         case .openSource:   openSourceSections
         case .diagnostics:  EmptyView()   // rendered outside the Form (see body)
         case .about:        aboutSections
@@ -197,7 +208,15 @@ struct SettingsView: View {
                 Picker("Popover size", selection: $popoverSize) {
                     ForEach(PopoverSize.allCases) { Text($0.rawValue).tag($0.rawValue) }
                 }
-                Text("Reopen the popover to apply a new size. For a resizable view, open the window (⌘O).")
+                .onChange(of: popoverSize) { _, raw in
+                    // Picking a preset also throws away a size the popover was dragged to,
+                    // otherwise the preset would look like it did nothing.
+                    PopoverSizing.clearCustom()
+                    let size = (PopoverSize(rawValue: raw) ?? .medium).dimensions
+                    PopoverSizing.apply?(size)
+                    PopoverSizing.clearCustom()
+                }
+                Text("Or drag the grip in the popover's bottom-right corner to any size — it's remembered. For the full workspace, open the window (⌘O).")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("The icon opens the main window; click again to hide it. Right-click still opens the quick-actions menu (new task, note, Pomodoro).")
@@ -551,17 +570,29 @@ struct SettingsView: View {
         }
 
         Section("Engine") {
-            Picker("Everything else", selection: $aiMode) {
+            Picker("Engine", selection: $aiMode) {
                 ForEach(AIMode.allCases) { Text($0.title).tag($0) }
             }
             .onChange(of: aiMode) { _, m in AIConfig.mode = m; credentialsFor = nil; loadAI() }
 
-            Picker("Asking about a note", selection: $aiAskMode) {
-                Text("Same as above").tag("")
-                ForEach(AIMode.allCases.filter { $0 != .off }) { Text($0.title).tag($0.rawValue) }
-            }
-            .onChange(of: aiAskMode) { _, m in
-                AIConfig.askMode = AIMode(rawValue: m); credentialsFor = nil; loadAI()
+            // One engine answers everywhere unless you deliberately split it. The split used
+            // to sit in the open as a second picker, which is how a store ends up running
+            // Ollama for the assistant and OpenAI for Ask with nothing on screen saying so.
+            if showAdvanced {
+                Picker("Asking about a note", selection: $aiAskMode) {
+                    Text("Same as above").tag("")
+                    ForEach(AIMode.allCases.filter { $0 != .off }) { Text($0.title).tag($0.rawValue) }
+                }
+                .onChange(of: aiAskMode) { _, m in
+                    AIConfig.askMode = AIMode(rawValue: m); credentialsFor = nil; loadAI()
+                }
+            } else if let ask = AIConfig.askMode, ask != AIConfig.mode {
+                HStack(spacing: 6) {
+                    Label("Questions about a note run on \(ask.title)", systemImage: "questionmark.bubble")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Use one engine") { aiAskMode = ""; AIConfig.askMode = nil; loadAI() }
+                        .buttonStyle(.borderless).controlSize(.small).font(.caption)
+                }
             }
 
             Text(aiMode.subtitle).font(.caption).foregroundStyle(.secondary)
@@ -977,6 +1008,12 @@ struct ModuleManagerSection: View {
                 ForEach(OrderMode.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
             Text(hint).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Show the starter six") { prefs.seedStarterSet() }
+                    .help("Today, Assignments, Notes, Schedule, Flashcards, Settings — the rest stay one tap away here")
+                Button("Show everything") { prefs.hidden = [] }
+                Spacer()
+            }
             if prefs.order == .category {
                 let cats = prefs.orderedCategories()
                 ForEach(Array(cats.enumerated()), id: \.element) { i, cat in
