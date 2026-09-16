@@ -789,6 +789,10 @@ struct RichTextEditor: NSViewRepresentable {
         tv.maxSize = NSSize(width: big, height: big)
         scroll.documentView = tv
         tv.isRichText = true
+        // ⌘F inside a note. A lecture note runs to a couple of thousand words and the only
+        // search in the app was across notes, not within one.
+        tv.usesFindBar = true
+        tv.isIncrementalSearchingEnabled = true
         tv.importsGraphics = true
         tv.allowsImageEditing = true
         tv.isEditable = true
@@ -1696,6 +1700,15 @@ enum MathSupport {
     static let bracketDisplayRE = try! NSRegularExpression(pattern: #"\\\[([\s\S]+?)\\\]"#)
     static let parenInlineRE    = try! NSRegularExpression(pattern: #"\\\(([\s\S]+?)\\\)"#)
 
+    // The same span with padded delimiters: `$ \Phi_E = 0 $`, which is how models write
+    // inline math. `inlineRE` can't simply be loosened to take it — its non-space guard is
+    // what keeps "$5 and $10" from being read as math — so padding is matched separately,
+    // and only where the span can't be a pair of prices: it either carries a LaTeX character
+    // (`\ ^ _ { } =`) or holds no whitespace at all. "I paid $ 5 and $ 10" is neither, and is
+    // left alone. `$$…$$` is excluded at both ends so display math falls through untouched.
+    static let paddedInlineRE = try! NSRegularExpression(
+        pattern: #"(?<![\\\d$])\$[ \t]*([^$\n\s]+|[^$\n]*[\\^_{}=][^$\n]*?)[ \t]*\$(?![\d$])"#)
+
     /// `\(x\)` → `$x$`, `\[x\]` → `$$x$$`. A no-op (and an early return) for text that has
     /// neither, so the common path costs one `contains`.
     ///
@@ -1705,11 +1718,14 @@ enum MathSupport {
     /// is what keeps "$5 and $10" from being read as math). A template-rewritten `$ PV … $`
     /// therefore still didn't match, and still rendered as source — every inline span in a
     /// real store was padded like that.
+    ///
+    /// Math that arrives already padded — `$ PV = … $`, straight from a model — is trimmed
+    /// the same way, so every renderer downstream sees one canonical `$…$` shape.
     static func normalized(_ s: String) -> String {
-        guard s.contains("\\(") || s.contains("\\[") else { return s }
+        guard s.contains("\\(") || s.contains("\\[") || s.contains("$") else { return s }
         var out = rewrite(s, bracketDisplayRE, "$$")
         out = rewrite(out, parenInlineRE, "$")
-        return out
+        return rewrite(out, paddedInlineRE, "$")        // `$ x $` → `$x$`, for the same reason
     }
 
     private static func rewrite(_ s: String, _ re: NSRegularExpression, _ delim: String) -> String {
@@ -1730,7 +1746,7 @@ enum MathSupport {
     /// Is the caret strictly inside a `$…$` / `$$…$$` source span (i.e. being edited)?
     static func caretInsideMath(_ s: String, _ caret: Int) -> Bool {
         let ns = s as NSString
-        for re in [displayRE, inlineRE] {
+        for re in [displayRE, inlineRE, paddedInlineRE] {
             for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
                 if caret > m.range.location && caret < m.range.location + m.range.length { return true }
             }
@@ -1763,6 +1779,22 @@ enum MathSelfTest {
               MathSupport.normalized(#"\( PV = \frac{FV}{(1 + i)^N} \)"#),
               #"$PV = \frac{FV}{(1 + i)^N}$"#)
         check("padded display is trimmed", MathSupport.normalized(#"\[ x^2 \]"#), "$$x^2$$")
+
+        // Padded `$…$` straight from a model — no `\(…\)` anywhere, so nothing else in the
+        // pipeline would have looked at the string. This is what a chat answer looks like.
+        check("padded dollars are trimmed",
+              MathSupport.normalized(#"flux is $ \Phi_E=\dfrac{Q}{\varepsilon_0} $ here"#),
+              #"flux is $\Phi_E=\dfrac{Q}{\varepsilon_0}$ here"#)
+        check("one-sided padding is trimmed too", MathSupport.normalized(#"$x $ and $ y$"#), "$x$ and $y$")
+        check("padded prices are not math", MathSupport.normalized("I paid $ 5 and $ 10 today"),
+              "I paid $ 5 and $ 10 today")
+        check("a padded display block is left to displayRE",
+              MathSupport.normalized("$$ x^2 $$"), "$$ x^2 $$")
+        check("padded math is detected",
+              MathMarkdown.hasMath(#"- **Gauss**: $ \Phi_E=\dfrac{Q}{\varepsilon_0} $"#) ? "yes" : "no", "yes")
+        check("padded prices are not detected",
+              MathMarkdown.hasMath("I paid $ 5 and $ 10 today") ? "yes" : "no", "no")
+
         check("two inline spans", MathSupport.normalized(#"\(a\) and \(b\)"#), "$a$ and $b$")
         check("dollars untouched", MathSupport.normalized("$E=mc^2$ and $$y$$"), "$E=mc^2$ and $$y$$")
         check("prose untouched", MathSupport.normalized("no math, costs $5 and $10"), "no math, costs $5 and $10")
@@ -1860,6 +1892,7 @@ enum MathSelfTest {
             ## Introduction
             - **Present Value (PV)**: \\( PV = \\frac{FV}{(1 + i)^N} \\)
             - **Interest Rate (I)**: \\( I = \\left( \\frac{FV}{PV} \\right)^{\\frac{1}{N}} - 1 \\)
+            - **Gauss’s law** (padded `$…$`, straight from a chat answer): $ \\Phi_E=\\dfrac{Q_{\\text{enclosed}}}{\\varepsilon_0} $
             - **Table**:
 
                 | Year | Total Due | Interest Accrued | Principal Owed | Payment | Total Left After Payments |
@@ -1914,6 +1947,7 @@ extension NSAttributedString {
         }
         pass(MathSupport.displayRE, display: true)
         pass(MathSupport.inlineRE, display: false)
+        pass(MathSupport.paddedInlineRE, display: false)   // math pasted with padded delimiters
         return m
     }
 

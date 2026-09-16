@@ -42,7 +42,8 @@ struct SwiftMathContent: View {
                 ForEach(rows.indices, id: \.self) { rows[$0] }
             }
         } else {
-            MathWebView(html: MathMarkdown.html(text, dark: scheme == .dark), height: $height)
+            // Body only: the KaTeX shell is loaded once by the web view and reused.
+            MathWebView(body: MathMarkdown.bodyHTML(text), dark: scheme == .dark, height: $height)
                 .frame(height: max(18, height))
         }
     }

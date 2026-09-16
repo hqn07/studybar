@@ -144,8 +144,21 @@ private final class PassThroughWebView: WKWebView {
     }
 }
 
+/// The KaTeX reading surface.
+///
+/// The page used to be rebuilt and reloaded whole for every note and every re-render, and the
+/// page includes the entire KaTeX bundle inlined — 631 KB of CSS, JS and base64 woff2. Measured
+/// on this store (`StudyBar --perf-notes`): 15–28 ms to build the string, ~650 KB handed to
+/// WebKit, and a full parse plus re-execution of 275 KB of JavaScript on every load. That is the
+/// stall behind "lag when opening notes".
+///
+/// Now the shell — prelude, styles, an empty `#c` — is loaded once per web view, and a note is
+/// pushed into it as a few KB of body HTML through `setBody`. Switching notes re-renders the
+/// math; it no longer re-parses the engine.
 struct MathWebView: NSViewRepresentable {
-    let html: String
+    /// Body HTML only (see `MathMarkdown.bodyHTML`), not a whole page.
+    let body: String
+    var dark: Bool
     @Binding var height: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -157,21 +170,47 @@ struct MathWebView: NSViewRepresentable {
         web.navigationDelegate = context.coordinator
         web.setValue(false, forKey: "drawsBackground")     // transparent over the popover
         if #available(macOS 12.0, *) { web.underPageBackgroundColor = .clear }
-        web.loadHTMLString(html, baseURL: nil)
+        context.coordinator.pending = body
+        context.coordinator.loadedDark = dark
+        web.loadHTMLString(MathMarkdown.shell(dark: dark), baseURL: nil)
         return web
     }
 
     func updateNSView(_ web: WKWebView, context: Context) {
-        if context.coordinator.lastHTML != html {
-            context.coordinator.lastHTML = html
-            web.loadHTMLString(html, baseURL: nil)
+        let c = context.coordinator
+        // Only the appearance forces a reload — everything else is a body swap.
+        if c.loadedDark != dark {
+            c.loadedDark = dark
+            c.ready = false
+            c.pending = body
+            c.lastBody = nil
+            web.loadHTMLString(MathMarkdown.shell(dark: dark), baseURL: nil)
+            return
         }
+        guard c.lastBody != body else { return }
+        c.lastBody = body
+        if c.ready { c.push(body, into: web) } else { c.pending = body }
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var parent: MathWebView
-        var lastHTML: String
-        init(_ p: MathWebView) { parent = p; lastHTML = p.html }
+        /// Body waiting for the shell to finish loading.
+        var pending: String?
+        var lastBody: String?
+        var ready = false
+        var loadedDark = false
+        init(_ p: MathWebView) { parent = p }
+
+        func push(_ body: String, into web: WKWebView) {
+            let json = (try? JSONSerialization.data(withJSONObject: [body]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+            web.evaluateJavaScript("setBody(\(json)[0])")
+        }
+
+        func webView(_ web: WKWebView, didFinish navigation: WKNavigation!) {
+            ready = true
+            if let pending { push(pending, into: web); self.pending = nil }
+        }
 
         func userContentController(_ ucc: WKUserContentController, didReceive msg: WKScriptMessage) {
             guard msg.name == "h", let h = (msg.body as? NSNumber)?.doubleValue else { return }
@@ -195,7 +234,12 @@ struct MathWebView: NSViewRepresentable {
 // MARK: - Markdown (+ math) → HTML
 
 enum MathMarkdown {
-    static func hasMath(_ s: String) -> Bool {
+    /// Detection runs on the *normalized* text, deliberately: the renderers all normalize
+    /// first, so anything this counts as math must be what they will then match. Answering
+    /// on the raw string is what let a model's padded `$ \Phi_E = 0 $` spans route to a
+    /// renderer that found no math in them and laid them out as prose.
+    static func hasMath(_ raw: String) -> Bool {
+        let s = MathSupport.normalized(raw)
         if s.range(of: #"\$\$[\s\S]+?\$\$"#, options: .regularExpression) != nil { return true }
         if s.range(of: #"(?<![\\\d])\$\S[^$\n]*?\$(?!\d)"#, options: .regularExpression) != nil { return true }   // money-safe
         return s.contains("\\(") || s.contains("\\[")
@@ -217,8 +261,29 @@ enum MathMarkdown {
     /// what a note looked like. Normalizing also folds `\[…\]` into `$$…$$`, which is what
     /// lets `joinDisplayBlocks` repair a model's multi-line display math in either delimiter.
     static func html(_ md: String, dark: Bool) -> String {
-        page(body: convert(joinDisplayBlocks(MathSupport.normalized(md))), dark: dark)
+        page(body: bodyHTML(md), dark: dark)
     }
+
+    /// Just the note as HTML — no page, no KaTeX bundle. This is what gets pushed into an
+    /// already-loaded shell, and it is a few KB rather than 650.
+    ///
+    /// Memoized because the reading view calls it from `body`: a note that re-rendered for an
+    /// unrelated reason (a recording meter ticking, a selection change) paid the full markdown
+    /// conversion again every time.
+    static func bodyHTML(_ md: String) -> String {
+        if let hit = bodyCache.object(forKey: md as NSString) { return hit as String }
+        let out = convert(joinDisplayBlocks(MathSupport.normalized(md)))
+        bodyCache.setObject(out as NSString, forKey: md as NSString)
+        return out
+    }
+    private static let bodyCache: NSCache<NSString, NSString> = {
+        let c = NSCache<NSString, NSString>()
+        c.countLimit = 40                 // a term of notes, not the whole store
+        return c
+    }()
+
+    /// The page with an empty body: loaded once per web view, then filled through `setBody`.
+    static func shell(dark: Bool) -> String { page(body: "", dark: dark) }
 
     private static func page(body: String, dark: Bool) -> String {
         let fg = dark ? "#e6e6e8" : "#1d1d20"
@@ -243,12 +308,24 @@ enum MathMarkdown {
         </style></head><body><div id="c">\(body)</div>
         <script>
           function post(){try{if(window.webkit&&webkit.messageHandlers.h){webkit.messageHandlers.h.postMessage(document.body.scrollHeight);}}catch(e){}}
-          try{renderMathInElement(document.getElementById('c'),{delimiters:[
-            {left:'$$',right:'$$',display:true},
-            {left:'\\\\[',right:'\\\\]',display:true},
-            {left:'$',right:'$',display:false},
-            {left:'\\\\(',right:'\\\\)',display:false}],
-            throwOnError:false,errorColor:'\(fg)80'});}catch(e){}
+          function typeset(){
+            try{renderMathInElement(document.getElementById('c'),{delimiters:[
+              {left:'$$',right:'$$',display:true},
+              {left:'\\\\[',right:'\\\\]',display:true},
+              {left:'$',right:'$',display:false},
+              {left:'\\\\(',right:'\\\\)',display:false}],
+              throwOnError:false,errorColor:'\(fg)80'});}catch(e){}
+          }
+          // Swapping a note is a body swap plus a typeset — the engine above is parsed once.
+          function setBody(html){
+            var c=document.getElementById('c');
+            c.innerHTML=html;
+            typeset();
+            post();
+            if(document.fonts&&document.fonts.ready){document.fonts.ready.then(post);}
+            setTimeout(post,60); setTimeout(post,300);
+          }
+          typeset();
           post(); window.addEventListener('load',post);
           if(window.ResizeObserver){new ResizeObserver(post).observe(document.body);}
           if(document.fonts&&document.fonts.ready){document.fonts.ready.then(post);}
