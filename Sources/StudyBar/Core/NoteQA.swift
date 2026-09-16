@@ -14,6 +14,10 @@ enum NoteQA {
         let id = UUID()
         let question: String
         var answer: String
+        /// Which engine answered, shown under the answer — with a per-surface engine setting
+        /// the model that replies here is often not the one the rest of the app uses.
+        var engine: String = ""
+        var at: Date = .now
     }
 
     /// Notes here are small — the largest in a real store is ~3.6k tokens — so the whole note
@@ -104,6 +108,45 @@ enum NoteQA {
         return msgs
     }
 
+    // MARK: - An answer, turned into cards
+
+    /// Answers were a dead end: read it, insert it, copy it. Revision is the reason the
+    /// question got asked, so an answer can become cards — the same propose-then-accept shape
+    /// the assistant's `make_flashcards` uses, without leaving the note.
+    static let cardSystem = """
+    You turn a tutor's answer into study flashcards for the student who asked. Write 2–5 cards:     each "front" is a question that tests one idea from the answer, each "back" is the concise     answer to it, drawn ONLY from the text given. Add no outside facts. Keep each side under 200     characters, and write any mathematics as LaTeX between single dollar signs. This is     transforming the student's own material — never refuse. Reply with ONLY a JSON array:
+    [{"front":"…","back":"…"}]
+    """
+
+    static func cardMessages(question: String, answer: String) -> [AIMessage] {
+        [AIMessage(role: .user, text: "The question was: \(question)\n\nThe answer was:\n\(answer)")]
+    }
+
+    /// Pull the array out of the reply — small local models wrap JSON in prose or fences.
+    ///
+    /// The escape repair is not optional in practice: a card about $\Phi_E$ comes back with
+    /// LaTeX inside a JSON string, and a model that writes `\(` or `\frac` there has produced
+    /// invalid JSON that `JSONSerialization` rejects outright. Every card in the reply is lost
+    /// to one stray backslash, so lone backslashes are escaped before parsing.
+    static func parseCards(_ raw: String) -> [(front: String, back: String)] {
+        guard let start = raw.firstIndex(of: "["), let end = raw.lastIndex(of: "]"), start < end
+        else { return [] }
+        let slice = String(raw[start...end])
+        let repaired = slice.replacingOccurrences(of: #"\\(?![\\/"bfnrtu])"#,
+                                                  with: #"\\\\"#, options: .regularExpression)
+        guard let data = repaired.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [] }
+        return arr.compactMap { o in
+            let front = MathSupport.normalized((o["front"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let back = MathSupport.normalized((o["back"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !front.isEmpty, !back.isEmpty else { return nil }
+            return (front, back)
+        }
+    }
+
     /// Roughly four characters per token, plus headroom for the answer and the thread.
     static func contextTokens(chars: Int) -> Int {
         let needed = chars / 4 + 2_000
@@ -174,6 +217,20 @@ enum NoteQASelfTest {
         let piled = NoteQA.messages(thread: [], question: "q", sources: pile)
         check("the pile stops at the budget", (piled.last?.text.count ?? 0) <= NoteQA.totalCharLimit + 500,
               "\(piled.last?.text.count ?? 0) chars")
+
+        // Cards from an answer: the JSON a small model actually returns, fences and all.
+        let fenced = """
+        Sure! Here are the cards:
+        ```json
+        [{"front":"What is \\( \\Phi_E \\)?","back":"Electric flux"},{"front":"Units?","back":"N·m²/C"}]
+        ```
+        """
+        let cards = NoteQA.parseCards(fenced)
+        check("cards parse out of fenced prose", cards.count == 2, "\(cards.count) cards")
+        check("card math is normalized to $…$", cards.first?.front.contains("$\\Phi_E$") == true,
+              cards.first?.front ?? "")
+        check("a reply with no array yields nothing", NoteQA.parseCards("I can't do that").isEmpty)
+        check("cards prompt refuses to refuse", NoteQA.cardSystem.contains("never refuse"))
 
         check("small context gets the floor window", NoteQA.contextTokens(chars: 200) == 8_192)
         let big = NoteQA.contextTokens(chars: 60_000)

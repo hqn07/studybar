@@ -32,15 +32,22 @@ final class AssistantPanel {
             p.level = .floating
             p.hidesOnDeactivate = false
             p.isMovableByWindowBackground = true
+            // All three, as on the calculator panel: a titled panel still draws the close
+            // button, which showed as a stray red dot above the header next to the panel's
+            // own ✕.
+            p.standardWindowButton(.closeButton)?.isHidden = true
             p.standardWindowButton(.miniaturizeButton)?.isHidden = true
             p.standardWindowButton(.zoomButton)?.isHidden = true
             p.contentView = hosting
-            positionTopTrailing(p)
+            // A long answer is worth widening the panel for; remember that instead of snapping
+            // back to 560×560 in the corner on the next question.
+            p.setFrameAutosaveName("StudyBarAssistant")
+            if !p.setFrameUsingName("StudyBarAssistant") { positionTopTrailing(p) }
             panel = p
         }
         panel?.makeKeyAndOrderFront(nil)
         if let prompt, !prompt.isEmpty, AIConfig.isReady {
-            Task { await state.aiChat.send(prompt, state: state) }
+            state.aiChat.start(prompt, state: state)
         }
     }
 
@@ -69,7 +76,13 @@ struct AssistantPanelView: View {
                     Button { state.aiChat.clear() } label: { Image(systemName: "square.and.pencil") }
                         .buttonStyle(.borderless).help("New chat — clears this conversation")
                 }
-                Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
+                // ContextPill existed, documented, with no call site anywhere — the gauge it
+                // describes never appeared. Here it is, beside the engine that is answering.
+                if state.aiChat.approxTokens > 0 {
+                    ContextPill(tokens: state.aiChat.approxTokens)
+                }
+                Text(engineLabel).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    .help("The engine answering here — Settings ▸ Intelligence")
                 Button { close() } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Close")
             }
@@ -83,6 +96,14 @@ struct AssistantPanelView: View {
         }
         .frame(minWidth: 460, minHeight: 420)
         .background(.regularMaterial)
+    }
+
+    /// Named by model, not by protocol: "Ollama" and "OpenAI-compatible" say how the request
+    /// is shaped, not which brain answers — and Ask can be pointed at a different one.
+    private var engineLabel: String {
+        let mode = AIConfig.mode
+        let model = AIConfig.modelName(for: mode)
+        return model.isEmpty ? mode.title : "\(model) · \(mode.title)"
     }
 
     private var notConfigured: some View {

@@ -119,7 +119,7 @@ struct AssistantChat: View {
             .buttonStyle(.plain)
 
             ForEach(Starters.suggestions(state: state)) { s in
-                Button { Task { await chat.send(s.prompt, state: state) } } label: {
+                Button { chat.start(s.prompt, state: state) } label: {
                     HStack(spacing: 10) {
                         Image(systemName: s.symbol).frame(width: 22).foregroundStyle(.tint)
                         VStack(alignment: .leading, spacing: 1) {
@@ -146,11 +146,25 @@ struct AssistantChat: View {
         }
     }
 
+    /// A turn's reply is a JSON envelope, so partial text can't be shown the way the note's Ask
+    /// panel streams prose — a 7B model means half a minute of nothing. Count the seconds and
+    /// say what is happening, so the wait reads as work rather than a hang.
     private var typing: some View {
-        HStack(spacing: 6) {
-            ProgressView().controlSize(.small)
-            Text("Thinking…").font(.caption).foregroundStyle(.secondary)
-        }.padding(.horizontal, 4)
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(typingLabel).font(.caption).foregroundStyle(.secondary)
+                Button { chat.stop() } label: { Label("Stop", systemImage: "stop.circle") }
+                    .buttonStyle(.borderless).controlSize(.small).font(.caption)
+            }.padding(.horizontal, 4)
+        }
+    }
+
+    private var typingLabel: String {
+        guard let started = chat.turnStarted else { return "Thinking…" }
+        let secs = Int(Date.now.timeIntervalSince(started))
+        if secs < 3 { return "Thinking…" }
+        return secs < 20 ? "Thinking… \(secs)s" : "Still working — \(secs)s on \(AIConfig.mode.title)"
     }
 
     private var composer: some View {
@@ -173,7 +187,7 @@ struct AssistantChat: View {
     private func send() {
         let t = input
         input = ""
-        Task { await chat.send(t, state: state) }
+        chat.start(t, state: state)
     }
 }
 
@@ -239,10 +253,22 @@ private struct MessageView: View {
                 .font(.caption).foregroundStyle(.tint).frame(width: 18).padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text(a.label).font(.caption.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
-                Text(a.tool).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                // What it will do, in words. The raw tool name stays as the tooltip for
+                // anyone who wants to know exactly which call is queued.
+                let detail = AIChat.detail(a)
+                Text(detail.isEmpty ? a.tool : detail)
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(a.tool)
                 if let result {
-                    Label(result, systemImage: "checkmark.circle.fill")
-                        .font(.caption2).foregroundStyle(.green)
+                    HStack(spacing: 6) {
+                        Label(result, systemImage: "checkmark.circle.fill")
+                            .font(.caption2).foregroundStyle(.green)
+                        if state.undo != nil {
+                            Button("Undo") { state.performUndo() }
+                                .buttonStyle(.borderless).controlSize(.small).font(.caption2)
+                        }
+                    }
                 } else if skipped {
                     Text("Skipped").font(.caption2).foregroundStyle(.secondary)
                 } else {

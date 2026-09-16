@@ -167,6 +167,19 @@ enum AIConfig {
     static var isReady: Bool { isReady(mode) }
 
     /// Ready for a particular surface — the Ask panel may be pointed at a different engine.
+    /// The model a mode will actually call, for labelling a surface. "Ollama" and
+    /// "OpenAI-compatible" name a protocol, not a brain — and with a per-surface override the
+    /// Ask panel and the assistant frequently answer from different ones.
+    static func modelName(for mode: AIMode) -> String {
+        switch mode {
+        case .off:      return ""
+        case .onDevice: return "Apple Intelligence"
+        case .ollama:   return ollamaModel
+        case .openai:   return openaiModel
+        case .claude:   return claudeModel
+        }
+    }
+
     static func isReady(for surface: AIService.Surface) -> Bool { isReady(engine(for: surface)) }
 
     static func isReady(_ mode: AIMode) -> Bool {
@@ -201,6 +214,44 @@ enum AIError: LocalizedError {
             let detail = body.isEmpty ? "" : " — \(body.prefix(160))"
             return "Request failed (\(code))\(detail)"
         case .badResponse:        return "The model returned an empty or unreadable response."
+        }
+    }
+}
+
+extension AIError {
+    /// What to put in front of a student when a request fails. "No answer came back — try
+    /// rephrasing" was the only message the Ask panel had, whether the key was missing, the
+    /// model name was wrong, or Ollama simply wasn't running.
+    @MainActor
+    static func plainMessage(_ error: Error, mode: AIMode, model: String) -> String {
+        if error is CancellationError { return "Stopped." }
+        switch error {
+        case let e as AIError:
+            switch e {
+            case .notConfigured: return e.localizedDescription
+            case .badResponse:   return "\(model.isEmpty ? mode.title : model) returned nothing readable. Try again, or a stronger engine in Settings ▸ Intelligence."
+            case .unavailable(let s): return s
+            case .http(let code, let body):
+                switch code {
+                case 401, 403: return "\(mode.title) rejected the API key. Check it in Settings ▸ Intelligence."
+                case 404:      return "The engine has no model called “\(model)”. Fix the model name in Settings ▸ Intelligence."
+                case 429:      return "\(mode.title) is rate-limiting this key — wait a moment and ask again."
+                case 500...599: return "\(mode.title) had a server error (\(code)). Try again shortly."
+                default:       return body.isEmpty ? "Request failed (\(code))." : "Request failed (\(code)) — \(body.prefix(140))"
+                }
+            }
+        case let e as URLError:
+            switch e.code {
+            case .notConnectedToInternet: return "No network — \(mode.title) needs a connection."
+            case .cannotConnectToHost, .cannotFindHost:
+                return mode == .ollama
+                    ? "Can't reach Ollama at \(AIConfig.ollamaHost). Start it, then `ollama pull \(model)`."
+                    : "Can't reach \(mode.title) right now."
+            case .timedOut: return "\(mode.title) timed out. A smaller note or a faster engine will help."
+            default: return e.localizedDescription
+            }
+        default:
+            return error.localizedDescription
         }
     }
 }
@@ -846,6 +897,9 @@ enum AIService {
         if turn.parseFailed {
             return AITurn(reply: "⚠️ I got a garbled response from the model. Try rephrasing, or ask for fewer changes at once.", actions: [])
         }
+        // "Here's what I can set up:" is the fallback when a model answers a question ("what
+        // should I work on, and why?") with nothing but tool calls. The prompt now asks for a
+        // sentence of reasoning with any action; this stays as the floor when it doesn't.
         let reply = turn.reply.isEmpty ? (turn.actions.isEmpty ? "Done." : "Here's what I can set up:") : turn.reply
         return AITurn(reply: reply, actions: turn.actions)
     }
@@ -890,6 +944,10 @@ enum AIService {
           genuinely need data they did not provide.
         - When the student asks you to save / add / make / summarize / rank something, you MUST
           return at least one action — never reply with empty "actions" and an empty "reply".
+        - "reply" is never empty when you return actions. Say in ONE sentence what you are doing
+          and why it is the right call — "Ranking by urgency: PHY2049 quiz is due first and
+          weighs 20%." A student who asked "what should I work on, and why?" and got a bare
+          button learned nothing.
         - "reads" is a list of {"tool","args"} objects using ONLY the read tools above, or []. NEVER
           put note text, prose, or anything else in "reads".
         - Use ONLY the exact tool names listed. NEVER invent a tool (no "error", "unknown", etc.).
@@ -1564,19 +1622,44 @@ final class AIChat: ObservableObject {
 
     @Published var messages: [Msg] = []
     @Published var sending = false
+    /// The in-flight turn, so a slow local model can be stopped. Without this the only way out
+    /// of a 40-second generation was to close the panel.
+    private var turnTask: Task<Void, Never>?
     /// Rough token estimate of the conversation actually sent to the model
     /// (system prompt + non-error history), refreshed each turn. ~chars/4.
     @Published var approxTokens = 0
+    /// When the in-flight turn began, for the "still working — 24s" line.
+    @Published var turnStarted: Date?
 
     var isEmpty: Bool { messages.isEmpty }
 
-    func clear() { messages.removeAll(); approxTokens = 0 }
+    func clear() { turnTask?.cancel(); turnTask = nil; sending = false; messages.removeAll(); approxTokens = 0 }
+
+    /// Fire a turn and keep hold of it. Views call this rather than awaiting `send` directly,
+    /// so `stop()` has something to cancel.
+    func start(_ text: String, state: AppState) {
+        guard !sending else { return }
+        turnTask?.cancel()
+        turnTask = Task { [weak self] in await self?.send(text, state: state) }
+    }
+
+    /// Cancel the in-flight turn, keeping whatever text already arrived.
+    func stop() {
+        turnTask?.cancel(); turnTask = nil
+        guard sending else { return }
+        sending = false
+        if let last = messages.last, last.role == .assistant, last.text.isEmpty, last.actions.isEmpty {
+            messages.removeLast()
+        }
+        messages.append(Msg(role: .assistant, text: "_Stopped._"))
+    }
 
     func send(_ text: String, state: AppState) async {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !sending else { return }
         messages.append(Msg(role: .user, text: t))
         sending = true
+        turnStarted = .now
         // History excludes error bubbles so a failed turn doesn't poison context.
         let history = messages.filter { !$0.isError }
             .map { AIMessage(role: $0.role == .user ? .user : .assistant, text: $0.text) }
@@ -1603,16 +1686,41 @@ final class AIChat: ObservableObject {
             messages.append(Msg(role: .assistant, text: error.localizedDescription, isError: true))
         }
         sending = false
+        turnStarted = nil
     }
 
     func apply(_ action: AIAction, messageID: UUID, state: AppState) {
         guard let i = messages.firstIndex(where: { $0.id == messageID }) else { return }
-        messages[i].results[action.id] = AIActionRunner.apply(action, state: state)
+        // Through the store's undo, so an action the assistant proposed and the student
+        // approved can be taken back from the same toast as any other change. Applying used
+        // to write straight to the store with no way back.
+        var result = ""
+        state.withUndo(action.label) { result = AIActionRunner.apply(action, state: state) }
+        messages[i].results[action.id] = result
     }
     func skip(_ action: AIAction, messageID: UUID) {
         guard let i = messages.firstIndex(where: { $0.id == messageID }) else { return }
         messages[i].skipped.insert(action.id)
     }
+    /// Plain-language detail for a confirm card: what this action will actually do, from its
+    /// own arguments. The card used to print the raw tool id (`prioritize_assignments`).
+    nonisolated static func detail(_ a: AIAction) -> String {
+        var bits: [String] = []
+        func s(_ k: String) -> String? { (a.args[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        if let course = s("course") { bits.append(course) }
+        if let deck = s("deck") { bits.append("deck “\(deck)”") }
+        if let n = a.args["dueInDays"] as? Int { bits.append(n == 0 ? "due today" : "due in \(n) day\(n == 1 ? "" : "s")") }
+        if let m = a.args["minutes"] as? Int { bits.append("\(m) min") }
+        if let cards = a.args["cards"] as? [[String: Any]], let first = cards.first,
+           let front = first["front"] as? String {
+            bits.append("first: “\(front.prefix(40))\(front.count > 40 ? "…" : "")”")
+        }
+        if let sessions = a.args["sessions"] as? [[String: Any]] { bits.append("\(sessions.count) session\(sessions.count == 1 ? "" : "s")") }
+        if let url = s("url") { bits.append(url) }
+        if a.tool == "prioritize_assignments" { bits.append("ranks by due date, weight, grade and effort — nothing is edited") }
+        return bits.joined(separator: " · ")
+    }
+
     func applyAll(messageID: UUID, state: AppState) {
         guard let i = messages.firstIndex(where: { $0.id == messageID }) else { return }
         for a in messages[i].actions where messages[i].results[a.id] == nil && !messages[i].skipped.contains(a.id) {

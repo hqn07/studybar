@@ -25,10 +25,18 @@ enum HomeworkGuard {
     /// still a request for the submission.
     private static let handIn: [(String, String)] = [
         (#"(?i)\b(?:as|exactly as|the way)\s+i\s+(?:should\s+)?(?:submit|turn\s+it\s+in|hand\s+it\s+in)"#, "as I should submit it"),
-        (#"(?i)\b(?:solve|answer|do)\s+(?:problem|question|exercise|q)\s*#?\s*\d+\s+for\s+me\b"#, "solve problem N for me"),
+        // Filler between the verb and the problem is the common phrasing — "solve *homework*
+        // problem 3 for me" walked straight through a version of this that required the two
+        // words to be adjacent.
+        (#"(?i)\b(?:solve|answer|do|complete|finish)\s+(?:\w+\s+){0,3}?(?:problem|question|exercise|q|part)\s*#?\s*\d+\s+for\s+me\b"#, "solve problem N for me"),
         (#"(?i)\bdo\s+(?:this|these|it)\s+for\s+me\b"#, "do it for me"),
         (#"(?i)\b(?:submit|turn\s+in|hand\s+in)\s+(?:this|it|that)\b"#, "turn it in"),
-        (#"(?i)\bjust\s+(?:give|tell)\s+me\s+the\s+(?:final\s+)?answer\b"#, "just give me the answer"),
+        // "just" was required here, so "and give me the final answer" was not a hand-in signal.
+        // The negative lookahead keeps questions *about* an answer ("the answer format the
+        // instructor wants") on the allowed side.
+        (#"(?i)\b(?:give|tell)\s+me\s+(?:the|a)\s+(?:final|complete|full|correct)?\s*answer\b(?!\s+(?:format|style|structure|sheet|choices|options|section))"#, "give me the answer"),
+        (#"(?i)\b(?:work|figure)\s+(?:it|this|that|them)\s+out\s+for\s+me\b"#, "work it out for me"),
+        (#"(?i)\bwrite\s+(?:out\s+)?(?:the|a|my)\s+(?:full|complete|entire|whole)\s+(?:solution|answer|proof|derivation|write-?up)\b"#, "write the complete solution"),
     ]
 
     /// An imperative aimed at the artifact — "write my homework". Blocked *unless* the
@@ -99,6 +107,13 @@ enum HomeworkSelfTest {
         check("Write the answer to problem 4", blocked: true)
         check("Solve problem 2 for me", blocked: true)
         check("Just give me the final answer", blocked: true)
+        // Found by running the shipped guard against the phrasings a student actually types:
+        // every one of these reached the model, and only the model's own refusal stopped them.
+        check("Solve homework problem 3 for me and give me the final answer", blocked: true)
+        check("Give me the final answer to problem 4", blocked: true)
+        check("Can you just work it out for me?", blocked: true)
+        check("Write out the complete solution", blocked: true)
+        check("Finish question 5 for me", blocked: true)
         check("Write me a 500 word essay on urbanization", blocked: true)
         check("Can you do this for me?", blocked: true)
         check("Write my lab report", blocked: true)
@@ -129,6 +144,11 @@ enum HomeworkSelfTest {
         check("How would I answer a question like problem 2 on the exam?", blocked: false)
         check("What answer did my note give for problem 2?", blocked: false)
         check("Is my answer of $31,046 right?", blocked: false)
+        // The loosened rules must not swallow questions *about* answers and solutions.
+        check("What answer format does the instructor want?", blocked: false)
+        check("How do I work out the final answer myself?", blocked: false)
+        check("Where does the complete solution usually start — the diagram or the equation?", blocked: false)
+        check("Can you tell me the answer choices for a multiple choice exam?", blocked: false)
 
         let m = HomeworkGuard.methodQuestion(from: "Write my homework answer for problem 2")
         (m.contains("don't give me a final answer") && m.contains("problem 2"))
