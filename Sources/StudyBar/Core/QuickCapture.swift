@@ -26,6 +26,9 @@ final class QuickCapture {
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
+        // All three: a titled panel still draws the close button, which showed as a stray grey
+        // dot over the header — the same leak the assistant panel had.
+        panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.contentView = hosting
@@ -50,7 +53,9 @@ struct QuickCaptureView: View {
     let mode: QuickCapture.Mode
     let onClose: () -> Void
     @State private var text = ""
-    @State private var courseID: UUID? = nil
+    /// Seeded from the schedule: capture during a lecture already knows which course it is
+    /// for. The picker below still wins, and so does "for chem" in the text.
+    @State private var courseID: UUID? = AppState.current?.currentCourseID
     @FocusState private var focused: Bool
 
     var body: some View {

@@ -196,6 +196,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowOpener.setWindowTitle = { [weak self] t in
             self?.window?.title = (t.isEmpty || t == "StudyBar") ? "StudyBar" : "StudyBar — \(t)"
         }
+        // Global hotkeys belong to the app, not to a window. They used to be registered from
+        // RootView.onAppearSetup, so a menu-bar app that had not yet been asked to show its
+        // window or popover had none of them — ⌃⌥N did nothing until you opened StudyBar,
+        // which is the one moment you do not need a shortcut for opening StudyBar.
+        GlobalShortcuts.configure()
+        if UserDefaults.standard.bool(forKey: "globalHotkey") { HotKeyManager.shared.register() }
+
         installMainMenu()
         SpotlightIndexer.reindex(state.data)
         refreshStatus()

@@ -17,6 +17,10 @@ final class HotKeyManager {
     private var actions: [UInt32: () -> Void] = [:]
     private var handler: EventHandlerRef?
     private(set) var registered = false
+    /// Hotkeys the system refused, by action id — almost always because another app or macOS
+    /// itself already owns that chord. `RegisterEventHotKey` failing used to be silent, so a
+    /// taken shortcut looked exactly like a broken feature.
+    private(set) var conflicts: Set<UInt32> = []
 
     /// Standard modifier for StudyBar globals: ⌃⌥ (control+option).
     static let mods = UInt32(controlKey | optionKey)
@@ -32,21 +36,32 @@ final class HotKeyManager {
     func register() {
         unregister()
         installHandlerIfNeeded()
+        var taken: [String] = []
         for d in defs {
             var ref: EventHotKeyRef?
             let hkID = EventHotKeyID(signature: OSType(0x53544259), id: d.id)   // 'STBY'
-            if RegisterEventHotKey(d.keyCode, d.mods, hkID, GetApplicationEventTarget(), 0, &ref) == noErr {
+            let err = RegisterEventHotKey(d.keyCode, d.mods, hkID, GetApplicationEventTarget(), 0, &ref)
+            if err == noErr {
                 refs[d.id] = ref
+            } else {
+                conflicts.insert(d.id)
+                taken.append("\(HotKeyStore.display(HotBinding(keyCode: d.keyCode, mods: d.mods))) (\(err))")
             }
         }
         registered = true
+        Diagnostics.info(.app, "Global hotkeys: \(refs.count)/\(defs.count) registered"
+                         + (taken.isEmpty ? "" : " — refused: \(taken.joined(separator: ", "))"))
     }
 
     func unregister() {
         for (_, ref) in refs { UnregisterEventHotKey(ref) }
         refs.removeAll()
+        conflicts.removeAll()
         registered = false
     }
+
+    /// Did this action's chord fail to register? Drives the warning in Settings.
+    func isConflicted(_ id: UInt32) -> Bool { conflicts.contains(id) }
 
     private func installHandlerIfNeeded() {
         guard handler == nil else { return }

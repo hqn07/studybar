@@ -354,6 +354,11 @@ struct SettingsView: View {
         Section("Global Shortcuts") {
             Toggle("Global shortcuts (work from any app)", isOn: $globalHotkey)
                 .onChange(of: globalHotkey) { _, v in HotKeyManager.shared.setEnabled(v) }
+            if globalHotkey, !HotKeyManager.shared.conflicts.isEmpty {
+                Label("macOS or another app already owns one of these chords, so it never reaches StudyBar. Record a different one below.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(Color.dsWeek)
+            }
             if globalHotkey {
                 ForEach(HotAction.allCases) { a in
                     LabeledContent(a.title) {
