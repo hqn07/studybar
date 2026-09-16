@@ -40,5 +40,9 @@ fi
 xcodebuild -project StudyBar.xcodeproj -scheme StudyBar \
   -configuration "$CONFIG" -derivedDataPath .build ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build
 
-APP=$(find .build/Build/Products -name "StudyBar.app" -type d | head -1)
+# The built app for THIS configuration. `find | head -1` used to answer here, and it returns
+# whichever of Debug/ or Release/ the filesystem lists first — so a stale Release build from a
+# past `build.sh release` was what run.sh installed and launched, and a Debug change appeared
+# to have no effect.
+APP=".build/Build/Products/$CONFIG/StudyBar.app"
 echo "Built: $APP"

@@ -5,7 +5,9 @@ cd "$(dirname "$0")/.."
 ./scripts/build.sh "${1:-}"
 pkill -f "StudyBar.app/Contents/MacOS/StudyBar" 2>/dev/null || true
 sleep 0.5
-APP=$(find .build/Build/Products -name "StudyBar.app" -type d | head -1)
+CONFIG="Debug"
+[ "${1:-}" = "release" ] && CONFIG="Release"
+APP=".build/Build/Products/$CONFIG/StudyBar.app"   # not `find | head -1`: it could pick the other config
 # Keep the installed copy in /Applications fresh so Spotlight/Launchpad open the latest.
 rm -rf /Applications/StudyBar.app
 cp -R "$APP" /Applications/StudyBar.app
