@@ -1632,7 +1632,7 @@ struct NoteEditor: View {
                 Spacer()
                 Menu {
                     Button { duplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-                    Button { printNote() } label: { Label("Print…", systemImage: "printer") }
+                    Button { exportPDF() } label: { Label("Print…", systemImage: "printer") }
                     Divider()
                     Button { exportPDF() } label: { Label("Export as PDF", systemImage: "arrow.down.doc.fill") }
                     Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
@@ -1939,33 +1939,16 @@ struct NoteEditor: View {
         }
     }
 
-    /// PDF is the format to hand a classmate: it renders the math instead of shipping `$…$`
-    /// source, and it opens anywhere. Goes through the same Markdown + KaTeX page the
-    /// reading view uses.
+    /// Export and Print open the same preview: the note laid out by the reading view's
+    /// renderer, cut into pages between blocks, with the paper settings beside it. Print used
+    /// to send the live editor to the printer instead, so the two never matched.
     private func exportPDF() {
         persist()
-        let panel = NSSavePanel()
-        let name = draft.title.isEmpty ? "Note" : draft.title
-        panel.nameFieldStringValue = name + ".pdf"
-        panel.allowedContentTypes = [.pdf]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        if NoteDocument.writePDF(title: draft.title, attributed: exportAttributed(), to: url) {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } else {
-            Diagnostics.log(.data, .error, "note PDF export failed")
-        }
-    }
-
-    /// `RichTextController.printNote()` prints the live `NSTextView`, which doesn't exist in
-    /// the reading view — printing from there did nothing at all. Fall back to the rendered
-    /// document, which also prints math as math.
-    private func printNote() {
-        persist()
-        if editor.attributedString.length > 0, !showPreview {
-            editor.printNote()
-            return
-        }
-        NoteDocument.print(title: draft.title, attributed: exportAttributed())
+        let course = state.course(draft.courseID).map { $0.code.isEmpty ? $0.name : $0.code }
+        let date = draft.createdAt.formatted(date: .abbreviated, time: .omitted)
+        PDFExportWindow.show(body: NoteHTML.body(from: exportAttributed()),
+                             meta: .init(title: draft.title,
+                                         subtitle: [course, date].compactMap { $0 }.joined(separator: " · ")))
     }
 
     /// Turn the editor's plaintext mirror into portable Markdown (its list markers → md).

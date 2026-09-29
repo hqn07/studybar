@@ -118,7 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(NoteFormatSelfTest.run())
         }
         if CommandLine.arguments.contains("--pdf-selftest") {
-            exit(PDFSelfTest.run())
+            Task { @MainActor in exit(await PDFSelfTest.run()) }
+            return
         }
         if CommandLine.arguments.contains("--search-selftest") {
             exit(SearchSelfTest.run())

@@ -1,6 +1,5 @@
 import SwiftUI
 import WebKit
-import PDFKit
 
 /// (E1) System-wide LaTeX. `RichText` renders Markdown + math: if the string
 /// contains `$…$` / `$$…$$` / `\(…\)` / `\[…\]` it renders through a KaTeX
@@ -487,34 +486,15 @@ enum MathMarkdown {
         return html + "</tbody></table>"
     }
 
-    /// The note laid out for paper: the same Markdown conversion the reading view renders,
-    /// imported through the HTML reader, with `$…$` spans drawn as math attachments. Export
-    /// and Print used the plaintext mirror, so a PDF of an AI-written note was a page of
-    /// `##` and `**` and raw LaTeX — the source, not the note.
-    @MainActor
-    static func printable(_ md: String) -> NSAttributedString? {
-        let body = convert(joinDisplayBlocks(MathSupport.normalized(md)))
-        let html = """
-        <!doctype html><html><head><meta charset="utf-8"><style>
-          body{font:11pt -apple-system,"SF Pro Text",system-ui,sans-serif;line-height:1.45;color:#000;}
-          h1{font-size:17pt;margin:0 0 8pt;} h2{font-size:14pt;margin:12pt 0 4pt;} h3{font-size:12pt;margin:10pt 0 3pt;}
-          p{margin:0 0 5pt;} ul{margin:2pt 0 5pt 0;} li{margin:1pt 0;}
-          ul ul{margin:0;list-style:circle;} ul ul ul{list-style:square;}
-          table{border-collapse:collapse;margin:6pt 0;width:100%;}
-          th,td{border:1px solid #999;padding:3pt 6pt;font-size:10pt;text-align:left;}
-          th{background:#f0f0f0;font-weight:600;}
-          code{font-family:ui-monospace,Menlo,monospace;font-size:10pt;}
-          blockquote{margin:4pt 0 4pt 10pt;color:#444;}
-        </style></head><body>\(body)</body></html>
-        """
-        guard let data = html.data(using: .utf8),
-              let attr = try? NSMutableAttributedString(
-                data: data,
-                options: [.documentType: NSAttributedString.DocumentType.html,
-                          .characterEncoding: String.Encoding.utf8.rawValue],
-                documentAttributes: nil)
-        else { return nil }
-        return attr.installingMath(defaultColor: .black)
+    /// Markdown plus HTML fragments the caller wants passed through untouched — the styled-note
+    /// path (`NoteHTML`) carries color, highlight and images this way. Each fragment sits in the
+    /// Markdown as a private-use token that the converter escapes as nothing and splits on nothing.
+    static func bodyHTML(_ md: String, raw: [String]) -> String {
+        var html = convert(joinDisplayBlocks(MathSupport.normalized(md)))
+        for (i, r) in raw.enumerated().reversed() {
+            html = html.replacingOccurrences(of: "\u{E010}\(i)\u{E011}", with: r)
+        }
+        return html
     }
 
     /// Balance a line's `\(…\)` so a common typo (a bare `)` meant as `\)`, or a stray extra
@@ -569,194 +549,5 @@ enum MathMarkdown {
     private static func rx(_ s: String, _ pattern: String, _ template: String) -> String {
         guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
         return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
-    }
-}
-
-// MARK: - A note as a printable document (PDF / print)
-
-/// Export as Rich Text carries LaTeX as source and Markdown carries no formatting at all, so
-/// neither is what you hand a classmate. This lays the note out for paper with its math
-/// *rendered* — `installingMath()` turns every `$…$` span into the same drawn attachment the
-/// editor shows — and prints it or writes a paginated PDF.
-///
-/// It deliberately does NOT print the KaTeX web view. WebKit's print pagination did not
-/// terminate on a long note: it produced a 2.7 GB PDF and was still growing when it was
-/// killed. The text system paginates the same way Print in the editor already does.
-@MainActor
-enum NoteDocument {
-
-    static func writePDF(title: String, attributed: NSAttributedString, to url: URL) -> Bool {
-        let info = printInfo()
-        info.jobDisposition = .save
-        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
-        let op = NSPrintOperation(view: page(title: title, attributed: attributed, info: info), printInfo: info)
-        op.showsPrintPanel = false
-        op.showsProgressPanel = false
-        return op.run()
-    }
-
-    static func print(title: String, attributed: NSAttributedString) {
-        let info = printInfo()
-        let op = NSPrintOperation(view: page(title: title, attributed: attributed, info: info), printInfo: info)
-        op.showsPrintPanel = true
-        op.showsProgressPanel = true
-        op.run()
-    }
-
-    private static func printInfo() -> NSPrintInfo {
-        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
-        info.topMargin = 54; info.bottomMargin = 54; info.leftMargin = 54; info.rightMargin = 54
-        info.isHorizontallyCentered = false; info.isVerticallyCentered = false
-        return info
-    }
-
-    /// Math attachments carry an image that redraws its glyphs when asked, rather than a
-    /// bitmap — printed equations came out mirrored while the same attachment is upright in
-    /// the editor. (Measured, not guessed: a plain bitmap attachment through this same print
-    /// path lands upright, so the print context isn't flipping anything.) Rasterizing each
-    /// math image once, at print resolution, locks in what it looks like on screen.
-    static func rasterizingMath(_ s: NSAttributedString) -> NSAttributedString {
-        let m = NSMutableAttributedString(attributedString: s)
-        m.enumerateAttribute(.attachment, in: NSRange(location: 0, length: m.length)) { val, range, _ in
-            guard let att = val as? NSTextAttachment, let img = att.image,
-                  img.size.width > 0, img.size.height > 0 else { return }
-            let scale: CGFloat = 3                      // print resolution, not screen
-            guard let rep = NSBitmapImageRep(
-                bitmapDataPlanes: nil,
-                pixelsWide: Int(ceil(img.size.width * scale)),
-                pixelsHigh: Int(ceil(img.size.height * scale)),
-                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-            else { return }
-            rep.size = img.size
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-            img.draw(in: NSRect(origin: .zero, size: img.size))
-            NSGraphicsContext.restoreGraphicsState()
-
-            let flat = NSImage(size: img.size)
-            flat.addRepresentation(rep)
-            let copy = NSTextAttachment()
-            copy.image = flat
-            copy.bounds = att.bounds
-            m.addAttribute(.attachment, value: copy, range: range)
-        }
-        return m
-    }
-
-    /// Is this note's text Markdown source (AI-written, pasted) rather than text the user
-    /// styled in the editor? Those two want opposite treatment on paper: the first has to be
-    /// rendered, the second already carries its formatting (and its images) in the RTFD.
-    private static func isMarkdown(_ s: String) -> Bool {
-        s.range(of: #"(?m)^\s{0,3}#{1,3}\s"#, options: .regularExpression) != nil
-            || s.range(of: #"(?m)^\s{0,3}[-*]\s"#, options: .regularExpression) != nil
-            || s.range(of: #"(?m)^\s*\|.*\|"#, options: .regularExpression) != nil
-            || s.contains("**")
-    }
-
-    /// The note as a text view sized to the printable column.
-    private static func page(title: String, attributed: NSAttributedString, info: NSPrintInfo) -> NSTextView {
-        let width = max(200, info.paperSize.width - info.leftMargin - info.rightMargin)
-        let doc = NSMutableAttributedString()
-        if !title.trimmingCharacters(in: .whitespaces).isEmpty {
-            doc.append(NSAttributedString(string: title + "\n\n",
-                                          attributes: [.font: NSFont.boldSystemFont(ofSize: 20),
-                                                       .foregroundColor: NSColor.black]))
-        }
-        let plain = attributed.string
-        if isMarkdown(plain), let rendered = MathMarkdown.printable(plain) {
-            doc.append(rendered)
-        } else {
-            // .black, not .labelColor: on paper a dark-mode label color is white on white.
-            doc.append(attributed.installingMath(defaultColor: .black))
-        }
-        let printable = rasterizingMath(doc)
-
-        // An explicit TextKit 1 stack, for the same reason the editor builds one: text tables
-        // (what a Markdown table imports as) and attachment cells are TextKit 1 only. A
-        // default NSTextView is TextKit 2, which flattened every table cell onto its own
-        // line — that was the difference between Export as PDF and Print, which reached the
-        // print pipeline through different stacks.
-        let storage = NSTextStorage(attributedString: printable)
-        let layout = NSLayoutManager()
-        storage.addLayoutManager(layout)
-        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
-        container.widthTracksTextView = false
-        layout.addTextContainer(container)
-
-        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10), textContainer: container)
-        tv.isVerticallyResizable = true
-        tv.isHorizontallyResizable = false
-        tv.textContainerInset = .zero
-        tv.backgroundColor = .white
-        tv.drawsBackground = true
-        layout.ensureLayout(for: container)
-        tv.frame.size.height = max(10, ceil(layout.usedRect(for: container).height))
-        return tv
-    }
-}
-
-// MARK: - PDF export self-test (StudyBar --pdf-selftest)
-
-/// Guards the export against the failure that WebKit printing produced: a PDF that never
-/// stops growing. Asserts a bounded page count and file size for a long note with math.
-@MainActor
-enum PDFSelfTest {
-    static func run() -> Int32 {
-        var pass = 0, fail = 0
-        func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-            if ok { Swift.print("  ok   \(name) \(detail)"); pass += 1 }
-            else { Swift.print("  FAIL \(name) \(detail)"); fail += 1 }
-        }
-
-        // Shaped like a real AI-written note: Markdown source, LaTeX padded against its
-        // delimiters, and a pipe table — the three things that came out as raw source.
-        var body = "# Module Three: Present Value\n\n## Introduction\n"
-        body += "- **Key Concepts**: the time value of money.\n"
-        body += "- **Present Value (PV)**: \\( PV = \\frac{FV}{(1 + i)^N} \\)\n\n"
-        body += "| Year | Total Due | Payment |\n|------|----------|---------|\n"
-        body += "| 0 | $1,000 | $0 |\n| 1 | $1,080 | $580 |\n\n"
-        for i in 1...100 { body += "Line \(i): flux is $\\Phi_E = \\oint \\vec{E}\\cdot d\\vec{A}$ through the surface.\n" }
-        let attr = NSAttributedString(string: body, attributes: [.font: NSFont.systemFont(ofSize: 13)])
-        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sb-pdf-selftest.pdf")
-        try? FileManager.default.removeItem(at: url)
-
-        let ok = NoteDocument.writePDF(title: "Weeks 3 — Gauss's Law", attributed: attr, to: url)
-        check("writePDF returns true", ok)
-        let bytes = (try? Data(contentsOf: url).count) ?? 0
-        check("file is written", bytes > 1_000, "(\(bytes) bytes)")
-        check("file is bounded", bytes < 20_000_000, "(\(bytes) bytes < 20MB)")
-        if let doc = PDFDocument(url: url) {
-            check("pages are bounded", doc.pageCount >= 1 && doc.pageCount <= 40, "(\(doc.pageCount) pages)")
-            let text = doc.string ?? ""
-            check("text is present", text.contains("flux is"))
-            check("title is present", text.contains("Gauss"))
-            check("no LaTeX source left", !text.contains("\\oint") && !text.contains("\\frac") && !text.contains("$$"))
-            check("Markdown is rendered, not printed", !text.contains("##") && !text.contains("**"))
-            check("table cells survive", text.contains("Total") && text.contains("$1,080") && text.contains("$580"))
-        } else {
-            check("PDF is readable", false)
-        }
-        // The equations printed mirrored until every math attachment was rasterized: the
-        // image SwiftMath hands back redraws its glyphs on demand, and that redraw lands in
-        // the print context's coordinate space. Bitmap-backed means "looks like it does on
-        // screen", so assert it rather than the pixels.
-        let mathy = NSAttributedString(string: "flux is $\\oint E$ here").installingMath(defaultColor: .black)
-        let printable = NoteDocument.rasterizingMath(mathy)
-        var attachments = 0, bitmaps = 0
-        printable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: printable.length)) { v, _, _ in
-            guard let a = v as? NSTextAttachment, let img = a.image else { return }
-            attachments += 1
-            if img.representations.allSatisfy({ $0 is NSBitmapImageRep }) { bitmaps += 1 }
-        }
-        check("math is rasterized for print", attachments > 0 && attachments == bitmaps,
-              "(\(bitmaps)/\(attachments) attachments)")
-
-        // SB_KEEP_PDF=1 leaves the file behind for eyeballing (orientation, tables).
-        if ProcessInfo.processInfo.environment["SB_KEEP_PDF"] == "1" { Swift.print("  kept \(url.path)") }
-        else { try? FileManager.default.removeItem(at: url) }
-
-        Swift.print(fail == 0 ? "PDF SELFTEST: ALL PASS (\(pass))" : "PDF SELFTEST: \(fail) FAILED")
-        return fail == 0 ? 0 : 1
     }
 }

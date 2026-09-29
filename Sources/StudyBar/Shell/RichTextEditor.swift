@@ -719,7 +719,6 @@ final class RichTextController: ObservableObject {
         let r = NSRange(location: min(location, (tv.string as NSString).length), length: 0)
         tv.setSelectedRange(r); tv.scrollRangeToVisible(r); tv.window?.makeFirstResponder(tv)
     }
-    func printNote() { if let tv = textView { NSPrintOperation(view: tv).run() } }
 
     /// The range of the paragraph(s) intersecting the selection.
     private func paragraphRange() -> NSRange {
