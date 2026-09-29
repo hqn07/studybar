@@ -495,7 +495,6 @@ struct NoteEditor: View {
     @State private var askQuestion = ""
     @State private var askLoading = false
     @State private var askPicking = false
-    @State private var askBlocked: String?      // the question the guard stopped, for the method offer
 
     // The thread, its attached notes and its quote warnings live on AppState, keyed by this
     // note — see AppState.askThreads. Computed rather than @State so closing the panel or
@@ -1041,16 +1040,7 @@ struct NoteEditor: View {
     }
 
     @ViewBuilder private var askThreadActions: some View {
-        if let blocked = askBlocked, !askLoading {
-            HStack(spacing: 8) {
-                Button {
-                    askBlocked = nil
-                    ask(HomeworkGuard.methodQuestion(from: blocked))
-                } label: { Label("Explain the method instead", systemImage: "figure.walk") }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                Spacer()
-            }
-        } else if let last = askThread.last, !last.answer.isEmpty, !askLoading {
+        if let last = askThread.last, !last.answer.isEmpty, !askLoading {
             HStack(spacing: 8) {
                 Button { insertAnswer(last) } label: { Label("Insert into note", systemImage: "text.insert") }
                     .buttonStyle(.bordered).controlSize(.small)
@@ -1244,7 +1234,7 @@ struct NoteEditor: View {
     private func closeAsk() {
         askTask?.cancel(); askTask = nil
         asking = false; askLoading = false; askQuestion = ""
-        askPicking = false; askBlocked = nil
+        askPicking = false
         askCardsNote = nil
     }
 
@@ -1253,7 +1243,7 @@ struct NoteEditor: View {
         askTask?.cancel(); askTask = nil
         askLoading = false
         state.askThreads[draft.id] = .init()
-        askBlocked = nil; askCardsNote = nil
+        askCardsNote = nil
     }
 
     /// Cancel the request but keep the thread — closing the panel was the only way to stop a
@@ -1303,15 +1293,6 @@ struct NoteEditor: View {
         guard !q.isEmpty, !askLoading, AIConfig.isReady(for: .ask),
               let provider = AIService.makeProvider(for: .ask) else { return }
 
-        // Before the model, not in its prompt. Two of three engines wrote the homework when
-        // only asked not to; this is the same refusal made structural.
-        if override == nil, case .submission = HomeworkGuard.check(q) {
-            askQuestion = ""
-            askThread.append(NoteQA.Turn(question: q, answer: HomeworkGuard.message))
-            askBlocked = q
-            return
-        }
-        askBlocked = nil
         persist()
         askQuestion = ""
         let title = draft.title.isEmpty ? "Untitled note" : draft.title

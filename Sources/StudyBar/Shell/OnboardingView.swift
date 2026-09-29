@@ -97,7 +97,7 @@ struct OnboardingView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill").font(.system(size: 44)).foregroundStyle(.green)
             Text("You're set").font(.title2.bold())
-            Text("Tip: press ⌘K anywhere for the command palette. New — turn on the **Assistant** (Settings ▸ Intelligence) to organize assignments, plan sessions and make flashcards from your own notes. It never does your homework.")
+            Text("Tip: press ⌘K anywhere for the command palette. New — turn on the **Assistant** (Settings ▸ Intelligence) to organize assignments, plan sessions, make flashcards from your own notes and work through problems with you.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Start studying") { state.selectedModuleID = "today"; done() }
                 .buttonStyle(.borderedProminent).controlSize(.large)

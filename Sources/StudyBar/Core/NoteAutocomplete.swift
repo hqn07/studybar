@@ -7,7 +7,7 @@ import Foundation
 /// Deliberately **Ollama-only + opt-in** (see `enabled`): cloud completions on every
 /// pause would break the local-first / calm principles and leak the note off-device.
 /// It completes the student's *own* phrasing a few words at a time (predictive text) —
-/// it never writes an answer, staying on the organize-not-homework side of the line.
+/// it never writes an answer.
 enum NoteAutocomplete {
     /// What a suggestion attempt produced — so the editor can show real status instead
     /// of failing silently (the old `String?` hid "Ollama is down" as "no suggestion").

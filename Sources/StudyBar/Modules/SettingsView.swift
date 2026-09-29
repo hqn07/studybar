@@ -57,6 +57,7 @@ struct SettingsView: View {
     @State private var aiKey = ""
     @State private var aiHasKey = false
     @State private var aiModel = ""
+    @State private var modelChoices: [String] = []   // from the provider's model list
     @State private var aiHost = ""
     /// The Ollama section's own model field. It used to share `aiModel` with the credentials
     /// section, which was safe only because the two could never render together.
@@ -637,7 +638,17 @@ struct SettingsView: View {
                     TextField("Base URL", text: $aiOpenAIHost)
                         .onSubmit { AIConfig.openaiHost = aiOpenAIHost.trimmingCharacters(in: .whitespaces) }
                 }
-                TextField("Model", text: $aiModel).onSubmit { saveAIModel() }
+                HStack {
+                    TextField("Model", text: $aiModel).onSubmit { saveAIModel() }
+                    if !modelChoices.isEmpty {
+                        Menu("Choose") {
+                            ForEach(modelChoices, id: \.self) { m in Button(m) { aiModel = m; saveAIModel() } }
+                        }.fixedSize()
+                    }
+                }
+                .task(id: "\(credentialsMode.rawValue)|\(aiHasKey)|\(aiOpenAIHost)") {
+                    modelChoices = await AIConfig.availableModels(credentialsMode)
+                }
                 HStack(spacing: DS.Space.m) {
                     SecureField(aiHasKey ? "Key saved — enter to replace" : "API key", text: $aiKey)
                     Chip(aiHasKey ? "Saved" : "Not set", .status(aiHasKey ? .done : .week))

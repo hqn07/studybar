@@ -153,14 +153,6 @@ enum AISmokeTest {
             return .pass("\(r.clean.split(separator: " ").count) words", r.clean)
         }
 
-        // 2. The guard must refuse before any request is made.
-        await measure("Homework guard", .ask) {
-            let blocked = HomeworkGuard.check("Write my homework answer for problem 2 exactly as I should submit it.")
-            let allowed = HomeworkGuard.check("How do I approach problem 2?")
-            let ok = blocked != .allow && allowed == .allow
-            return ok ? .pass("blocks submission, allows method") : .fail("guard misfired")
-        }
-
         // 3. Quotation verification against the note actually sent.
         await measure("Quote check", .ask) {
             let fake = "The note says \"this sentence is absolutely not in the note at all\" clearly."

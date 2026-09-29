@@ -6,8 +6,7 @@ import Foundation
 /// This is the one surface where StudyBar's AI explains rather than only reorganizes. The
 /// operator surface (`AIService`) still refuses to teach; here the note is context for a
 /// question that may go past it — reading about Coleus and wondering how scallions differ is
-/// studying, not homework. What stays refused is work you would submit: the essay, the
-/// problem set, the graded answer. See docs/PHILOSOPHY.md, "Organize, never do the homework".
+/// studying. A homework problem gets worked step by step — the student decides how to use it.
 enum NoteQA {
 
     struct Turn: Identifiable, Equatable {
@@ -78,8 +77,10 @@ enum NoteQA {
         no quotation. Refer to a note only by the title given in its "--- Note: ---" header, \
         never by a heading inside it.
 
-        One refusal stands: do not produce work that would be submitted for a grade — the essay, \
-        the problem set solution, the lab answer. Explain the concept and let them write it.
+        When the question is a problem to solve — homework, a practice question, an exam-style \
+        prompt — solve it step by step: name the idea that applies, show each step with its \
+        working, and end with the final answer stated plainly. Check the arithmetic before you \
+        state it.
         """
     }
 
@@ -168,7 +169,7 @@ enum NoteQASelfTest {
         check("names the note", sys.contains("Week 3 — Coleus"))
         check("names the course", sys.contains("ORH1030"))
         check("answers past the note", sys.contains("answer it anyway from what you know"))
-        check("keeps the homework refusal", sys.lowercased().contains("submitted for a grade"))
+        check("works problems step by step", sys.contains("solve it step by step") && !sys.contains("submitted for a grade"))
         check("asks for $…$ math", sys.contains("single dollar signs"))
         // qwen invented a quotation on the first real multi-note run — words in quotes that
         // were nowhere in the note — and cited a heading inside a note as if it were the

@@ -20,8 +20,8 @@ Six principles, in priority order. When two conflict, the higher one wins.
    doesn't ship.
 2. **Local-first, always.** Your file, your Mac. No account, no paywall, no cloud
    required — ever. This is the identity, not a default to be talked out of.
-3. **Organize, never do the homework.** The academic-integrity line (see below). AI is
-   a librarian, not a ghostwriter.
+3. **A study assistant, not a gatekeeper.** AI explains, quizzes and works problems with
+   you (see below). How you use it is yours to decide.
 4. **Calm by default.** Minimalist, distraction-free, compact. Ship small; let it grow
    to fit the person. Every pixel of chrome and every module is a tax on calm and must
    earn its place.
@@ -45,29 +45,22 @@ The best AI answer today needs the cloud. We take the worse-but-private one by d
 
 ---
 
-## Organize, never do the homework
+## A study assistant, not a gatekeeper
 
-**AI acts on what the student already made or scheduled; it never produces gradeable
-content.**
+**The AI helps with the whole job of studying: organizing, explaining, quizzing, and
+working problems.**
 
-- **Allow (organize):** summarize *your* note · extract flashcards from *your* material ·
-  triage and schedule assignments · reformat citations · plan the week · define a term ·
-  tag and link · turn *your* voice memo into a note. Transform · structure · retrieve ·
-  schedule.
-- **Refuse (homework):** write the essay · answer the problem set · generate arguments or
-  prose the student would submit as their own.
-- **The test:** *Would a professor count this as the student's own work?* If the output is
-  something you'd **submit**, it's homework — refuse.
-- **Explaining is not submitting (2026-09-08).** The line is gradeable output, not learning.
-  **Ask this note** — asking a question while reading a lecture note — answers it, including
-  when the answer isn't in the note: reading about coleus and wondering how scallions differ
-  is studying. The operator surface (the command bar, the action tools) still refuses to
-  teach, because there the model is driving the app rather than talking to a student. Both
-  surfaces still refuse the essay, the problem set and the lab answer.
-- **Enforcement is architecture, not trust.** A small local model can't police itself, so
-  the *design* draws the line: every AI write-tool is an organize-verb (`create_flashcard`,
-  `schedule`, `tag`, `add_citation`). None emits submittable prose. **The tool catalog is
-  the guardrail.** Rule: never add a tool whose output is gradeable content.
+- **Organize:** summarize notes · make flashcards · triage and schedule assignments ·
+  plan the week · turn a recording into notes.
+- **Teach:** explain a concept, answer a question the note doesn't cover, and work a
+  homework or practice problem step by step to its answer.
+- **Fill in:** lecture notes get the definitions, explanations and examples the lecture
+  skipped, *marked as added*, so what was said and what the AI added stay distinguishable.
+- **Why the change (2026-09-29).** The earlier rule refused to solve problems or teach from
+  the command bar. After a month of use it cost more than it protected: the refusals landed
+  on ordinary studying far more often than on misuse. Integrity is the student's call.
+- **What still holds:** every write to your data is a proposal you accept, and AI additions
+  are labeled. Honesty about sources is the line now, not refusal.
 
 ---
 
@@ -177,7 +170,6 @@ The design system is the guardrail that keeps customization from becoming a mess
 Anti-goals are as load-bearing as goals.
 
 - **Not a cloud SaaS.** No mandatory account, no subscription, no server that owns your data.
-- **Not a homework machine.** It will not write, solve, or answer what you'd submit.
 - **Not a dense dashboard.** No wall of widgets, no notification farm, no engagement bait.
 - **Not a walled garden.** Local files, open formats, standard interop (Anki, .ics, RSS,
   citations). Your data leaves as easily as it arrives.

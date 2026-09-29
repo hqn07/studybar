@@ -5,9 +5,9 @@ import FoundationModels
 
 // MARK: - Engine selection
 //
-// StudyBar's AI is an *operator over your own study data*, never a tutor. It maps
-// plain-English intent onto StudyBar actions (organize assignments, plan sessions,
-// make flashcards from your own notes). It runs on one of three engines chosen by the
+// StudyBar's AI operates your study data and teaches. It maps plain-English intent onto
+// StudyBar actions (organize assignments, plan sessions, make flashcards from your own
+// notes) and answers, explains and works problems in its reply. It runs on one of three engines chosen by the
 // user — all pay-your-own-way / local-first, no StudyBar backend:
 //   • on-device  — Apple Foundation Models (macOS 26+). Free, private, offline. Default.
 //   • claude     — Anthropic API with the user's own key (Keychain).
@@ -69,11 +69,11 @@ enum AIConfig {
     }
     /// Model switcher (user-overridable). Sonnet default per user preference; any valid id works.
     static var claudeModel: String {
-        get { UserDefaults.standard.string(forKey: "aiClaudeModel").flatMap { $0.isEmpty ? nil : $0 } ?? "claude-sonnet-5" }
+        get { UserDefaults.standard.string(forKey: "aiClaudeModel").flatMap { $0.isEmpty ? nil : $0 } ?? "claude-sonnet-5-5" }
         set { UserDefaults.standard.set(newValue, forKey: "aiClaudeModel") }
     }
     static var openaiModel: String {
-        get { UserDefaults.standard.string(forKey: "aiOpenAIModel").flatMap { $0.isEmpty ? nil : $0 } ?? "gpt-4o" }
+        get { UserDefaults.standard.string(forKey: "aiOpenAIModel").flatMap { $0.isEmpty ? nil : $0 } ?? "gpt-5.6-terra" }
         set { UserDefaults.standard.set(newValue, forKey: "aiOpenAIModel") }
     }
     static var ollamaModel: String {
@@ -140,6 +140,38 @@ enum AIConfig {
     /// resumption would stall on a cold load. Two minutes covers thinking pauses and hands the
     /// memory back soon after you actually stop.
     static let ollamaAutocompleteKeepAlive = "2m"
+
+    /// Hosted engines' answer ceiling. 4096 cut detailed notes and worked solutions off mid
+    /// sentence; 16k is the most a non-streamed reply can carry without outrunning the
+    /// request timeout below. A host with a lower ceiling says so and `adapt` learns it.
+    static let maxOutputTokens = 16_000
+    /// A non-streamed reply sends nothing until it is finished, and URLSession's default
+    /// 60 s idle timeout fired first on a long answer.
+    static let longAnswerTimeout: TimeInterval = 600
+
+    /// The models the provider offers, for the Settings picker — so a default that ages out
+    /// is one click from fixed instead of a name to look up. Empty on any failure.
+    static func availableModels(_ mode: AIMode) async -> [String] {
+        guard let acct = mode.keyAccount, let key = Keychain.get(account: acct), !key.isEmpty else { return [] }
+        var req: URLRequest
+        switch mode {
+        case .claude:
+            req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=100")!)
+            req.setValue(key, forHTTPHeaderField: "x-api-key")
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        case .openai:
+            let root = chatCompletionsURL(openaiHost).deletingLastPathComponent().deletingLastPathComponent()
+            req = URLRequest(url: root.appendingPathComponent("models"))
+            req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        default: return []
+        }
+        req.timeoutInterval = 15
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["data"] as? [[String: Any]] else { return [] }
+        return list.compactMap { $0["id"] as? String }
+    }
 
     /// Read from view bodies (`isReady` gates the ✨ menu, the proactive chip, Today's Plan my
     /// day), so this must never block: `Keychain.has` answers from the warmed cache.
@@ -313,9 +345,10 @@ struct AnthropicProvider: AIProvider {
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.timeoutInterval = AIConfig.longAnswerTimeout
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": AIConfig.maxOutputTokens,
             "system": system,
             "messages": messages.map { ["role": $0.role.rawValue, "content": $0.text] },
         ]
@@ -325,6 +358,9 @@ struct AnthropicProvider: AIProvider {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else { throw AIError.http(code, errorText(data)) }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if obj?["stop_reason"] as? String == "refusal" {
+            throw AIError.unavailable("\(model) declined this request. Rephrase it, or try another model in Settings ▸ Intelligence.")
+        }
         let blocks = obj?["content"] as? [[String: Any]] ?? []
         let text = blocks.compactMap { ($0["type"] as? String) == "text" ? $0["text"] as? String : nil }
             .joined(separator: "\n")
@@ -352,16 +388,18 @@ struct OpenAIProvider: AIProvider {
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // 8192, not 4096: a reasoning model spends completion budget thinking before it
-        // writes. Measured on a duplicate-scan batch — 3,550 reasoning tokens and 3,882
-        // completion against a 4,096 cap — the verdicts are what gets cut, and a truncated
-        // reply is indistinguishable from "nothing found".
+        // Not 4096: a reasoning model spends completion budget thinking before it writes.
+        // Measured on a duplicate-scan batch — 3,550 reasoning tokens and 3,882 completion
+        // against a 4,096 cap — the verdicts are what gets cut, and a truncated reply is
+        // indistinguishable from "nothing found". Hosts with a lower ceiling say so in a 400,
+        // and `adapt` learns it.
+        req.timeoutInterval = AIConfig.longAnswerTimeout
         let base = req
         return try await adapting { shape in
             var req = base
             req.httpBody = try JSONSerialization.data(withJSONObject:
                 chatBody(shape, system: system, messages: asDicts(messages),
-                         maxTokens: 8192, temperature: nil))
+                         maxTokens: AIConfig.maxOutputTokens, temperature: nil))
             let (data, resp) = try await URLSession.shared.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 else { throw AIError.http(code, errorText(data)) }
@@ -404,6 +442,8 @@ extension OpenAIProvider {
         var maxTokensKey = "max_tokens"
         var sendsTemperature = true
         var reasoningOff = ReasoningOff.thinking
+        /// The host's output ceiling, once it has named one (DeepSeek: 8192).
+        var maxTokensCap: Int? = nil
     }
 
     /// Versioned: a learned shape records what *this* ladder could negotiate, so widening the
@@ -418,14 +458,16 @@ extension OpenAIProvider {
         if let k = d["maxTokensKey"] as? String { shape.maxTokensKey = k }
         if let t = d["sendsTemperature"] as? Bool { shape.sendsTemperature = t }
         if let r = d["reasoningOff"] as? String, let v = ReasoningOff(rawValue: r) { shape.reasoningOff = v }
+        shape.maxTokensCap = d["maxTokensCap"] as? Int
         return shape
     }
 
     static func remember(_ shape: BodyShape, host: String, model: String) {
-        UserDefaults.standard.set(["maxTokensKey": shape.maxTokensKey,
-                                   "sendsTemperature": shape.sendsTemperature,
-                                   "reasoningOff": shape.reasoningOff.rawValue],
-                                  forKey: shapeKey(host, model))
+        var d: [String: Any] = ["maxTokensKey": shape.maxTokensKey,
+                                "sendsTemperature": shape.sendsTemperature,
+                                "reasoningOff": shape.reasoningOff.rawValue]
+        d["maxTokensCap"] = shape.maxTokensCap
+        UserDefaults.standard.set(d, forKey: shapeKey(host, model))
     }
 
     /// Change one parameter in response to the host's own complaint. Returns nil when the
@@ -434,7 +476,13 @@ extension OpenAIProvider {
     static func adapt(_ shape: BodyShape, to message: String) -> BodyShape? {
         let m = message.lowercased()
         var s = shape
-        if m.contains("max_completion_tokens"), s.maxTokensKey != "max_completion_tokens" {
+        // "the valid range of max_tokens is [1, 8192]" / "supports at most 16384 completion
+        // tokens, whereas you provided 32768": the ceiling is the smallest real limit named.
+        if m.contains("token"), ["range", "at most", "too large", "less than or equal", "maximum"].contains(where: m.contains),
+           let cap = message.matches(of: /\d+/).compactMap({ Int($0.output) }).filter({ $0 >= 256 }).min(),
+           cap < (s.maxTokensCap ?? .max) {
+            s.maxTokensCap = cap
+        } else if m.contains("max_completion_tokens"), s.maxTokensKey != "max_completion_tokens" {
             s.maxTokensKey = "max_completion_tokens"
         } else if m.contains("temperature"), s.sendsTemperature {
             s.sendsTemperature = false
@@ -456,7 +504,8 @@ extension OpenAIProvider {
                   extra: [String: Any] = [:]) -> [String: Any] {
         var msgs = messages
         if let system { msgs.insert(["role": "system", "content": system], at: 0) }
-        var body: [String: Any] = ["model": model, shape.maxTokensKey: maxTokens, "messages": msgs]
+        var body: [String: Any] = ["model": model, shape.maxTokensKey: min(maxTokens, shape.maxTokensCap ?? .max),
+                                   "messages": msgs]
         if let temperature, shape.sendsTemperature { body["temperature"] = temperature }
         if reasoningOff {
             switch shape.reasoningOff {
@@ -914,16 +963,10 @@ enum AIService {
         efficiently — rank and schedule assignments, plan focus sessions, turn the
         student's own notes into flashcards, triage a pasted syllabus, tidy tasks.
 
-        HARD RULE — you do NOT tutor. Never produce NEW subject-matter explanations or
-        answers from your own knowledge, solve problems, or write essays/assignments for
-        the student. If asked to teach or answer, briefly decline and offer to organize.
-
-        BUT reshaping the student's OWN material IS organizing, not tutoring — always allowed,
-        even for academic content: turning a note or text they give you into flashcards,
-        condensing their note into a summary, tagging, or building tasks/a schedule from it.
-        Rule of thumb: transform what they give you = YES; teach them something new = NO.
-        So "make flashcards from this note: …" should always produce make_flashcards — never
-        a refusal.
+        You also teach. Explain concepts, answer subject questions from what you know, and
+        work homework and practice problems step by step with the final answer — put the
+        explanation in "reply". Turning their material into flashcards, summaries, tasks or a
+        schedule is always done with the matching action, never refused.
 
         HOW TO REPLY: respond with ONE JSON object and nothing else — with these exact keys
         "reads", "reply", "actions" — using REAL tool names from the lists below (never the
@@ -1900,8 +1943,9 @@ extension AnthropicProvider {
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.timeoutInterval = AIConfig.longAnswerTimeout
         let body: [String: Any] = [
-            "model": model, "max_tokens": 4096, "system": system,
+            "model": model, "max_tokens": AIConfig.maxOutputTokens, "system": system,
             "tools": tools, "messages": messages,
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1996,7 +2040,7 @@ extension OpenAIProvider {
             var req = base
             req.httpBody = try JSONSerialization.data(withJSONObject:
                 chatBody(shape, system: system, messages: asDicts(messages),
-                         maxTokens: 4096, temperature: temperature, extra: ["stream": true]))
+                         maxTokens: AIConfig.maxOutputTokens, temperature: temperature, extra: ["stream": true]))
             return try await stream(req, onReply: onReply)
         }
     }
@@ -2053,7 +2097,7 @@ extension OpenAIProvider {
             var req = base
             req.httpBody = try JSONSerialization.data(withJSONObject:
                 chatBody(shape, system: nil, messages: messages,
-                         maxTokens: 4096, temperature: nil, extra: ["tools": tools]))
+                         maxTokens: AIConfig.maxOutputTokens, temperature: nil, extra: ["tools": tools]))
             let (data, resp) = try await URLSession.shared.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 else { throw AIError.http(code, errorText(data)) }
@@ -2146,14 +2190,10 @@ extension AIService {
         rank and schedule assignments, plan focus sessions, turn the student's own notes
         into flashcards, triage a pasted syllabus, tidy tasks.
 
-        HARD RULE — you do NOT tutor. Never produce NEW subject-matter explanations or
-        answers from your own knowledge, solve problems, or write essays/assignments. If
-        asked to teach or answer, briefly decline and offer to organize instead.
-
-        BUT reshaping the student's OWN material IS organizing, not tutoring — always
-        allowed, even for academic content: turning a note/text they give you into
-        flashcards, summarizing their note, tagging, or building tasks/a schedule from it.
-        Transform what they give you = YES; teach them something new = NO.
+        You also teach. Explain concepts, answer subject questions from what you know, and
+        work homework and practice problems step by step with the final answer. Turning their
+        material into flashcards, summaries, tasks or a schedule is always done with the
+        matching tool, never refused.
 
         HOW YOU WORK — use your tools, don't describe them:
         - Read tools (get_/list_/search) look things up instantly and privately, no confirmation.
@@ -2222,6 +2262,15 @@ enum AIToolSelfTest {
               adapt(Shape(), "The model `gpt-4o-mini-typo` does not exist") == nil)
         check("same complaint twice is not retried",
               adapt(Shape(maxTokensKey: "max_completion_tokens"), maxTokens400) == nil)
+        // A host's output ceiling, as DeepSeek and OpenAI each phrase it.
+        let deepseekCap = "Invalid max_tokens value, the valid range of max_tokens is [1, 8192]"
+        let openaiCap = "max_tokens is too large: 16000. This model supports at most 4096 completion tokens, whereas you provided 16000."
+        check("range 400 learns the ceiling", adapt(Shape(), deepseekCap)?.maxTokensCap == 8192)
+        check("too-large 400 learns the ceiling", adapt(Shape(), openaiCap)?.maxTokensCap == 4096)
+        check("same ceiling twice is not retried", adapt(Shape(maxTokensCap: 8192), deepseekCap) == nil)
+        let capped = OpenAIProvider(apiKey: "k", model: "m", host: "h")
+            .chatBody(Shape(maxTokensCap: 8192), system: nil, messages: [], maxTokens: 16_000, temperature: nil)
+        check("body respects the learned ceiling", capped["max_tokens"] as? Int == 8192)
 
         // Walking the whole ladder from the default lands on what Luna actually accepts.
         var walked = Shape()

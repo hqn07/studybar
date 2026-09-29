@@ -109,7 +109,7 @@ struct AssistantPanelView: View {
     private var notConfigured: some View {
         VStack(spacing: 14) {
             EmptyState(symbol: "sparkles", title: "Turn on the assistant",
-                       subtitle: "Pick an engine in Settings ▸ Intelligence — free on-device, or your own Claude / ChatGPT key. It organizes your studies; it won't do your homework.")
+                       subtitle: "Pick an engine in Settings ▸ Intelligence — free on-device, or your own Claude / ChatGPT key. It organizes your studies, explains the material, and works problems with you.")
             Button("Open Intelligence settings") {
                 WindowOpener.open?("main"); state.selectedModuleID = "settings"; close()
             }.buttonStyle(.borderedProminent)

@@ -84,9 +84,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--quote-selftest") {
             exit(QuoteSelfTest.run())
         }
-        if CommandLine.arguments.contains("--homework-selftest") {
-            exit(HomeworkSelfTest.run())
-        }
         if CommandLine.arguments.contains("--noteqa-selftest") {
             exit(NoteQASelfTest.run())
         }

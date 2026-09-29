@@ -6,8 +6,8 @@
 
 Your whole study life one click away — assignments, notes, flashcards, focus timers,
 schedule, and citations. Attach a PDF and **ask questions about your textbook**, or
-summarize and rewrite right inside a note. AI that *organizes and answers from your own
-material* — never does your homework. Local-first: no account, no paywall, no cloud required.
+summarize and rewrite right inside a note. AI that organizes your material, explains it,
+and works problems with you. Local-first: no account, no paywall, no cloud required.
 
 Native SwiftUI · macOS 14+ · single `.app` · MIT licensed
 
@@ -93,8 +93,8 @@ organization — everything hangs off your **Courses**.
 
 ### AI — a material, not a place
 
-AI is woven into the surfaces you already use, not a chatbot you visit. It **organizes and
-answers from *your* material — it won't write your homework.**
+AI is woven into the surfaces you already use, not a chatbot you visit. It **organizes your
+material, explains it, and works problems step by step.**
 
 - **Inline (✨)** on any text — summarize, rewrite, proofread, continue. You **accept or discard**; nothing is auto-applied.
 - **Ask your textbook** — attach a PDF and get retrieval-augmented Q&A over the relevant pages, **with citations** (the model never sees the whole book, so it fits any engine).
