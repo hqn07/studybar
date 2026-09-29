@@ -109,11 +109,13 @@ struct VoiceBody: View {
         }
     }
 
-    /// Bias Whisper toward the picked course's vocabulary.
+    /// Bias recognition toward the course's vocabulary: the picked course, else the one in
+    /// session now. Its name for Whisper; its terms for Apple Speech.
     private func updateVocab() {
-        if let c = state.course(courseID) {
+        if let c = state.course(courseID ?? state.courseID(at: .now)) {
             voice.vocabPrompt = "Course: \(c.name)\(c.code.isEmpty ? "" : " (\(c.code))")."
-        } else { voice.vocabPrompt = nil }
+            voice.vocabulary = CourseVocabulary.terms(course: c, notes: state.data.notes)
+        } else { voice.vocabPrompt = nil; voice.vocabulary = [] }
     }
 
     private var preparingState: some View {
@@ -272,7 +274,7 @@ struct VoiceBody: View {
                                 .buttonStyle(.bordered)
                                 .help("Reshape the raw transcript into structured notes — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = ""; rawBeforeOrganize = nil; organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
+                        Button("Discard") { voice.transcript = ""; voice.discardTake(); rawBeforeOrganize = nil; organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -411,6 +413,7 @@ struct VoiceBody: View {
                                               date: voice.lastRecordingStart ?? .now,
                                               termStart: state.data.termStart)
         var note = Note(title: title, body: text, courseID: course)
+        note.audioPath = voice.claimTake(for: note.id)
         note.updatedAt = .now
         state.data.notes.append(note)
         voice.transcript = ""

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 import UniformTypeIdentifiers
 
 enum NoteSort: String, CaseIterable, Identifiable {
@@ -886,6 +887,10 @@ struct NoteEditor: View {
             let dockCap = max(180, geo.size.height - 200)
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
+                    if let name = draft.audioPath {
+                        NoteRecordingBar(url: VoiceService.recordingsDir.appendingPathComponent(name))
+                        Divider()
+                    }
                     editorOrPreview
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if asking && !side {
@@ -1940,5 +1945,34 @@ struct NoteEditor: View {
         s = s.replacingOccurrences(of: #"(?m)^☑ "#, with: "- [x] ", options: .regularExpression)
         s = s.replacingOccurrences(of: #"─{3,}"#, with: "---", options: .regularExpression)
         return s
+    }
+}
+
+/// The lecture a voice note was made from, playable above the note.
+private struct NoteRecordingBar: View {
+    let url: URL
+    var body: some View {
+        if FileManager.default.fileExists(atPath: url.path) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform").foregroundStyle(.secondary)
+                AudioPlayerView(url: url).frame(height: 28)
+                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+                    .buttonStyle(.borderless).help("Show the recording in Finder")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 4)
+        }
+    }
+}
+
+private struct AudioPlayerView: NSViewRepresentable {
+    let url: URL
+    func makeNSView(context: Context) -> AVPlayerView {
+        let v = AVPlayerView()
+        v.controlsStyle = .inline
+        v.player = AVPlayer(url: url)
+        return v
+    }
+    func updateNSView(_ v: AVPlayerView, context: Context) {
+        if (v.player?.currentItem?.asset as? AVURLAsset)?.url != url { v.player = AVPlayer(url: url) }
     }
 }

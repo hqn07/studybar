@@ -58,6 +58,7 @@ struct Note: Identifiable, Codable, Hashable {
     var tags: [String] = []
     var pinned: Bool = false
     var imagePath: String = ""      // (4) screenshot attachment, filename in App Support/Screenshots
+    var audioPath: String? = nil    // the lecture recording, filename in App Support/Recordings (optional → old stores decode)
     var createdAt: Date = .now
     var updatedAt: Date = .now
 }

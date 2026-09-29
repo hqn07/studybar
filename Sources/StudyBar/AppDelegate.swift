@@ -114,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--format-selftest") {
             exit(NoteFormatSelfTest.run())
         }
+        if CommandLine.arguments.contains("--take-selftest") {
+            exit(VoiceTakeSelfTest.run())
+        }
         if CommandLine.arguments.contains("--pdf-selftest") {
             Task { @MainActor in exit(await PDFSelfTest.run()) }
             return
@@ -216,6 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
         }
+    }
+
+    /// ⌘Q mid-lecture used to end the recording with no word. Ask first; on Quit, close the
+    /// audio properly so what was recorded can still be played.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let voice = state.voice
+        guard voice.status == .recording || voice.status == .transcribing else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = voice.status == .recording ? "A recording is in progress" : "A recording is still being transcribed"
+        alert.informativeText = "Quitting now stops it. The audio so far is kept, and the transcript up to this point is recoverable from Voice Note."
+        alert.addButton(withTitle: "Keep Recording")
+        alert.addButton(withTitle: "Quit")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        voice.stopForQuit()
+        return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {

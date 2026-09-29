@@ -34,7 +34,7 @@ final class VoiceMeter: ObservableObject {
 @MainActor
 final class VoiceService: ObservableObject {
     enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
-    @Published var status: Status = .idle
+    @Published var status: Status = .idle { didSet { holdAwake(status == .recording || status == .transcribing) } }
     @Published var transcript = ""
     /// Not `@Published`: see `VoiceMeter`. Its own object so a 30 Hz meter doesn't re-render
     /// every view that observes the recorder.
@@ -50,6 +50,15 @@ final class VoiceService: ObservableObject {
     /// were in is a fact about when you pressed record, not about when you pressed save.
     private(set) var lastRecordingStart: Date?
     var vocabPrompt: String?
+    /// The course's own terms, handed to Apple Speech as `contextualStrings` so "eigenvalue"
+    /// comes out as a word rather than as "I can value".
+    var vocabulary: [String] = []
+    /// The whole take as AAC, written alongside transcription so a note can keep its lecture.
+    /// Survives until it is saved with a note (`claimTake`) or discarded.
+    @Published private(set) var takeURL: URL?
+    private nonisolated(unsafe) var takeFile: AVAudioFile?
+    private let takeLock = NSLock()
+    private var awake: NSObjectProtocol?
     private nonisolated let meterLock = NSLock()
     private nonisolated(unsafe) var lastMeterAt = Date.distantPast
 
@@ -164,6 +173,7 @@ final class VoiceService: ObservableObject {
     }
 
     func start() {
+        discardTake()                         // a new take replaces one that was never saved
         transcript = ""; committed = ""; currentPartial = ""; wantsRecording = true
         meter.reset()
         whisperMode = useWhisper
@@ -247,6 +257,8 @@ final class VoiceService: ObservableObject {
         segmentStart = Date(); rotating = false; segmentGotResult = false
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        req.addsPunctuation = true
+        req.contextualStrings = Array(vocabulary.prefix(100))
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
@@ -324,8 +336,10 @@ final class VoiceService: ObservableObject {
         chunksSent = 0; chunksDroppedSilent = 0; chunksEmptyResult = 0
         consecutiveSilentDrops = 0; chunksKeptUnsure = 0
         guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
+        openTake(format)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
+            self.writeTake(buf)
             self.chunkLock.lock()
             try? self.chunkFile?.write(from: buf)
             self.chunkFrames += AVAudioFramePosition(buf.frameLength)
@@ -474,6 +488,7 @@ final class VoiceService: ObservableObject {
         chunkTimer?.invalidate(); chunkTimer = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
+        closeTake()
         let recorded = totalFrames
         cutChunk(final: true)             // flush + enqueue the final chunk
         status = .transcribing; startedAt = nil
@@ -594,9 +609,11 @@ final class VoiceService: ObservableObject {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return false }
+        openTake(format)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
             guard let self else { return }
             self.request?.append(buf)
+            self.writeTake(buf)
             if let r = Self.rms(buf) { self.pushLevel(rms: r) }
         }
         engine.prepare()
@@ -635,11 +652,138 @@ final class VoiceService: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil; request = nil
         chunkLock.lock(); chunkFile = nil; chunkURL = nil; chunkLock.unlock()
+        closeTake()
         startedAt = nil
         if status == .recording { status = .idle }
     }
 
+    // MARK: - The take (audio kept with the note)
+
+    static var recordingsDir: URL {
+        let d = AppState.localDir.appendingPathComponent("Recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    /// AAC at the mic's own rate. The encoder treats the bitrate as a hint — measured at about
+    /// 110 kbps, so roughly 50 MB for an hour of lecture. A device with more than two channels
+    /// gets no take rather than a failed recording.
+    fileprivate func openTake(_ format: AVAudioFormat) {
+        guard format.channelCount <= 2 else { return }
+        let url = Self.recordingsDir.appendingPathComponent("take-\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
+                                       AVSampleRateKey: format.sampleRate,
+                                       AVNumberOfChannelsKey: format.channelCount,
+                                       AVEncoderBitRateKey: 64_000 * Int(format.channelCount)]
+        guard let f = try? AVAudioFile(forWriting: url, settings: settings,
+                                       commonFormat: format.commonFormat, interleaved: format.isInterleaved) else {
+            Diagnostics.warn(.voice, "Couldn't open the audio take; recording continues without it")
+            return
+        }
+        takeLock.lock(); takeFile = f; takeLock.unlock()
+        takeURL = url
+    }
+
+    nonisolated fileprivate func writeTake(_ buf: AVAudioPCMBuffer) {
+        takeLock.lock(); try? takeFile?.write(from: buf); takeLock.unlock()
+    }
+
+    /// Dropping the file is what writes the M4A's index; a take that is never closed can't be played.
+    fileprivate func closeTake() {
+        takeLock.lock(); takeFile = nil; takeLock.unlock()
+    }
+
+    /// Quitting mid-recording: stop the mic and close the take so the file is playable.
+    func stopForQuit() {
+        wantsRecording = false
+        finish()
+    }
+
+    func discardTake() {
+        closeTake()
+        if let url = takeURL { try? FileManager.default.removeItem(at: url) }
+        takeURL = nil
+    }
+
+    /// Move the take next to the note it belongs to; returns the file name to store on it.
+    func claimTake(for noteID: UUID) -> String? {
+        guard !isRecording, let url = takeURL else { return nil }
+        let name = "\(noteID.uuidString).m4a"
+        let dst = Self.recordingsDir.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: dst)
+        guard (try? FileManager.default.moveItem(at: url, to: dst)) != nil else { return nil }
+        takeURL = nil
+        return name
+    }
+
+    /// An idle MacBook on battery sleeps, and a sleeping Mac records nothing — so a lecture
+    /// holds the system awake from the first word until its transcript is done.
+    private func holdAwake(_ on: Bool) {
+        if on, awake == nil {
+            awake = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated],
+                                                          reason: "Recording a lecture")
+        } else if !on, let a = awake {
+            ProcessInfo.processInfo.endActivity(a); awake = nil
+        }
+    }
+
     private func join(_ a: String, _ b: String) -> String {
         if a.isEmpty { return b }; if b.isEmpty { return a }; return a + " " + b
+    }
+}
+
+// MARK: - Self-test (StudyBar --take-selftest)
+
+/// The take is written on the audio thread with no one listening, so its encoder settings are
+/// checked here with synthetic audio: a mic-shaped buffer in, a playable M4A of the same length
+/// out. Also the course vocabulary that recognition is handed.
+@MainActor
+enum VoiceTakeSelfTest {
+    static func run() -> Int32 {
+        var fail = 0
+        func check(_ n: String, _ ok: Bool, _ d: String = "") {
+            print("  \(ok ? "ok  " : "FAIL") \(n) \(d)"); if !ok { fail += 1 }
+        }
+        for channels: AVAudioChannelCount in [1, 2] {
+            let voice = VoiceService()
+            let fmt = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: channels)!
+            voice.openTake(fmt)
+            check("\(channels)ch take opens", voice.takeURL != nil)
+            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1024)!
+            buf.frameLength = 1024
+            var phase: Float = 0
+            for _ in 0..<(48_000 * 3 / 1024) {          // three seconds of a 440 Hz tone
+                for i in 0..<1024 {
+                    phase += 2 * .pi * 440 / 48_000
+                    for c in 0..<Int(channels) { buf.floatChannelData![c][i] = 0.3 * sin(phase) }
+                }
+                voice.writeTake(buf)
+            }
+            voice.closeTake()
+            guard let url = voice.takeURL, let back = try? AVAudioFile(forReading: url) else {
+                check("\(channels)ch take is readable", false); continue
+            }
+            let secs = Double(back.length) / back.fileFormat.sampleRate
+            check("\(channels)ch take is ~3 s", abs(secs - 3) < 0.2, String(format: "(%.2f s)", secs))
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            check("\(channels)ch take is compressed", bytes > 0 && bytes < 100_000, "(\(bytes) bytes)")
+            let id = UUID()
+            let name = voice.claimTake(for: id)
+            check("\(channels)ch claim moves it beside the note", name == "\(id.uuidString).m4a"
+                  && FileManager.default.fileExists(atPath: VoiceService.recordingsDir.appendingPathComponent(name ?? "").path)
+                  && voice.takeURL == nil)
+            if let name { try? FileManager.default.removeItem(at: VoiceService.recordingsDir.appendingPathComponent(name)) }
+        }
+
+        let course = Course(name: "Linear Algebra", code: "MAS3105")
+        var other = Note(title: "x", body: "**Unrelated**", courseID: UUID())
+        other.tags = []
+        let notes = [Note(title: "W1", body: "# Eigenvalues\n- **eigenvector**: a vector…\n- **$\\lambda$** skipped\n## Diagonalization", courseID: course.id), other]
+        let terms = CourseVocabulary.terms(course: course, notes: notes)
+        check("vocabulary from the course's notes", ["Linear Algebra", "MAS3105", "Eigenvalues", "eigenvector", "Diagonalization"].allSatisfy(terms.contains), "\(terms)")
+        check("vocabulary skips math and other courses", !terms.contains { $0.contains("$") || $0 == "Unrelated" })
+
+        print(fail == 0 ? "TAKE SELFTEST: ALL PASS" : "TAKE SELFTEST: \(fail) FAILED")
+        return fail == 0 ? 0 : 1
     }
 }
