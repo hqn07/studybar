@@ -75,6 +75,12 @@ enum NotePDF {
               raw.count >= 2, raw.count - 1 <= maxPages
         else { return nil }
         let cuts = raw.map { CGFloat($0) }
+        // The headings, for the PDF's bookmarks: level, text, and how far down they sit.
+        let heads = (try? await web.callAsyncJavaScript("""
+            var c=document.getElementById('c'),t=c.getBoundingClientRect().top;
+            return Array.from(c.querySelectorAll('h1:not(.title),h2,h3')).map(function(e){
+              return [+e.tagName[1], e.textContent.trim(), e.getBoundingClientRect().top-t];});
+            """, arguments: [:], contentWorld: .page) as? [[Any]]) ?? []
 
         // The whole document inside the view's bounds, so every slice is a region of the view.
         web.frame.size.height = ceil(cuts.last ?? pageHeight)
@@ -87,7 +93,39 @@ enum NotePDF {
                   let doc = CGPDFDocument(provider), let pg = doc.page(at: 1) else { return nil }
             slices.append(pg)
         }
-        return compose(slices, meta: meta, options: options)
+        guard let pdf = compose(slices, meta: meta, options: options) else { return nil }
+        return bookmarked(pdf, heads: heads, cuts: cuts, options: options) ?? pdf
+    }
+
+    /// One bookmark per heading, nested by level, each pointing at the page the heading is on
+    /// — the sidebar Preview and every PDF reader show for finding your way in a long note.
+    private static func bookmarked(_ pdf: Data, heads: [[Any]], cuts: [CGFloat], options: PDFOptions) -> Data? {
+        guard !heads.isEmpty, let composed = PDFDocument(data: pdf) else { return nil }
+        // Into a fresh document: one opened from Core Graphics' output keeps an outline in memory
+        // and silently drops it on save.
+        let doc = PDFDocument()
+        for i in 0..<composed.pageCount {
+            if let page = composed.page(at: i)?.copy() as? PDFPage { doc.insert(page, at: i) }
+        }
+        let root = PDFOutline()
+        var open: [(level: Int, item: PDFOutline)] = [(0, root)]
+        for h in heads {
+            guard h.count == 3, let level = (h[0] as? NSNumber)?.intValue, let label = h[1] as? String, !label.isEmpty,
+                  let y = (h[2] as? NSNumber).map({ CGFloat($0.doubleValue) }) else { continue }
+            // Slice i covers cuts[i]..<cuts[i+1]; a heading exactly on a cut starts the next page.
+            let i = min(cuts.lastIndex { $0 <= y + 0.5 } ?? 0, doc.pageCount - 1)
+            guard let page = doc.page(at: i) else { continue }
+            let item = PDFOutline()
+            item.label = label
+            item.destination = PDFDestination(page: page, at: CGPoint(
+                x: options.margin, y: options.paperSize.height - options.margin - (y - cuts[i]) * options.scale))
+            while let last = open.last, last.level >= level { open.removeLast() }
+            let parent = open.last?.item ?? root
+            parent.insertChild(item, at: parent.numberOfChildren)
+            open.append((level, item))
+        }
+        doc.outlineRoot = root
+        return doc.dataRepresentation()
     }
 
     /// Each slice drawn at the top of the text column, scaled, with the header and footer in
@@ -574,6 +612,12 @@ enum PDFSelfTest {
                 if lines.last?.hasSuffix("heading") == true { stranded.append(i + 1) }
             }
             check("no heading ends a page", stranded.isEmpty, stranded.isEmpty ? "" : "(pages \(stranded))")
+            // Bookmarks: one per heading (the title block isn't one), each on the page it's on.
+            let marks = (0..<(doc.outlineRoot?.numberOfChildren ?? 0)).compactMap { doc.outlineRoot?.child(at: $0) }
+            let last = marks.last.flatMap { $0.destination?.page }.map { doc.index(for: $0) }
+            let lastPage = (0..<doc.pageCount).last { (doc.page(at: $0)?.string ?? "").contains("Section 18 heading") }
+            check("a bookmark per heading", marks.count == 19 && marks.first?.label == "Introduction", "(\(marks.count))")
+            check("bookmarks land on their page", last != nil && last == lastPage, "(\(String(describing: last)) vs \(String(describing: lastPage)))")
         } else { check("PDF is readable", false) }
 
         opts.paper = .a4; opts.textSize = .large; opts.pageNumbers = false
