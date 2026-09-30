@@ -80,7 +80,10 @@ struct StudyModuleView: View {
             if !state.data.courses.isEmpty {
                 Picker("", selection: Binding(get: { course?.id.uuidString ?? "" },
                                               set: { courseRaw = $0; excluded = [] })) {
-                    ForEach(state.data.courses) { c in Text(c.code.isEmpty ? c.name : "\(c.code) — \(c.name)").tag(c.id.uuidString) }
+                    // "MAP2302 — MAP2302" when a course's name is its code.
+                    ForEach(state.data.courses) { c in
+                        Text(c.code.isEmpty || c.code == c.name ? c.name : "\(c.code) — \(c.name)").tag(c.id.uuidString)
+                    }
                 }.labelsHidden().fixedSize()
             }
         } content: {
