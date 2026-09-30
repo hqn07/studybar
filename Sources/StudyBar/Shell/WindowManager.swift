@@ -17,6 +17,9 @@ final class WindowModel: ObservableObject {
     /// Per window on purpose: `state.pendingOpenNote` reaches every Notes on screen, and the
     /// one already open would take it first.
     var openNote: UUID?
+    /// Whether this window shows a tab bar. The header is drawn up into the titlebar strip;
+    /// with a tab bar there too, it would sit under the tabs.
+    @Published var tabBar = false
     static let chat = "chat"
 
     init(moduleID: String, rightID: String? = nil) {
@@ -76,6 +79,13 @@ final class WindowManager {
             self.current = e.model
             if state.selectedModuleID != e.model.moduleID { state.selectedModuleID = e.model.moduleID }
         }.store(in: &bag)
+        // A tab bar comes and goes as tabs are added, closed or dragged out; there is no
+        // notification for it, so look again whenever a workspace window changes hands.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification] {
+            NotificationCenter.default.publisher(for: name).sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshTabBars() }
+            }.store(in: &bag)
+        }
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification).sink { [weak self] n in
             guard let self, let w = n.object as? WorkspaceWindow else { return }
             // The first window is kept for reopening from the menu bar; the rest go.
@@ -85,6 +95,13 @@ final class WindowManager {
     }
 
     var windows: [NSWindow] { entries.map(\.window) }
+
+    func refreshTabBars() {
+        for e in entries {
+            let shown = e.window.tabGroup?.isTabBarVisible ?? false
+            if e.model.tabBar != shown { e.model.tabBar = shown }
+        }
+    }
     var frontWindow: NSWindow? { entries.first { $0.model === current }?.window ?? entries.first?.window }
 
     /// Show the workspace, creating the first window if there is none.
@@ -148,6 +165,9 @@ final class WindowManager {
         // log) could otherwise grow the window past the screen.
         host.sizingOptions = []
         w.contentViewController = host
+        // Installing the content shrank the window to its fitting size — the 560×420 minimum.
+        // A new window or tab takes the size of the one in front instead.
+        w.setContentSize(frontWindow?.contentLayoutRect.size ?? NSSize(width: 900, height: 620))
         if restoreFrame {
             w.center()
             w.setFrameAutosaveName("StudyBarMain")

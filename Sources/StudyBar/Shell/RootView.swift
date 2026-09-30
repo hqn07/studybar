@@ -106,7 +106,7 @@ struct RootView: View {
         // inset the content below it — so the app drew an empty 28pt strip and then its own
         // header underneath, two rows of chrome before any content. Taking the top safe area
         // lets the header sit *in* the titlebar; `header` leaves room for the traffic lights.
-        .ignoresSafeArea(.container, edges: surface == .window ? .top : [])
+        .ignoresSafeArea(.container, edges: surface == .window && !win.tabBar ? .top : [])
         .background(baseFill)
         .tint(Color(hex: accentHex) ?? .accentColor)
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
@@ -222,7 +222,7 @@ struct RootView: View {
         }
         // 78pt of leading room: the header now shares the titlebar strip with the traffic
         // lights, which AppKit draws over the content.
-        .padding(.leading, 78).padding(.trailing, 12).padding(.vertical, 6)
+        .padding(.leading, win.tabBar ? 12 : 78).padding(.trailing, 12).padding(.vertical, 6)
         .frame(height: 38)
         // Hidden quit shortcut so ⌘Q still works even though the button is gone.
         .background {
