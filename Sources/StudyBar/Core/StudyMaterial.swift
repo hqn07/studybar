@@ -257,6 +257,17 @@ enum StudyIndex {
         }
     }
 
+    /// The best matches that fit in `chars`, best first — as much of the material as the engine
+    /// can take, rather than a fixed handful.
+    static func fitting(_ query: String, in passages: [StudyPassage], chars: Int) -> [StudyPassage] {
+        var used = 0
+        return search(query, in: passages, k: 40).filter { p in
+            guard used + p.text.count <= chars else { return false }
+            used += p.text.count + p.cite.count + 4
+            return true
+        }
+    }
+
     static func search(_ query: String, in passages: [StudyPassage], k: Int = 5) -> [StudyPassage] {
         guard !passages.isEmpty else { return [] }
         let q = Set(tokens(query))

@@ -66,7 +66,7 @@ enum Quiz {
     static func generate(from passages: [StudyPassage], count: Int, exam: Bool, provider: AIProvider, mode: AIMode,
                          progress: @escaping @MainActor (_ part: Int, _ total: Int) -> Void) async -> [QuizQuestion]? {
         let local = mode == .ollama || mode == .onDevice
-        let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.chunkChars(for: mode) * 2 / 3)
+        let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.readChars(for: mode))
         let calls = min(groups.count, local ? max(1, (count + 3) / 4) : max(1, (count + 14) / 15))
         let picked = StudyMaterial.spread(groups, count: calls)
         // A few more than needed per request: the check below drops the ones it can't stand behind.
@@ -341,7 +341,7 @@ enum StudyGuide {
 
     static func generate(from passages: [StudyPassage], title: String, provider: AIProvider, mode: AIMode,
                          progress: @escaping @MainActor (_ part: Int, _ total: Int) -> Void) async -> String? {
-        let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.chunkChars(for: mode) * 2 / 3)
+        let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.readChars(for: mode))
         let picked = StudyMaterial.spread(groups, count: mode == .ollama || mode == .onDevice ? 8 : 4)
         var parts: [String] = []
         for (i, g) in picked.enumerated() {
@@ -668,6 +668,16 @@ enum StudySelfTest {
                   ExamPlan.blocks(for: { var e = exam; e.due = now.addingTimeInterval(-86_400); return e }(), classes: [], existing: [], now: now, cal: cal).isEmpty)
             check("exams are recognized by their title", ExamPlan.looksLikeExam("Final Exam") && ExamPlan.looksLikeExam("Quiz 3")
                   && !ExamPlan.looksLikeExam("Problem Set 5"))
+        }
+
+        // Reading sized to the engine: a hosted one takes a whole course, a local one what it always did.
+        do {
+            let ps = (1...30).map { StudyPassage(title: "Notes", locator: "p. \($0)", text: "Flux through surface number \($0). " + String(repeating: "Gauss law detail. ", count: 50)) }
+            let fit = StudyIndex.fitting("flux surface Gauss", in: ps, chars: 5_000)
+            let used = fit.reduce(0) { $0 + $1.text.count }
+            check("the tutor's passages fit its budget", !fit.isEmpty && used <= 5_000 && fit.count > 1, "(\(fit.count) passages, \(used) chars)")
+            check("a hosted engine reads a whole course at once", LectureNotes.readChars(for: .claude) >= 100_000)
+            check("a local engine reads what it always did", LectureNotes.readChars(for: .ollama) == 6_000)
         }
 
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")

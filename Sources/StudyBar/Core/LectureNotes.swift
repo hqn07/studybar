@@ -25,6 +25,18 @@ enum LectureNotes {
         }
     }
 
+    /// Characters of course material one request reads when the answer is short — questions, a
+    /// guide's sections. A hosted engine holds a whole course (120k characters is ~30k tokens,
+    /// inside DeepSeek's context as well as GPT's and Claude's); a local one, what fits beside the
+    /// prompt. At the old two thirds of `chunkChars` a 10-question quiz on a 94k-character
+    /// course was written from about a quarter of it.
+    static func readChars(for mode: AIMode) -> Int {
+        switch mode {
+        case .onDevice, .ollama, .off: return chunkChars(for: mode) * 2 / 3
+        case .claude, .openai: return 120_000
+        }
+    }
+
     static func system(_ job: Job, part: Int, of total: Int) -> String {
         let fillIn = """
         Fill in what a student needs to learn it: define terms that are used without a definition, \
@@ -206,12 +218,7 @@ enum LectureNotes {
 
     /// The passages that best match this part, as many as fit.
     static func relevant(_ material: [StudyPassage], to part: String, budget: Int) -> String {
-        guard budget > 0 else { return "" }
-        var picked: [StudyPassage] = [], used = 0
-        for p in StudyIndex.search(part, in: material, k: 8) where used + p.text.count <= budget {
-            picked.append(p); used += p.text.count + p.cite.count + 4
-        }
-        return StudyMaterial.block(picked)
+        budget > 0 ? StudyMaterial.block(StudyIndex.fitting(part, in: material, chars: budget)) : ""
     }
 
     /// The additions in a completed note, each with the line it follows (nil at the very top).

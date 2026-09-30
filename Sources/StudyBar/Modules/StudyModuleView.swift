@@ -344,8 +344,18 @@ struct TutorPane: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden()
+            HStack {
+                Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                Spacer()
+                if !m.thread.isEmpty {
+                    Button { m.task?.cancel(); m.busy = false; m.thread = [] } label: {
+                        Label("New chat", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear this conversation and start over")
+                }
+            }
             if !attached.isEmpty {
                 HStack {
                     ForEach(attached) { a in
@@ -424,7 +434,9 @@ struct TutorPane: View {
         let imageText = sees ? "" : imgs.compactMap { NSImage(data: $0)?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
             .map(StudyMaterial.ocr).joined(separator: "\n\n")
         let query = [q, imageText].filter { !$0.isEmpty }.joined(separator: " ")
-        let found = query.isEmpty ? [] : StudyIndex.search(query, in: material(), k: 5)
+        // As many of the best passages as the engine can take: a quarter of what a quiz reads on
+        // a hosted engine (~30k characters), the five that always fit on a local one.
+        let found = query.isEmpty ? [] : StudyIndex.fitting(query, in: material(), chars: max(7_500, LectureNotes.readChars(for: engine) / 4))
         let code = course.map { $0.code.isEmpty ? $0.name : $0.code }
         // Dropped files ride along as material, ahead of what the search found.
         let budget = LectureNotes.chunkChars(for: engine) / 3
