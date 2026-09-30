@@ -1588,14 +1588,14 @@ enum AIActionRunner {
             var ref = Reference(type: .article, title: title, year: a.str("year") ?? "")
             ref.authors = (a.args["authors"] as? [String]) ?? []
             ref.doi = a.str("doi") ?? ""
-            ref.url = a.str("url") ?? ""
+            ref.url = CleanURL.strip(a.str("url") ?? "")
             ref.container = a.str("container") ?? ""
             state.data.references.append(ref)
             return "Added citation “\(title.prefix(40))”."
 
         case "add_link":
             guard let title = a.str("title"), let url = a.str("url"), !url.isEmpty else { return "Skipped: need title + url." }
-            state.data.links.append(QuickLink(title: title, url: url, courseID: AppActions.courseID(named: a.str("course"))))
+            state.data.links.append(QuickLink(title: title, url: CleanURL.strip(url), courseID: AppActions.courseID(named: a.str("course"))))
             return "Added link “\(title)”."
 
         case "add_snippet":
@@ -2398,6 +2398,12 @@ enum AIToolSelfTest {
         check("starter hides the long tail (insights)", starterHidden.contains("insights"))
         check("starter shows a core module (assignments)", !starterHidden.contains("assignments"))
         check("starter never hides today/settings", !starterHidden.contains("today") && !starterHidden.contains("settings"))
+
+        // Saved links lose their tracking parameters, and keep everything else.
+        check("tracking parameters stripped",
+              CleanURL.strip("https://ex.com/a?id=7&utm_source=x&UTM_Medium=y&fbclid=z#s") == "https://ex.com/a?id=7#s")
+        check("a link with only tracking loses its ?", CleanURL.strip("https://youtu.be/abc?si=XYZ") == "https://youtu.be/abc")
+        check("a clean link is untouched", CleanURL.strip("https://ex.com/?q=a%20b") == "https://ex.com/?q=a%20b")
 
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1

@@ -124,3 +124,19 @@ enum MetadataFetcher {
          .replacingOccurrences(of: "&nbsp;", with: " ")
     }
 }
+
+/// A saved link without the tracking parameters marketing and share buttons add
+/// (`utm_*`, `fbclid`, `gclid`, YouTube's `si`…). Anything else in the query is kept, and a
+/// string that isn't a URL comes back unchanged.
+enum CleanURL {
+    private static let tracking: Set<String> = ["fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid",
+                                                "igshid", "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok", "si", "ref_src"]
+
+    static func strip(_ raw: String) -> String {
+        guard var c = URLComponents(string: raw.trimmingCharacters(in: .whitespaces)), let items = c.queryItems else { return raw }
+        let kept = items.filter { !$0.name.lowercased().hasPrefix("utm_") && !tracking.contains($0.name.lowercased()) }
+        guard kept.count != items.count else { return raw }
+        c.queryItems = kept.isEmpty ? nil : kept
+        return c.string ?? raw
+    }
+}

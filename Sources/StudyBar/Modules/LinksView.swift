@@ -78,7 +78,7 @@ struct LinksView: View {
             note = "Couldn't read the browser. Open Safari/Chrome/Arc and allow automation when prompted."
             return
         }
-        state.data.links.append(QuickLink(title: tab.title, url: tab.url))
+        state.data.links.append(QuickLink(title: tab.title, url: CleanURL.strip(tab.url)))
     }
     private func open(_ s: String) {
         let u = s.contains("://") ? s : "https://\(s)"
@@ -158,6 +158,7 @@ struct LinkEditor: View {
         .toolbar(.hidden, for: .windowToolbar)
     }
     private func save() {
+        draft.url = CleanURL.strip(draft.url)
         if draft.url.trimmingCharacters(in: .whitespaces).isEmpty {
             state.data.links.removeAll { $0.id == draft.id }
         } else if let i = state.data.links.firstIndex(where: { $0.id == draft.id }) {

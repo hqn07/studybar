@@ -102,6 +102,7 @@ struct ReferenceEditor: View {
 
     private func save() {
         draft.authors = parseAuthors()
+        draft.url = CleanURL.strip(draft.url)
         if draft.title.trimmingCharacters(in: .whitespaces).isEmpty {
             state.data.references.removeAll { $0.id == draft.id }
         } else if let i = state.data.references.firstIndex(where: { $0.id == draft.id }) {
