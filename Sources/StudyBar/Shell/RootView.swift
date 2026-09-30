@@ -559,6 +559,9 @@ struct SidebarView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(badge(for: m.id).map { "\(m.title), \($0) due soon" } ?? m.title)
         .accessibilityAddTraits(win.moduleID == m.id ? [.isButton, .isSelected] : .isButton)
+        // A replaced element doesn't inherit the button's action: without this, VoiceOver
+        // announced the row as a button and pressing it did nothing.
+        .accessibilityAction { win.moduleID = m.id }
     }
     private func badge(for id: String) -> Int? {
         switch id {
