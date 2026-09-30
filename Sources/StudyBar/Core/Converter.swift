@@ -430,7 +430,7 @@ enum Converter {
 
     // MARK: Audio, video, speech
 
-    private static func exportMedia(_ url: URL, to t: Target, out: URL) async throws {
+    static func exportMedia(_ url: URL, to t: Target, out: URL) async throws {
         let asset = AVURLAsset(url: url)
         if t == .wav || t == .aiff {
             try await Task.detached { try pcm(url, to: out, type: t == .wav ? .wav : .aiff) }.value

@@ -51,7 +51,7 @@ struct VoiceBody: View {
                                     Label(voice.isModelDownloaded(voiceWhisperModel) ? "Model downloaded" : "Download model now",
                                           systemImage: voice.isModelDownloaded(voiceWhisperModel) ? "checkmark.circle" : "arrow.down.circle")
                                 }.disabled(voice.isModelDownloaded(voiceWhisperModel))
-                                Button { importAudio() } label: { Label("Transcribe an audio file…", systemImage: "waveform.badge.plus") }
+                                Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
                             }
                         } label: { Image(systemName: whisper ? "cpu" : "waveform") }
                             .help("Transcription engine")
@@ -168,9 +168,17 @@ struct VoiceBody: View {
 
     private func importAudio() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio]
+        panel.allowedContentTypes = [.audio, .movie]
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url { voice.importFile(url) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true else { voice.importFile(url); return }
+        // A lecture video: transcribe its sound track. If that can't be pulled out, Whisper
+        // gets the file itself and says what it makes of it.
+        let m4a = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        Task {
+            let ok = (try? await Converter.exportMedia(url, to: .audioOnly, out: m4a)) != nil
+            voice.importFile(ok ? m4a : url)
+        }
     }
 
     private var recorder: some View {

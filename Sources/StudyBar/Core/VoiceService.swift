@@ -2,6 +2,7 @@ import Foundation
 import Speech
 import AVFoundation
 import WhisperKit
+import IOKit.ps
 
 /// The mic level, deliberately kept off `VoiceService`.
 ///
@@ -67,6 +68,9 @@ final class VoiceService: ObservableObject {
     private nonisolated(unsafe) var takeFile: AVAudioFile?
     private let takeLock = NSLock()
     private var awake: NSObjectProtocol?
+    private var healthTimer: Timer?
+    /// Which low-battery / low-disk warnings this recording has already given.
+    private var warned: Set<String> = []
     private nonisolated let meterLock = NSLock()
     private nonisolated(unsafe) var lastMeterAt = Date.distantPast
 
@@ -78,7 +82,10 @@ final class VoiceService: ObservableObject {
     ]
     static let whisperModels: [(id: String, label: String)] = [
         ("tiny", "Tiny · ~75 MB · fastest"), ("base", "Base · ~150 MB · balanced"),
-        ("small", "Small · ~500 MB · better"), ("large-v3", "Large v3 · ~1.5 GB · best"),
+        ("small", "Small · ~500 MB · better"),
+        // OpenAI's large-v3-turbo (WhisperKit names it by date), compressed: close to Large v3, several times faster.
+        ("large-v3-v20240930_626MB", "Large v3 Turbo · ~630 MB · near-best, fast"),
+        ("large-v3", "Large v3 · ~1.5 GB · best"),
     ]
     static let whisperLangs: [(id: String, label: String)] = [
         ("auto", "Auto-detect"), ("en", "English"), ("es", "Spanish"), ("fr", "French"),
@@ -730,9 +737,41 @@ final class VoiceService: ObservableObject {
         if on, awake == nil {
             awake = ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated],
                                                           reason: "Recording a lecture")
+            warned = []
+            checkPowerAndDisk()
+            healthTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.checkPowerAndDisk() }
+            }
         } else if !on, let a = awake {
             ProcessInfo.processInfo.endActivity(a); awake = nil
+            healthTimer?.invalidate(); healthTimer = nil
         }
+    }
+
+    /// A dead battery or a full disk ends a lecture without a word, so say so while there's
+    /// still time to plug in or free space — once each per recording.
+    private func checkPowerAndDisk() {
+        let free = (try? URL(fileURLWithPath: NSHomeDirectory())
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+        if let free, free < 1_000_000_000, warned.insert("disk").inserted {
+            Notifier.post(title: "Disk almost full", body: "Under 1 GB left. The recording stops if the disk fills, so free some space.")
+        }
+        if let pct = Self.batteryPercentOnBattery(), pct <= 15, warned.insert("battery").inserted {
+            Notifier.post(title: "Battery at \(pct)%", body: "Plug in so the lecture isn't cut off.")
+        }
+    }
+
+    /// Charge in percent while running on battery; nil on power, or on a Mac without one.
+    static func batteryPercentOnBattery() -> Int? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        for ps in list {
+            guard let d = IOPSGetPowerSourceDescription(info, ps)?.takeUnretainedValue() as? [String: Any],
+                  d[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue,
+                  let cur = d[kIOPSCurrentCapacityKey] as? Int, let max = d[kIOPSMaxCapacityKey] as? Int, max > 0 else { continue }
+            return cur * 100 / max
+        }
+        return nil
     }
 
     private func join(_ a: String, _ b: String) -> String {
