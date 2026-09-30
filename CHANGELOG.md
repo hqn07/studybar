@@ -21,7 +21,11 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Note history** — the clock on a note shows its earlier versions: one kept every ten minutes while you write, and one right before any big change, like an AI rewrite. Pick one to see, line by line, what restoring it brings back and removes, then restore it — and undo the restore the same way. History is kept on this Mac.
 
-- **VoiceOver** — the controls added in 2.4 and here say what they do, and the ⌘K list and Shelf items can be used with VoiceOver.
+- **Recordings take a fraction of the space** — a lecture is now saved as speech-quality audio at about 11 MB an hour instead of 29–58, so a whole term of lectures fits in about 1.5 GB. A recording whose note you deleted (and emptied from StudyBar's trash) now goes to the Trash instead of staying on disk forever.
+
+- **VoiceOver** — the controls added in 2.4 and here say what they do, the ⌘K list and Shelf items can be used with VoiceOver, and the sidebar opens a module again — VoiceOver announced each row as a button but pressing it did nothing.
+
+- **Fixed: a note's recording player covered its toolbar** — its controls had outgrown their row and drew over the note's header, and the formatting bar while editing.
 
 - **Fixed: flashcards lost their math** — `$\cos\theta$` in a card made by the AI came out as "\cos", a tab and "heta", `\frac` and `\beta` broke the same way, and one `\underline` lost every card in the reply.
 
