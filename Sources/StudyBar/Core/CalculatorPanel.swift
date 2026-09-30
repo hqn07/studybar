@@ -96,7 +96,7 @@ final class CalculatorModel: ObservableObject {
         let source = MathEval.assignment(in: input)?.expression ?? input
         guard !source.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         if let u = UnitConvert.run(source) { return u.display }
-        guard let r = try? MathEval.evaluate(source, variables: variables, angle: angle) else { return nil }
+        guard let r = try? MathEval.evaluate(source + MathEval.closing(source), variables: variables, angle: angle) else { return nil }
         return r.display
     }
 
@@ -104,8 +104,10 @@ final class CalculatorModel: ObservableObject {
     @Published var error: String?
 
     func commit() {
-        let line = input.trimmingCharacters(in: .whitespaces)
-        guard !line.isEmpty else { return }
+        let typed = input.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty else { return }
+        // Brackets left open are closed, as a calculator does on =; the tape shows them closed.
+        let line = typed + MathEval.closing(typed)
         let assignment = MathEval.assignment(in: line)
         let source = assignment?.expression ?? line
         if let u = UnitConvert.run(source) {
@@ -133,8 +135,16 @@ final class CalculatorModel: ObservableObject {
     /// Keypad and chip taps write through the same field the keyboard does, so the two input
     /// paths can never disagree about what is being calculated.
     func append(_ text: String) {
-        input += text
+        input = Self.continuing(input, with: text, hasAnswer: variables["ans"] != nil)
         error = nil
+    }
+
+    /// After =, an operator carries on from the answer — `+ 5` means ans + 5 — the way every
+    /// calculator works. Only operators: a digit, a function or a bracket starts afresh.
+    nonisolated static func continuing(_ input: String, with text: String, hasAnswer: Bool) -> String {
+        guard hasAnswer, input.trimmingCharacters(in: .whitespaces).isEmpty,
+              let first = text.trimmingCharacters(in: .whitespaces).first, "+-*/^×÷".contains(first) else { return input + text }
+        return "ans" + (text.first == " " ? "" : " ") + text
     }
 
     func clear() {

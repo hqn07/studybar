@@ -51,6 +51,17 @@ enum MathEval {
     }
 
     /// Evaluate `source`. `variables` supplies named values (`ans`, anything the user assigned).
+    /// The closers an expression still owes — what a calculator fills in when you press = with
+    /// brackets open, and what the display shows in grey meanwhile. A closer with nothing open
+    /// isn't counted: that's a mistake to show, not a debt to pay.
+    static func closing(_ source: String) -> String {
+        var open = 0
+        for c in source {
+            if "([{".contains(c) { open += 1 } else if ")]}".contains(c) { open = max(0, open - 1) }
+        }
+        return String(repeating: ")", count: open)
+    }
+
     static func evaluate(_ source: String, variables: [String: Double] = [:],
                          angle: AngleMode = .radians) throws -> Result {
         let node = try parse(source)
@@ -387,6 +398,11 @@ enum MathEval {
                     }
                     return .call(n, args)
                 }
+                // `sin 30°`, `sqrt 2`, `ln 5`: a function written without brackets, the way a
+                // calculator's keys are pressed, takes the value after it.
+                if functions[n] != nil, let t = peek, startsValue(t) || t == .op("-") {
+                    return .call(n, [try parseUnary()])
+                }
                 return .variable(n)
             case .lparen:
                 i += 1
@@ -570,6 +586,19 @@ enum MathEvalSelfTest {
         } else {
             failures += 1; print("  FAIL compiled tree parses")
         }
+
+        // Written the way a calculator is used: brackets left open, functions without them.
+        check("open brackets are closed for you", MathEval.closing("sqrt(2*(3+4"), "))")
+        check("balanced input needs nothing", MathEval.closing("sin(30) + (2)"), "")
+        check("a stray closer isn't a debt", MathEval.closing("2) + (3"), ")")
+        check("auto-closed sqrt(2*(3+4", calc("sqrt(2*(3+4" + MathEval.closing("sqrt(2*(3+4")), MathEval.format(14.0.squareRoot()))
+        check("sin 30° without brackets", calc("sin 30°"), "0.5")
+        check("2 sin 30° multiplies", calc("2 sin 30°"), "1")
+        check("sqrt 16 + 1 binds to the next value", calc("sqrt 16 + 1"), "5")
+        check("ln e", calc("ln e"), "1")
+        check("an operator after = carries on from the answer", CalculatorModel.continuing("", with: " + ", hasAnswer: true), "ans + ")
+        check("a digit after = starts afresh", CalculatorModel.continuing("", with: "7", hasAnswer: true), "7")
+        check("mid-line, an operator is just an operator", CalculatorModel.continuing("3", with: " + ", hasAnswer: true), "3 + ")
 
         // Units: Foundation does the arithmetic; this is the reading of "3 ft in cm".
         check("feet to centimetres", UnitConvert.run("3 ft in cm")?.display ?? "nil", "91.44 cm")

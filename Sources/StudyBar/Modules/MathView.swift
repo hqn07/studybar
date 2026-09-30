@@ -87,9 +87,11 @@ struct CalculatorSurface: View {
             VStack(spacing: DS.Space.s) {
                 Spacer(minLength: 0)
                 Image(systemName: "function").font(.title2).foregroundStyle(.tertiary)
-                Text("2pi · sqrt(2) · sin(30°) · 1,250 * 1.07 ^ 4")
+                Text("sin 30° · sqrt 2 · 2pi · 1,250 * 1.07 ^ 4 · 3 ft in cm")
                     .font(.caption2).foregroundStyle(.tertiary)
-                Text("x = 12 keeps a value · ans reuses the last answer")
+                Text("Brackets close themselves · after =, + − × ÷ carry on from the answer")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                Text("x = 12 keeps a value · ans is the last answer")
                     .font(.caption2).foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             }
@@ -135,13 +137,26 @@ struct CalculatorSurface: View {
         VStack(alignment: .trailing, spacing: 2) {
             // The field is the display — typed into directly, and also what the keypad writes
             // to, so keyboard and buttons are never two different input paths that disagree.
-            TextField("0", text: $model.input)
-                .textFieldStyle(.plain)
-                .font(.system(size: compact ? 24 : 30, weight: .regular, design: .monospaced))
-                .multilineTextAlignment(.trailing)
-                .focused($focused)
-                .onSubmit { model.commit() }
-                .onChange(of: model.input) { _, _ in model.error = nil }
+            HStack(spacing: 0) {
+                TextField("0", text: $model.input)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .focused($focused)
+                    .onSubmit { model.commit() }
+                    .onExitCommand { model.input = "" }
+                    .onChange(of: model.input) { old, new in
+                        model.error = nil
+                        // Typing an operator first, after =, carries on from the answer too.
+                        if old.isEmpty, new.count == 1 {
+                            let carried = CalculatorModel.continuing("", with: new, hasAnswer: model.variables["ans"] != nil)
+                            if carried != new, new != "-" { model.input = carried }
+                        }
+                    }
+                // The brackets = will close for you, shown where they'd go.
+                let owed = MathEval.closing(model.input)
+                if !owed.isEmpty { Text(owed).foregroundStyle(.tertiary).accessibilityLabel("closes with \(owed.count) bracket\(owed.count == 1 ? "" : "s")") }
+            }
+            .font(.system(size: compact ? 24 : 30, weight: .regular, design: .monospaced))
 
             HStack(spacing: DS.Space.m) {
                 if let e = model.error {
@@ -174,7 +189,8 @@ struct CalculatorSurface: View {
 
     // MARK: - Functions
 
-    private let functionKeys = ["sin", "cos", "tan", "√", "ln", "log", "π", "e", "^", "%", "ans"]
+    /// What the keypad doesn't already have — √, ^ and ans were on both.
+    private let functionKeys = ["sin", "cos", "tan", "ln", "log", "π", "e", "%"]
 
     private var functions: some View {
         FadingHScroll {
@@ -216,7 +232,7 @@ struct CalculatorSurface: View {
 
     private var keys: [Key] {
         [
-            .init(label: "C", insert: nil, role: .command),
+            .init(label: model.input.isEmpty ? "AC" : "C", insert: nil, role: .command),
             .init(label: "(", insert: "("), .init(label: ")", insert: ")"),
             .init(label: "⌫", insert: nil, role: .command),
             .init(label: "÷", insert: " / ", role: .operatorKey),
@@ -239,10 +255,29 @@ struct CalculatorSurface: View {
         ]
     }
 
+    /// Rows of five columns, a wide key counting two. A Grid rather than a LazyVGrid: a lazy grid
+    /// ignores `gridCellColumns`, so = took one cell and left a hole beside it.
+    private var rows: [[Key]] {
+        var out: [[Key]] = [[]], width = 0
+        for k in keys {
+            if width + (k.wide ? 2 : 1) > 5 { out.append([]); width = 0 }
+            out[out.count - 1].append(k); width += k.wide ? 2 : 1
+        }
+        return out
+    }
+
     private var keypad: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.Space.s), count: 5),
-                  spacing: DS.Space.s) {
-            ForEach(keys) { key in
+        Grid(horizontalSpacing: DS.Space.s, verticalSpacing: DS.Space.s) {
+            ForEach(rows.indices, id: \.self) { r in
+                GridRow {
+                    ForEach(rows[r]) { key in keyButton(key) }
+                }
+            }
+        }
+        .padding(.horizontal, DS.Space.l).padding(.bottom, DS.Space.l)
+    }
+
+    private func keyButton(_ key: Key) -> some View {
                 Button { tap(key) } label: {
                     Text(key.label)
                         .font(.system(size: compact ? 14 : 16, weight: key.role == .normal ? .regular : .medium,
@@ -256,9 +291,6 @@ struct CalculatorSurface: View {
                 }
                 .buttonStyle(.plain)
                 .gridCellColumns(key.wide ? 2 : 1)
-            }
-        }
-        .padding(.horizontal, DS.Space.l).padding(.bottom, DS.Space.l)
     }
 
     private func background(for role: Key.Role) -> AnyShapeStyle {
@@ -273,7 +305,8 @@ struct CalculatorSurface: View {
     private func tap(_ key: Key) {
         if let insert = key.insert { model.append(insert); focused = true; return }
         switch key.label {
-        case "C": model.input.isEmpty ? model.clear() : (model.input = "")
+        case "C": model.input = ""
+        case "AC": model.clear()
         case "⌫": if !model.input.isEmpty { model.input.removeLast() }
         case "=": model.commit()
         default:  break

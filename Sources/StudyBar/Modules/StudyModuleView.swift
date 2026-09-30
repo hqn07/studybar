@@ -965,6 +965,8 @@ enum StudySnapshot {
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
+        CalculatorModel.shared.input = "sqrt(2*(3+4"
+        save(CalculatorSurface(model: .shared, compact: true), "calc.png", CGSize(width: 380, height: 440))
         if let files = ProcessInfo.processInfo.environment["SB_CONVERT_FILES"] {
             ConvertQueue.shared.add(files.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
             save(ConvertView(), "convert.png", CGSize(width: 900, height: 560))
