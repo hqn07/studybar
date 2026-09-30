@@ -9,6 +9,8 @@ struct AssignmentEditor: View {
     @State private var draft: Assignment
     @State private var hasDue: Bool
     @State private var newCheck = ""
+    /// What "Plan review" last did, shown on the button.
+    @State private var planned: String?
     // Inline AI: propose checklist steps for this assignment; user picks which to add.
     @State private var stepsLoading = false
     @State private var stepsRaw = ""
@@ -26,6 +28,10 @@ struct AssignmentEditor: View {
         VStack(spacing: 0) {
             Color.clear.frame(width: 0, height: 0).studyFocus(.assignment(assignment.id))   // for the chat beside it
             SubHeader("Assignment") {
+                if ExamPlan.looksLikeExam(draft.title), let due = draft.due, due > .now {
+                    Button { planReview() } label: { Label(planned ?? "Plan review", systemImage: "calendar.badge.plus") }
+                        .help("Put spaced review sessions, quizzes and a practice exam on the days before it, around your classes")
+                }
                 if let workspace {
                     // The assignment here, the tutor beside it reading the brief and the
                     // course's material, and a focus session running on the course.
@@ -252,6 +258,17 @@ struct AssignmentEditor: View {
         state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == draft.id } }
         Notifier.cancel(id: draft.id.uuidString)
         dismiss()
+    }
+
+    /// Replaces an earlier plan for this exam (its sessions not yet done), so planning again
+    /// after the date moves doesn't double up.
+    private func planReview() {
+        var kept = state.data.timeBlocks ?? []
+        kept.removeAll { $0.assignmentID == draft.id && !$0.done && $0.day >= Calendar.current.startOfDay(for: .now) }
+        let new = ExamPlan.blocks(for: draft, classes: state.data.classes, existing: kept)
+        guard !new.isEmpty else { planned = "No free time before it"; return }
+        state.withUndo("Planned \(new.count) review sessions") { state.data.timeBlocks = kept + new }
+        planned = "\(new.count) sessions planned"
     }
 
     private func start(in ws: WindowModel) {

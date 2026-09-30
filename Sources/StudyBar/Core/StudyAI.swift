@@ -649,6 +649,27 @@ enum StudySelfTest {
             check("results from two devices both survive", Set(merged.map(\.id)) == [a.id, b.id])
         }
 
+        // Exam plan: spaced back from the exam, around classes, never on or after exam day.
+        do {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+            let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 20, minute: 0))!   // a Thursday, 8 pm
+            var exam = Assignment(title: "PHY2049 Midterm")
+            exam.due = cal.date(byAdding: .day, value: 9, to: now)
+            var lab = ClassSession(); lab.days = [2, 3, 4, 5, 6]; lab.startMinutes = 16 * 60; lab.endMinutes = 18 * 60   // weekdays 4–6 pm
+            let blocks = ExamPlan.blocks(for: exam, classes: [lab], existing: [], now: now, cal: cal)
+            let before = blocks.map { cal.dateComponents([.day], from: cal.startOfDay(for: $0.day), to: cal.startOfDay(for: exam.due!)).day! }
+            check("sessions spaced back from the exam", before == [7, 5, 3, 2, 1], "\(before)")
+            check("a practice exam two days out", blocks.first { $0.title.hasPrefix("Practice exam") }.map { before[blocks.firstIndex(of: $0)!] } == 2)
+            let clash = blocks.contains { b in
+                lab.meets(on: cal.component(.weekday, from: b.day)) && b.startMinutes < lab.endMinutes && lab.startMinutes < b.endMinutes
+            }
+            check("no session during a class", !clash, "\(blocks.map { ($0.day, $0.startMinutes) })")
+            check("an exam that's already past plans nothing",
+                  ExamPlan.blocks(for: { var e = exam; e.due = now.addingTimeInterval(-86_400); return e }(), classes: [], existing: [], now: now, cal: cal).isEmpty)
+            check("exams are recognized by their title", ExamPlan.looksLikeExam("Final Exam") && ExamPlan.looksLikeExam("Quiz 3")
+                  && !ExamPlan.looksLikeExam("Problem Set 5"))
+        }
+
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }
@@ -831,5 +852,70 @@ enum TopicScores {
             Quiz.isCorrect(q, responses[q.id] ?? QuizResponse())
                 .map { TopicResult(courseID: course, topic: q.topic.isEmpty ? "Other" : q.topic, correct: $0) }
         }
+    }
+}
+
+// MARK: - Exam plan
+
+/// "Midterm in 9 days" as sessions on the day planner: reviews spaced back from the exam, a
+/// practice exam two days out and a light review the day before, each in the first free
+/// slot around classes and blocks already there. Arithmetic, not AI.
+enum ExamPlan {
+    struct Session { let daysBefore: Int; let kind: String; let minutes: Int }
+    static let schedule: [Session] = [
+        .init(daysBefore: 14, kind: "Review", minutes: 60), .init(daysBefore: 10, kind: "Quiz", minutes: 45),
+        .init(daysBefore: 7, kind: "Review", minutes: 60), .init(daysBefore: 5, kind: "Quiz", minutes: 45),
+        .init(daysBefore: 3, kind: "Review", minutes: 60), .init(daysBefore: 2, kind: "Practice exam", minutes: 90),
+        .init(daysBefore: 1, kind: "Last review", minutes: 45),
+    ]
+
+    static func looksLikeExam(_ title: String) -> Bool {
+        title.range(of: #"\b(exam|midterm|final|test|quiz)\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// The sessions still ahead of the exam, from `now`: today only while a slot is left in it.
+    static func blocks(for exam: Assignment, classes: [ClassSession], existing: [TimeBlock],
+                       now: Date = .now, cal: Calendar = .current) -> [TimeBlock] {
+        guard let due = exam.due else { return [] }
+        let examDay = cal.startOfDay(for: due), today = cal.startOfDay(for: now)
+        let clock = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
+        var taken = existing, out: [TimeBlock] = []
+        for s in schedule {
+            guard let day = cal.date(byAdding: .day, value: -s.daysBefore, to: examDay), day >= today,
+                  let start = freeSlot(on: day, minutes: s.minutes, after: day == today ? clock + 15 : 0,
+                                       classes: classes, blocks: taken, cal: cal) else { continue }
+            var b = TimeBlock(title: "\(s.kind) · \(exam.title)", day: day, startMinutes: start, endMinutes: start + s.minutes)
+            b.courseID = exam.courseID
+            b.assignmentID = exam.id
+            b.notes = hint(s.kind)
+            out.append(b)
+            taken.append(b)
+        }
+        return out
+    }
+
+    static func hint(_ kind: String) -> String {
+        switch kind {
+        case "Quiz": return "Study ▸ Quiz, or Progress ▸ Quiz me on the weakest."
+        case "Practice exam": return "Study ▸ Practice exam, timed, then go over what you missed."
+        case "Last review": return "The study guide and the flashcards you keep missing — then sleep."
+        default: return "Go over the notes and slides; Study ▸ Study guide has the key points."
+        }
+    }
+
+    /// Evenings first (16:00–22:00), then the day (08:00–16:00), on the quarter hour.
+    static func freeSlot(on day: Date, minutes: Int, after earliest: Int, classes: [ClassSession],
+                         blocks: [TimeBlock], cal: Calendar) -> Int? {
+        let wd = cal.component(.weekday, from: day)
+        let busy = classes.filter { $0.meets(on: wd) }.map { ($0.startMinutes, $0.endMinutes) }
+            + blocks.filter { cal.isDate($0.day, inSameDayAs: day) }.map { ($0.startMinutes, $0.endMinutes) }
+        for (from, to) in [(16 * 60, 22 * 60), (8 * 60, 16 * 60)] {
+            var t = max(from, (earliest + 14) / 15 * 15)
+            while t + minutes <= to {
+                if !busy.contains(where: { t < $0.1 && $0.0 < t + minutes }) { return t }
+                t += 15
+            }
+        }
+        return nil
     }
 }
