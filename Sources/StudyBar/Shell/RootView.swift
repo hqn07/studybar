@@ -8,8 +8,6 @@ enum WindowOpener {
     /// of the ~380 pt popover. AppDelegate wires this and no-ops when the popover
     /// isn't the active surface.
     @MainActor static var routeToWindow: ((String) -> Void)?
-    /// Sets the main window's title to the current module (e.g. "StudyBar — Notes").
-    @MainActor static var setWindowTitle: ((String) -> Void)?
 }
 
 /// StudyBar renders on two surfaces with different jobs (see docs/PHILOSOPHY.md):
@@ -20,6 +18,9 @@ struct RootView: View {
     /// Which surface this instance is hosted on. Defaults to `.window` so any
     /// incidental construction gets the full experience.
     var surface: RootSurface = .window
+    /// This window's own module and split. The popover has none of its own — it shows Today
+    /// and hands everything else to the window.
+    @ObservedObject var win = WindowModel(moduleID: "today")
     @EnvironmentObject var state: AppState
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("accentHex") private var accentHex = "#4F8DFD"
@@ -61,11 +62,10 @@ struct RootView: View {
             // just retitles. AppDelegate also no-ops the hand-off unless the popover shows.
             .onChange(of: state.selectedModuleID) { _, id in
                 if surface == .popover { WindowOpener.routeToWindow?(id) }
-                else { WindowOpener.setWindowTitle?(ModuleRegistry.info(id)?.title ?? "StudyBar") }
-                // Focus mode belongs to writing. Leaving Notes with the chrome hidden would
-                // strand a module with no rail, no header and no button to bring them back.
-                if id != "notes" { state.focusMode = false }
             }
+            // Focus mode belongs to writing. Leaving Notes with the chrome hidden would
+            // strand a module with no rail, no header and no button to bring them back.
+            .onChange(of: win.moduleID) { _, id in if id != "notes" { state.focusMode = false } }
             // Drive the window appearance at the AppKit level so switching to "Device"
             // reliably re-follows the system (preferredColorScheme(nil) alone doesn't).
             .onChange(of: appearance) { _, _ in applyAppearanceSetting() }
@@ -78,8 +78,8 @@ struct RootView: View {
         RecordingBar(voice: state.voice, open: openVoice)
     }
     private func openVoice() {
-        state.selectedModuleID = "voice"
-        if surface == .popover { WindowOpener.routeToWindow?("voice") }
+        if surface == .popover { state.selectedModuleID = "voice"; WindowOpener.routeToWindow?("voice") }
+        else { win.moduleID = "voice" }
     }
 
     private var shell: some View {
@@ -180,6 +180,11 @@ struct RootView: View {
             .keyboardShortcut("\\", modifiers: .command).opacity(0).accessibilityHidden(true)
         Button("") { showShortcuts.toggle() }
             .keyboardShortcut("/", modifiers: .command).opacity(0).accessibilityHidden(true)
+        if surface == .window {
+            // The chat beside whatever is open.
+            Button("") { win.rightID = win.rightID == WindowModel.chat ? nil : WindowModel.chat }
+                .keyboardShortcut("j", modifiers: .command).opacity(0).accessibilityHidden(true)
+        }
         // ⌘⇧F is what iA Writer, Bear and Ulysses all use for this.
         Button("") { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode.toggle() } }
             .keyboardShortcut("f", modifiers: [.command, .shift]).opacity(0).accessibilityHidden(true)
@@ -190,9 +195,6 @@ struct RootView: View {
         GlobalShortcuts.configure()
         if UserDefaults.standard.bool(forKey: "globalHotkey") && !HotKeyManager.shared.registered {
             HotKeyManager.shared.register()
-        }
-        if surface == .window {
-            WindowOpener.setWindowTitle?(ModuleRegistry.info(state.selectedModuleID)?.title ?? "StudyBar")
         }
     }
 
@@ -208,7 +210,10 @@ struct RootView: View {
             Spacer(minLength: 8)
             SearchField(text: $state.globalSearch).frame(maxWidth: 180)
             Menu {
-                Button("Settings") { state.selectedModuleID = "settings"; state.globalSearch = "" }
+                Button("Settings") { win.moduleID = "settings"; state.globalSearch = "" }
+                Divider()
+                Button("New Tab") { WindowManager.shared.newTab() }
+                Button("New Window") { WindowManager.shared.newWindow() }
                 Divider()
                 Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
@@ -227,11 +232,34 @@ struct RootView: View {
 
     // MARK: Content
 
+    @AppStorage("splitWidth") private var splitWidth = 420.0
+
+    /// The module on the left, and — when the window is split — a second module or the chat on
+    /// the right. Only the left pane's open item reaches the chat.
     private var content: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                pane(win.moduleID)
+                    .onPreferenceChange(StudyFocusKey.self) { f in win.focus = f }
+                if let right = win.rightID {
+                    PaneDivider(width: Binding(get: { CGFloat(splitWidth) }, set: { splitWidth = Double($0) }),
+                                range: 320...max(320, geo.size.width - 360), resetTo: 420, inverted: true)
+                    VStack(spacing: 0) {
+                        rightBar(right)
+                        Divider()
+                        if right == WindowModel.chat { ContextChatPane(win: win) } else { pane(right) }
+                    }
+                    .frame(width: min(CGFloat(splitWidth), max(320, geo.size.width - 360)))
+                }
+            }
+        }
+    }
+
+    private func pane(_ id: String) -> some View {
         Group {
-            if let m = ModuleRegistry.info(state.selectedModuleID) {
+            if let m = ModuleRegistry.info(id) {
                 if m.wide {
-                    m.make()                                     // spatial: fill the window
+                    m.make()                                     // spatial: fill the pane
                 } else {
                     m.make().frame(maxWidth: 820)                // text/list: readable column,
                 }                                                //  centered by the frame below
@@ -240,9 +268,35 @@ struct RootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .id(state.selectedModuleID)                                   // clean swap per module
+        .environment(\.workspace, win)
+        .id(id)                                                  // clean swap per module
         .transition(.opacity)
-        .animation(.easeInOut(duration: 0.16), value: state.selectedModuleID)   // subtle crossfade
+        .animation(.easeInOut(duration: 0.16), value: id)        // subtle crossfade
+    }
+
+    /// The right pane's own strip: what's in it, swap sides, close.
+    private func rightBar(_ right: String) -> some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button { win.rightID = WindowModel.chat } label: { Label("Chat", systemImage: "text.bubble") }
+                Divider()
+                ForEach(ModuleRegistry.all.filter { state.modulePrefs.isVisible($0.id) && $0.id != win.moduleID }) { m in
+                    Button { win.rightID = m.id } label: { Label(m.title, systemImage: m.symbol) }
+                }
+            } label: {
+                Text(right == WindowModel.chat ? "Chat" : ModuleRegistry.info(right)?.title ?? right).font(.caption.weight(.semibold))
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            Spacer()
+            if right != WindowModel.chat {
+                Button { let l = win.moduleID; win.moduleID = right; win.rightID = l } label: { Image(systemName: "arrow.left.arrow.right") }
+                    .buttonStyle(.borderless).help("Swap sides")
+            }
+            Button { win.rightID = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).help("Close this side (⌘J for chat)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(.sbSurface)
     }
 
     // MARK: Window body (sidebar + content)
@@ -257,7 +311,7 @@ struct RootView: View {
                 let railed = forced || sidebarCollapsed
                 HStack(spacing: 0) {
                     if !state.focusMode {
-                        SidebarView(prefs: state.modulePrefs, collapsed: railed)
+                        SidebarView(prefs: state.modulePrefs, win: win, collapsed: railed)
                             .frame(width: railed ? 48 : 176)
                         Divider()
                     }
@@ -391,6 +445,7 @@ struct RecordingBar: View {
 struct SidebarView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var prefs: ModulePrefs
+    @ObservedObject var win: WindowModel
     var collapsed: Bool = false
 
     // One custom row list for both modes so collapsing only fades the labels
@@ -430,8 +485,11 @@ struct SidebarView: View {
     }
 
     private func row(_ m: ModuleInfo) -> some View {
-        let sel = state.selectedModuleID == m.id
-        return Button { state.selectedModuleID = m.id } label: {
+        let sel = win.moduleID == m.id
+        // ⌥-click puts it on the right, beside what's open.
+        return Button {
+            if NSEvent.modifierFlags.contains(.option), m.id != win.moduleID { win.rightID = m.id } else { win.moduleID = m.id }
+        } label: {
             HStack(spacing: 8) {
                 Image(systemName: m.symbol).font(.system(size: 14)).frame(width: 22)
                 if !collapsed {
@@ -460,12 +518,17 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .help(collapsed ? m.title : "")
+        .contextMenu {
+            Button("Open on the Right") { win.rightID = m.id }.disabled(m.id == win.moduleID)
+            Button("Open in New Tab") { WindowManager.shared.newTab(moduleID: m.id) }
+            Button("Open in New Window") { WindowManager.shared.newWindow(moduleID: m.id) }
+        }
         // Collapsed, the row is a bare SF Symbol, and VoiceOver then reads the symbol's own
         // name — "Books Standing Vertically On A Shelf" for Library, "Gear Shape" for
         // Settings. Name the row after the module, and fold the badge into the same label.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(badge(for: m.id).map { "\(m.title), \($0) due soon" } ?? m.title)
-        .accessibilityAddTraits(state.selectedModuleID == m.id ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(win.moduleID == m.id ? [.isButton, .isSelected] : .isButton)
     }
     private func badge(for id: String) -> Int? {
         switch id {

@@ -377,7 +377,8 @@ enum Tutor {
         """
         You are a tutor for a student\(course.map { " in \($0)" } ?? ""). Use the COURSE MATERIAL when it \
         is relevant, citing it in [brackets]; otherwise answer from what you know. When a question \
-        comes with an image, the problem is in the image.
+        comes with an image, the problem is in the image. When something is OPEN beside you, it is \
+        what the student is looking at: "this", "this step" and "here" mean it.
 
         \(mode.directive)
 
@@ -396,15 +397,46 @@ enum Tutor {
         var checks: [MathCheck.Result] = []
     }
 
+    /// What a window has open, as the chat sees it: its course, a title, and its text (up to
+    /// `limit`) — the note, the pages around where the book is open, the assignment's brief.
+    @MainActor
+    static func open(_ f: StudyFocus?, in data: AppData, limit: Int) -> (course: UUID?, title: String, text: String)? {
+        switch f {
+        case .note(let id)?:
+            guard let n = data.notes.first(where: { $0.id == id }) else { return nil }
+            return (n.courseID, n.title.isEmpty ? "Untitled note" : n.title, String(n.body.prefix(limit)))
+        case .reading(let id, let page)?:
+            guard let r = data.reading.first(where: { $0.id == id }) else { return nil }
+            let chunks = BookText.chunks(id)
+            let near = page.map { p in chunks.filter { abs($0.page - p) <= 1 } } ?? Array(chunks.prefix(3))
+            let text = near.map { "[p. \($0.page)]\n\($0.text)" }.joined(separator: "\n\n")
+            return (r.courseID, r.title + (page.map { ", around p. \($0)" } ?? ""), String(text.prefix(limit)))
+        case .assignment(let id)?:
+            guard let a = data.assignments.first(where: { $0.id == id }) else { return nil }
+            var text = "Assignment: \(a.title)"
+            if let due = a.due { text += "\nDue: \(due.formatted(date: .abbreviated, time: .shortened))" }
+            if !a.notes.isEmpty { text += "\n\n\(a.notes)" }
+            if !a.checklist.isEmpty { text += "\n\nSteps:\n" + a.checklist.map { "- [\($0.done ? "x" : " ")] \($0.text)" }.joined(separator: "\n") }
+            if !a.link.isEmpty { text += "\n\nLink: \(a.link)" }
+            return (a.courseID, a.title, String(text.prefix(limit)))
+        case .course(let id)?:
+            guard let c = data.courses.first(where: { $0.id == id }) else { return nil }
+            return (id, c.code.isEmpty ? c.name : c.code, "")
+        case nil:
+            return nil
+        }
+    }
+
     /// The last few turns for context; the course material and the images go on the new one only.
     static func messages(thread: [Turn], question: String, material: String, images: [Data], imageText: String,
-                         mode: Mode = .explain) -> [AIMessage] {
+                         mode: Mode = .explain, open: (title: String, text: String)? = nil) -> [AIMessage] {
         var msgs: [AIMessage] = []
         for t in thread.suffix(4) where !t.answer.isEmpty {
             msgs.append(AIMessage(role: .user, text: t.question))
             msgs.append(AIMessage(role: .assistant, text: t.answer))
         }
         var text = material.isEmpty ? "" : "COURSE MATERIAL:\n\"\"\"\n\(material)\n\"\"\"\n\n"
+        if let open, !open.text.isEmpty { text += "OPEN — \(open.title):\n\"\"\"\n\(open.text)\n\"\"\"\n\n" }
         if !imageText.isEmpty { text += "TEXT READ FROM THE ATTACHED IMAGE:\n\"\"\"\n\(imageText)\n\"\"\"\n\n" }
         text += "QUESTION: \(question.isEmpty ? "Help me with the problem in the image." : question)"
         // Repeated here for the same reason as LectureNotes.user: in the system prompt alone,

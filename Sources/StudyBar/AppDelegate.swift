@@ -5,11 +5,10 @@ import CoreSpotlight
 
 /// Owns the menu-bar status item (left-click popover, right-click menu) and the detached window.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let state = AppState()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private var window: NSWindow?
     /// When the menu-bar item was last clicked — so the reopen handler can tell a
     /// status-item interaction (show the popover) from a real app-icon click (show the window).
     private var lastStatusClickAt = Date.distantPast
@@ -177,6 +176,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { exit(await AIPlanTest.run(state: state)) }
             return
         }
+        // Dev hook: `--seed-sample` fills an empty throwaway store (STUDYBAR_DATA_DIR only) with a
+        // course, notes and an assignment, for driving the UI without touching real data.
+        if CommandLine.arguments.contains("--seed-sample"),
+           ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil,
+           !state.data.courses.contains(where: { $0.code == "PHY2049" }) {   // a fresh store already has "Getting Started"
+            let c = Course(name: "Physics II", code: "PHY2049")
+            state.data.courses.append(c)
+            state.data.notes += [
+                Note(title: "Week 3 — Gauss's Law", body: "## Flux\n- **Electric flux** — $\\Phi_E = EA\\cos\\theta$\n- Charges outside a closed surface add no net flux.\n\n## Gauss's law\n$$\\oint \\vec E\\cdot d\\vec A = \\frac{Q_{enc}}{\\varepsilon_0}$$\n- Useful only with spherical, cylindrical or planar symmetry.", courseID: c.id),
+                Note(title: "Week 4 — Electric potential", body: "## Potential\n- $V = kq/r$ for a point charge\n- $E = -dV/dx$", courseID: c.id),
+            ]
+            state.data.assignments += [Assignment(title: "Problem Set 5", courseID: c.id, due: Date().addingTimeInterval(4 * 86_400),
+                                                 notes: "Chapter 24, problems 12–20. Problem 18: coaxial cable, a line charge inside a cylindrical shell.")]
+            state.saveNow()
+        }
         // Test/dev hook: SB_DOCK=1 promotes StudyBar to a regular Dock app so UI-automation
         // tools (which can't target an LSUIElement accessory app) can drive the window.
         // No effect on normal launches — 1.0 stays a pure menu-bar app.
@@ -210,7 +224,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        // Drop anything on the menu-bar icon to park it on the Shelf. The status item's window
+        // forwards dragging messages to its delegate; its button can't be subclassed.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let w = self.statusItem.button?.window else { return }
+            w.registerForDraggedTypes([.fileURL, .URL, .string, .tiff, .png])
+            w.delegate = self
+        }
 
+        WindowManager.shared.configure(state: state)
         WindowOpener.open = { [weak self] _ in self?.showWindow() }
         // Popover → window hand-off: only acts while the popover is the active surface,
         // so selecting a module inside the popover opens it in the roomy window and
@@ -228,9 +250,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(NSStringFromSize(clamped), forKey: PopoverSizing.key)
         }
         PopoverSizing.current = { [weak self] in self?.popover.contentSize ?? .zero }
-        WindowOpener.setWindowTitle = { [weak self] t in
-            self?.window?.title = (t.isEmpty || t == "StudyBar") ? "StudyBar" : "StudyBar — \(t)"
-        }
         // Global hotkeys belong to the app, not to a window. They used to be registered from
         // RootView.onAppearSetup, so a menu-bar app that had not yet been asked to show its
         // window or popover had none of them — ⌃⌥N did nothing until you opened StudyBar,
@@ -291,8 +310,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// but on the workspace. Right-click still opens the quick-actions menu either way.
     private func openOrToggleWindow() {
         if popover.isShown { popover.performClose(nil) }
-        if let w = window, w.isVisible, w.isKeyWindow {
-            w.orderOut(nil)
+        if let w = WindowManager.shared.frontWindow, w.isVisible, w.isKeyWindow {
+            for w in WindowManager.shared.windows where w.isVisible { w.orderOut(nil) }
         } else {
             showWindow()
         }
@@ -310,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // window in front of whatever the student is doing — hide it first so the
             // menu bar shows only the popover. Reopen the window explicitly (click the
             // app icon, or a launcher item) to bring it back.
-            if window?.isVisible == true { window?.orderOut(nil) }
+            for w in WindowManager.shared.windows where w.isVisible { w.orderOut(nil) }
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             // Make the popover key so its text fields accept keyboard input.
@@ -331,6 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro", #selector(togglePomodoro))
         m.addItem(.separator())
         add("Open StudyBar", #selector(openMain))
+        add(ShelfPanel.shared?.isVisible == true ? "Hide Shelf" : "Show Shelf", #selector(toggleShelf))
         add("Settings…", #selector(openSettings))
         m.addItem(.separator())
         add("Quit StudyBar", #selector(quit))
@@ -391,6 +411,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let full = windowMenu.addItem(withTitle: "Enter Full Screen",
                                       action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         full.keyEquivalentModifierMask = [.control, .command]
+        windowMenu.addItem(.separator())
+        // New Tab goes to the key window's `newWindowForTab`, the same as the tab bar's "+".
+        windowMenu.addItem(withTitle: "New Tab", action: #selector(NSWindow.newWindowForTab(_:)), keyEquivalent: "t")
+        let newWin = windowMenu.addItem(withTitle: "New Window", action: #selector(newWorkspaceWindow), keyEquivalent: "n")
+        newWin.keyEquivalentModifierMask = [.command, .option]
+        newWin.target = self
+        windowMenu.addItem(withTitle: "Show Tab Bar", action: #selector(NSWindow.toggleTabBar(_:)), keyEquivalent: "")
+        windowMenu.addItem(withTitle: "Merge All Windows", action: #selector(NSWindow.mergeAllWindows(_:)), keyEquivalent: "")
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = windowMenu
@@ -461,55 +489,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newNote() { QuickCapture.shared.show(.note) }
     @objc private func togglePomodoro() { AppActions.togglePomodoro() }
     @objc private func openMain() { showWindow() }
+    @objc private func toggleShelf() { ShelfPanel.toggle() }
+
+    // MARK: Drops on the menu-bar icon → the Shelf
+
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        statusItem.button?.highlight(true)
+        return .copy
+    }
+    func draggingExited(_ sender: NSDraggingInfo?) { statusItem.button?.highlight(false) }
+    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        statusItem.button?.highlight(false)
+        let took = ShelfStore.shared.add(from: sender.draggingPasteboard)
+        ShelfPanel.show()
+        return took
+    }
     @objc private func openSettings() { state.selectedModuleID = "settings"; state.globalSearch = ""; showWindow() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     // MARK: Window
 
     func showWindow() {
-        if window == nil {
-            // Read the autosaved frame before the window exists. Installing the hosting
-            // controller below resizes the window to the SwiftUI view's fitting size — which
-            // is smaller than `minSize`, so the window lands on the minimum — and the autosave
-            // writes that back over the real saved frame. The size a user picked therefore
-            // never survived a relaunch: every launch opened at 720×480 and saved 720×480.
-            // Captured here, re-applied after the content is in, it round-trips.
-            let savedFrame = UserDefaults.standard.string(forKey: "NSWindow Frame StudyBarMain")
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                             backing: .buffered, defer: false)
-            w.title = "StudyBar"
-            w.titlebarAppearsTransparent = true
-            // The app's own header row is drawn up into the titlebar strip (RootView.shell),
-            // so the strip must not also draw a title. `w.title` still feeds the Window menu,
-            // the app switcher and accessibility.
-            w.titleVisibility = .hidden
-            // Low enough that the window fits a half-screen split next to a PDF or a lecture
-            // stream, which is how a note gets taken. Notes already lays out as a single pane
-            // under 640pt (NotesView.splitMinWidth) — that layout was unreachable while the
-            // window could not go below 720.
-            w.minSize = NSSize(width: 560, height: 420)
-            w.center()
-            w.isReleasedWhenClosed = false
-            w.setFrameAutosaveName("StudyBarMain")
-            let host = NSHostingController(rootView: RootView(surface: .window).environmentObject(state))
-            // Don't let SwiftUI content resize the window to fit its intrinsic width — a wide
-            // view (e.g. the Diagnostics log) could otherwise grow the window past the screen.
-            // The content fills the window instead; wide content wraps or scrolls inside it.
-            if #available(macOS 13.0, *) { host.sizingOptions = [] }
-            w.contentViewController = host
-            if let savedFrame { w.setFrame(from: savedFrame) }
-            window = w
-        }
+        WindowManager.shared.show()
         clampToScreen()          // self-heal a saved frame that ended up oversized/off-screen
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
     }
+
+    @objc func newWorkspaceWindow() { WindowManager.shared.newWindow() }
 
     /// Keep the window within the visible screen: shrink it if it's larger than the screen and
     /// nudge it back on if it drifted off (an autosaved frame from before the size fix).
     private func clampToScreen() {
-        guard let w = window, let vis = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
+        guard let w = WindowManager.shared.frontWindow, let vis = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
         var f = w.frame
         // Only the screen constrains the width. This used to snap anything over 1100pt back to
         // 900, to undo a runaway width the autosave had picked up — but that fired on every

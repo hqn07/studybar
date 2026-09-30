@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AssignmentEditor: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.workspace) private var workspace
     @Environment(\.dismiss) private var dismiss
     let assignment: Assignment
 
@@ -23,7 +24,15 @@ struct AssignmentEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Color.clear.frame(width: 0, height: 0).studyFocus(.assignment(assignment.id))   // for the chat beside it
             SubHeader("Assignment") {
+                if let workspace {
+                    // The assignment here, the tutor beside it reading the brief and the
+                    // course's material, and a focus session running on the course.
+                    Button { start(in: workspace) } label: { Label("Start", systemImage: "play.fill") }
+                        .buttonStyle(.borderedProminent)
+                        .help("Open the tutor beside this assignment and start a focus session")
+                }
                 Button("Delete", role: .destructive) { delete() }
             }
             Divider()
@@ -243,5 +252,16 @@ struct AssignmentEditor: View {
         state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == draft.id } }
         Notifier.cancel(id: draft.id.uuidString)
         dismiss()
+    }
+
+    private func start(in ws: WindowModel) {
+        ws.rightID = WindowModel.chat
+        if !state.pomodoro.running {
+            state.pomodoro.startFocus(label: draft.title, courseID: draft.courseID, assignmentID: draft.id)
+        }
+        if draft.status == .todo, let i = state.data.assignments.firstIndex(where: { $0.id == draft.id }) {
+            state.data.assignments[i].status = .inProgress
+            draft.status = .inProgress
+        }
     }
 }

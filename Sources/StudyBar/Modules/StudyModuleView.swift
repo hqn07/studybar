@@ -64,6 +64,7 @@ struct StudyModuleView: View {
                     }
                     .id(course?.id)                   // a new course starts every pane over
                 }
+                .studyFocus(course.map { .course($0.id) })
             }
         }
     }
@@ -161,17 +162,55 @@ struct StudyModuleView: View {
     }
 }
 
+// MARK: - Chat beside another module (⌘J)
+
+/// The tutor in the right half of a split, reading whatever the left half has open: the note,
+/// the book at its page, the assignment. Its course's material is searched for each question.
+struct ContextChatPane: View {
+    @EnvironmentObject var state: AppState
+    @ObservedObject var win: WindowModel
+
+    var body: some View {
+        let limit = LectureNotes.chunkChars(for: AIConfig.engine(for: .ask)) / 3
+        let open = Tutor.open(win.focus, in: state.data, limit: limit)
+        let course = state.course(open?.course)
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "text.bubble").foregroundStyle(.secondary)
+                Text(open.map { "About: \($0.title)" } ?? "Open a note, book or assignment on the left")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+            }.padding(.horizontal, 10).padding(.vertical, 6)
+            Divider()
+            if AIConfig.isReady(for: .ask) {
+                TutorPane(course: course,
+                          material: { StudyMaterial.coursePassages(course?.id, in: state.data, excludingNote: nil) },
+                          openItem: { Tutor.open(win.focus, in: state.data, limit: limit).map { ($0.title, $0.text) } })
+                    .id(course?.id)
+            } else {
+                EmptyState(symbol: "sparkles", title: "Pick an AI engine", subtitle: "Settings ▸ Intelligence.")
+            }
+        }
+    }
+}
+
 // MARK: - Tutor
 
-private struct TutorPane: View {
+struct TutorPane: View {
     @EnvironmentObject var state: AppState
     let course: Course?
     let material: () -> [StudyPassage]
+    /// What's open beside the chat, when it sits next to another module.
+    var openItem: () -> (title: String, text: String)? = { nil }
     @State private var thread: [Tutor.Turn] = []
     @State private var input = ""
     @State private var mode: Tutor.Mode = .explain
     @State private var images: [Data] = []
+    /// Files dropped on the chat (from the Shelf, Finder…): their text goes with the next question.
+    @State private var attached: [Attached] = []
+    @State private var dropping = false
     @State private var busy = false
+    struct Attached: Identifiable, Hashable { let id = UUID(); let name: String; let text: String }
     @State private var task: Task<Void, Never>?
 
     var body: some View {
@@ -192,6 +231,26 @@ private struct TutorPane: View {
             Divider()
             composer
         }
+        .background(dropping ? Color.accentColor.opacity(0.06) : Color.clear)
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { _ in take(NSPasteboard(name: .drag)) }
+    }
+
+    /// Images go to the model as images; any other file StudyBar can read goes as its text.
+    private func take(_ pb: NSPasteboard) -> Bool {
+        let urls = (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        for u in urls {
+            if UTType(filenameExtension: u.pathExtension)?.conforms(to: .image) == true, let img = NSImage(contentsOf: u), let d = Self.jpeg(img) {
+                images.append(d)
+            } else if StudyMaterial.fileTypes.contains(u.pathExtension.lowercased()) {
+                let name = u.lastPathComponent
+                Task {
+                    let text = await Task.detached { StudyMaterial.extract(u).map(\.text).joined(separator: "\n\n") }.value
+                    if !text.isEmpty { attached.append(Attached(name: name, text: text)) }
+                }
+            }
+        }
+        if urls.isEmpty, let img = NSImage(pasteboard: pb), let d = Self.jpeg(img) { images.append(d) }
+        return true
     }
 
     private func turnView(_ t: Tutor.Turn) -> some View {
@@ -231,6 +290,19 @@ private struct TutorPane: View {
         VStack(alignment: .leading, spacing: 8) {
             Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).labelsHidden()
+            if !attached.isEmpty {
+                HStack {
+                    ForEach(attached) { a in
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                            Text(a.name).lineLimit(1)
+                            Button { attached.removeAll { $0.id == a.id } } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                        }
+                        .font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.sbSurface, in: Capsule())
+                    }
+                }
+            }
             if !images.isEmpty {
                 HStack {
                     ForEach(images.indices, id: \.self) { i in
@@ -251,7 +323,7 @@ private struct TutorPane: View {
                     Button("Stop") { task?.cancel(); busy = false }
                 } else {
                     Button("Send") { send() }.buttonStyle(.borderedProminent)
-                        .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && images.isEmpty)
+                        .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && images.isEmpty && attached.isEmpty)
                 }
             }
         }
@@ -284,7 +356,7 @@ private struct TutorPane: View {
 
     private func send() {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !busy, !q.isEmpty || !images.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return }
+        guard !busy, !q.isEmpty || !images.isEmpty || !attached.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return }
         let engine = AIConfig.engine(for: .ask)
         let sees = AIConfig.canSee(engine)
         let imgs = images, turnMode = mode, prior = thread
@@ -294,13 +366,17 @@ private struct TutorPane: View {
         let query = [q, imageText].filter { !$0.isEmpty }.joined(separator: " ")
         let found = query.isEmpty ? [] : StudyIndex.search(query, in: material(), k: 5)
         let code = course.map { $0.code.isEmpty ? $0.name : $0.code }
+        // Dropped files ride along as material, ahead of what the search found.
+        let budget = LectureNotes.chunkChars(for: engine) / 3
+        let files = attached.map { "[\($0.name)]\n\($0.text.prefix(budget / max(1, attached.count)))" }.joined(separator: "\n\n")
+        let open = openItem()
 
         thread.append(Tutor.Turn(question: q, mode: turnMode, images: imgs))
         let idx = thread.count - 1
-        input = ""; images = []; busy = true
+        input = ""; images = []; attached = []; busy = true
         task = Task {
-            let msgs = Tutor.messages(thread: prior, question: q, material: StudyMaterial.block(found),
-                                      images: sees ? imgs : [], imageText: imageText, mode: turnMode)
+            let msgs = Tutor.messages(thread: prior, question: q, material: [files, StudyMaterial.block(found)].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                      images: sees ? imgs : [], imageText: imageText, mode: turnMode, open: open)
             let out = try? await provider.streamPlain(system: Tutor.system(turnMode, course: code), messages: msgs,
                                                       temperature: 0.3) { partial in
                 if thread.indices.contains(idx) { thread[idx].answer = MathCheck.run(partial).text }

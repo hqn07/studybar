@@ -13,6 +13,7 @@ struct OpenNote: Identifiable, Hashable { let note: Note; let preview: Bool; var
 
 struct NotesView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.workspace) private var workspace
     @State private var editing: OpenNote?       // narrow/popover: pushed note
     @State private var selection: UUID?         // wide window: selected note in the split
     @State private var newDraft: Note?          // wide window: a not-yet-saved new note
@@ -148,10 +149,10 @@ struct NotesView: View {
                         if let n = state.data.notes.first(where: { $0.id == id }) { editing = OpenNote(note: n, preview: true) }
                     })
                 }
-                .onAppear { consumePending(split: split); restoreLastNote(split: split) }
+                .onAppear { openForWindow(split: split); consumePending(split: split); restoreLastNote(split: split) }
                 // The first layout pass can report a zero width, so `split` is only truthful
                 // on the second — restore has to survive that, or it silently never runs.
-                .onChange(of: split) { _, s in restoreLastNote(split: s) }
+                .onChange(of: split) { _, s in openForWindow(split: s); restoreLastNote(split: s) }
                 .onChange(of: state.pendingNew) { _, _ in consumePending(split: split) }
                 .onChange(of: state.pendingOpenNote) { _, _ in consumePending(split: split) }
                 .onChange(of: selection) { _, id in if let id { lastOpenNote = id.uuidString } }
@@ -376,6 +377,17 @@ func screenshotImage(_ name: String) -> NSImage? {
     return NSImage(contentsOf: ScreenshotService.directory.appendingPathComponent(name))
 }
 
+extension NotesView {
+    /// The note this window was opened for ("Open in New Tab"), once.
+    private func openForWindow(split: Bool) {
+        guard let ws = workspace, let id = ws.openNote, let n = state.data.notes.first(where: { $0.id == id }) else { return }
+        if split { selection = id; if editing?.note.id == id { editing = nil } }
+        else { editing = OpenNote(note: n, preview: true) }
+        restoredLastNote = true
+        if split { ws.openNote = nil }       // a zero-width first pass tries again at full width
+    }
+}
+
 struct NoteRow: View {
     @EnvironmentObject var state: AppState
     let note: Note
@@ -393,6 +405,14 @@ struct NoteRow: View {
     private var spineColor: Color { state.course(note.courseID)?.color ?? .accentColor }
 
     var body: some View {
+        row.contextMenu {
+            let id = note.id
+            Button("Open in New Tab") { WindowManager.shared.newTab(moduleID: "notes") { $0.openNote = id } }
+            Button("Open in New Window") { WindowManager.shared.newWindow(moduleID: "notes") { $0.openNote = id } }
+        }
+    }
+
+    private var row: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 0) {
                 // Course-color spine.
@@ -573,6 +593,7 @@ struct NoteEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Color.clear.frame(width: 0, height: 0).studyFocus(.note(draft.id))   // for the chat beside it
             header
             Divider()
             if let img = screenshotImage(draft.imagePath) {

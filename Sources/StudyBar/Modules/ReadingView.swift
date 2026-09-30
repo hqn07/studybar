@@ -338,6 +338,7 @@ struct ReadingDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Color.clear.frame(width: 0, height: 0).studyFocus(.reading(itemID, page: item.map { $0.currentPage > 0 ? $0.currentPage : 1 }))
             SubHeader(item?.title ?? "Book") {
                 if let item {
                     let inList = state.data.readingList.contains {
