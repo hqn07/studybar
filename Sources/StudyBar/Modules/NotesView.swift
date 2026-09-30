@@ -821,6 +821,9 @@ struct NoteEditor: View {
                     }
                     Divider()
                     Button { openAsk() } label: { Label("Ask this note…", systemImage: "questionmark.bubble") }
+                    Button { persist(); StudyPack.make(from: draft, state: state) } label: {
+                        Label("Study pack — flashcards and a quiz", systemImage: "rectangle.stack.badge.plus")
+                    }
                 } else {
                     Button("Turn on AI in Settings ▸ Intelligence") {}.disabled(true)
                 }

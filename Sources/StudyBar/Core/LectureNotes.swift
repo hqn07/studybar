@@ -80,8 +80,10 @@ enum LectureNotes {
     // "Ask the professor" was here too; a 7B model filled it with "if anything was unclear,
     // ask" on a lecture where nothing was.
     private static let reviewSpec = """
-    `### Key takeaways` (3–6 bullets) and `### Likely exam questions` (3–5 questions about \
-    what this lecture covered, each followed by a one-line answer).
+    `### Key takeaways` (3–6 bullets), `### Likely exam questions` (3–5 questions about \
+    what this lecture covered, each followed by a one-line answer), and `### Questions to ask` \
+    (1–3 things the lecture left unclear or contradictory, worth asking the professor — leave \
+    the heading out if there are none).
     """
 
     /// The user turn repeats the one instruction that matters. Small local models weight the

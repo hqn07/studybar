@@ -630,7 +630,7 @@ enum StudySelfTest {
     }
 }
 
-// MARK: - Headless runs (StudyBar --study-run quiz|guide|tutor|extract <file> [question] [--engine x])
+// MARK: - Headless runs (StudyBar --study-run quiz|guide|tutor|cards|extract <file> [question] [--engine x])
 
 /// The real jobs on a real engine, printed — to read what the prompts produce.
 enum StudyRun {
@@ -663,6 +663,15 @@ enum StudyRun {
                 print("   why: \(q.explanation)  · \(q.topic) · \(q.source)")
             }
             return (qs?.isEmpty ?? true) ? 1 : 0
+        case "cards":
+            let text = units.map(\.text).joined(separator: "\n\n")
+            let raw = (try? await provider.completePlain(system: StudyPack.cardSystem, messages: [
+                AIMessage(role: .user, text: String(text.prefix(LectureNotes.chunkChars(for: mode))))])) ?? ""
+            let cards = NoteQA.parseCards(raw)
+            print("--- \(took()) · \(cards.count) cards ---")
+            for c in cards { print("Q: \(c.front)\nA: \(c.back)\n") }
+            if cards.isEmpty { print(raw) }
+            return cards.isEmpty ? 1 : 0
         case "guide-raw":
             let g = StudyMaterial.groups(passages, maxChars: LectureNotes.chunkChars(for: mode) * 2 / 3).first ?? []
             let out = try? await provider.streamPlain(system: StudyGuide.system,
@@ -688,6 +697,72 @@ enum StudyRun {
             return out == nil ? 1 : 0
         default:
             return 1
+        }
+    }
+}
+
+// MARK: - Study pack
+
+/// After a lecture, one step from its notes to studying them: flashcards in the course's deck
+/// and a quiz from the note waiting in Study. The notes' own review already carries the
+/// summary, likely exam questions and questions to ask. Runs as a job, so leaving is fine.
+@MainActor
+enum StudyPack {
+    static let cardSystem = """
+    You turn a student's lecture notes into study flashcards. Write 8–15 cards covering the key \
+    terms, definitions, formulas, facts and methods: each "front" is a question that tests one \
+    idea, each "back" its concise answer, drawn ONLY from the notes. Keep each side under 200 \
+    characters, and write any mathematics as LaTeX between single dollar signs. This is \
+    transforming the student's own material — never refuse. Reply with ONLY a JSON array:
+    [{"front":"…","back":"…"}]
+    """
+
+    static func make(from note: Note, state: AppState) {
+        guard let provider = AIService.makeProvider(for: .ask) else { return }
+        let engine = AIConfig.engine(for: .ask)
+        let title = note.title.isEmpty ? "Untitled note" : note.title
+        let deckName = state.course(note.courseID).map { $0.code.isEmpty ? $0.name : $0.code } ?? title
+        let quiz = state.studySession(note.courseID).quiz
+        let passages = StudyMaterial.passages(.note(note.id), in: state.data)
+        let job = Jobs.shared.begin("Study pack · \(title)", module: "study")
+        Task {
+            Jobs.shared.update(job, "flashcards")
+            let raw = (try? await provider.completePlain(system: cardSystem, messages: [
+                AIMessage(role: .user, text: String(note.body.prefix(LectureNotes.chunkChars(for: engine))))])) ?? ""
+            let cards = NoteQA.parseCards(raw)
+            if !cards.isEmpty {
+                let deck = state.data.decks.first { $0.name.caseInsensitiveCompare(deckName) == .orderedSame }
+                    ?? Deck(name: deckName, courseID: note.courseID)
+                if !state.data.decks.contains(where: { $0.id == deck.id }) { state.data.decks.append(deck) }
+                let known = Set(state.data.flashcards.filter { $0.deckID == deck.id }.map(\.front))
+                state.data.flashcards += cards.filter { !known.contains($0.front) }
+                    .map { Flashcard(deckID: deck.id, front: $0.front, back: $0.back) }
+            }
+
+            // A quiz in progress in that course's Study is the student's — don't replace it.
+            var questions = 0
+            if quiz.phase == .setup || quiz.phase == .done, !passages.isEmpty {
+                Jobs.shared.update(job, "quiz")
+                quiz.phase = .generating; quiz.progress = (0, 0); quiz.error = nil
+                let qs = await Quiz.generate(from: passages, count: 10, exam: false, provider: provider, mode: engine) { p, t in
+                    quiz.progress = (p, t)
+                }
+                if quiz.phase == .generating {
+                    if let qs, !qs.isEmpty {
+                        quiz.questions = qs; quiz.responses = [:]; quiz.revealed = []; quiz.index = 0
+                        quiz.addedTo = nil; quiz.feedback = [:]; quiz.deadline = nil
+                        quiz.phase = .taking
+                        questions = qs.count
+                        UserDefaults.standard.set(note.courseID?.uuidString ?? "", forKey: "studyCourse")
+                        UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
+                    } else {
+                        quiz.phase = .setup
+                    }
+                }
+            }
+            let made = [cards.isEmpty ? nil : "\(cards.count) flashcards in \(deckName)",
+                        questions == 0 ? nil : "a \(questions)-question quiz in Study"].compactMap { $0 }
+            Jobs.shared.end(job, done: made.isEmpty ? "Couldn't make the study pack" : "Study pack ready: " + made.joined(separator: " and "))
         }
     }
 }

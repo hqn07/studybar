@@ -52,7 +52,8 @@ struct StudyModuleView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("studyCourse") private var courseRaw = ""
     @State private var excluded: Set<StudySource> = []
-    @State private var tab: Tab = .tutor
+    /// Remembered, so a study pack can leave Study open on the quiz it wrote.
+    @AppStorage("studyTab") private var tab: Tab = .tutor
     @State private var reading: [String] = []            // files being read in
     @State private var dropTargeted = false
 
