@@ -20,6 +20,7 @@ struct VoiceBody: View {
     @State private var courseID: UUID?
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
+    @AppStorage("voiceSource") private var voiceSource = "mic"
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
     @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
     /// True while the model is being asked which course this belongs to.
@@ -38,6 +39,10 @@ struct VoiceBody: View {
                             Picker("Engine", selection: $voiceEngine) {
                                 Text("Apple Speech · instant, live").tag("apple")
                                 Text("Whisper · higher quality").tag("whisper")
+                            }
+                            Picker("Listen to", selection: $voiceSource) {
+                                Text("Microphone").tag("mic")
+                                Text("The Mac's sound · Zoom, Teams, videos").tag("system")
                             }
                             if whisper {
                                 Picker("Model", selection: $voiceWhisperModel) {
@@ -289,7 +294,9 @@ struct VoiceBody: View {
                         Label("Whisper \(modelName) ready · offline", systemImage: "checkmark.circle")
                             .font(.caption2).foregroundStyle(.green)
                     }
-                    Text(whisper
+                    Text(voiceSource == "system"
+                         ? "Records what the Mac is playing — a Zoom or Teams lecture, a video — without the mic. Start it, then press record. The first time, macOS asks to let StudyBar record the screen and its sound."
+                         : whisper
                          ? "Record a memo or a whole lecture — Whisper transcribes it after you stop. Higher accuracy, fully offline."
                          : "Speak a memo, a thought, or a whole lecture — StudyBar transcribes it live as you talk. Nothing leaves the device.")
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)

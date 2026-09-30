@@ -255,16 +255,24 @@ final class VoiceService: ObservableObject {
         guard let recognizer, recognizer.isAvailable else {
             status = .unavailable("Speech recognition isn't available for this language yet."); return
         }
-        guard installTap() else { return }
-        do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
-        status = .recording
-        emptyStreak = 0; everGotResult = false
-        recordingStart = Date(); startedAt = Date(); lastRecordingStart = recordingStart
-        startSegment()
-        // 1s timer: watchdog for a silent/dead mic, and rotate before SFSpeech's ~60s wall.
-        rotateTimer?.invalidate()
-        rotateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.watchdog(); self?.maybeRotate() }
+        startInput(prepare: { [weak self] format in self?.openTake(format); return true },
+                   handle: { [weak self] buf in
+                       guard let self else { return }
+                       self.request?.append(buf)
+                       self.writeTake(buf)
+                       if let r = Self.rms(buf) { self.pushLevel(rms: r) }
+                   }) { [weak self] ok in
+            guard let self else { return }
+            guard ok else { self.finish(); return }
+            self.status = .recording
+            self.emptyStreak = 0; self.everGotResult = false
+            self.recordingStart = Date(); self.startedAt = Date(); self.lastRecordingStart = self.recordingStart
+            self.startSegment()
+            // 1s timer: watchdog for a silent/dead mic, and rotate before SFSpeech's ~60s wall.
+            self.rotateTimer?.invalidate()
+            self.rotateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.watchdog(); self?.maybeRotate() }
+            }
         }
     }
 
@@ -276,12 +284,16 @@ final class VoiceService: ObservableObject {
         let elapsed = Date().timeIntervalSince(recordingStart)
         let live = meter.peak > 0.03
         guard elapsed > 8, !everGotResult, !live else { return }
+        if fromSystem {
+            status = .unavailable("Nothing is playing on the Mac. Start the call or the video, then record.")
+            finish(); return
+        }
         status = .unavailable("The mic isn't picking up any sound. Grant Microphone and Speech Recognition to StudyBar in System Settings ▸ Privacy & Security (ad-hoc builds reset these on each update), then try again.")
         finish()
     }
 
     private func startSegment() {
-        guard let recognizer, wantsRecording, engine.isRunning else { finish(); return }
+        guard let recognizer, wantsRecording, capturing else { finish(); return }
         segmentID &+= 1
         let myID = segmentID
         segmentStart = Date(); rotating = false; segmentGotResult = false
@@ -326,7 +338,7 @@ final class VoiceService: ObservableObject {
         let old = task; task = nil; request = nil
         segmentID &+= 1                                  // ignore the rotated-out task's late callback
         old?.cancel()
-        guard restart, wantsRecording, engine.isRunning else { finish(); return }
+        guard restart, wantsRecording, capturing else { finish(); return }
         if emptyStreak >= 4 {
             status = .unavailable("Apple Speech isn't producing any text on this Mac — switch to Whisper (menu, top-right), which runs fully offline.")
             finish(); return
@@ -360,17 +372,17 @@ final class VoiceService: ObservableObject {
     }
 
     private func startChunkedMic() {
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return }
-        chunkSettings = format.settings; sampleRate = format.sampleRate
-        whisperCommitted = ""; transcript = ""; totalFrames = 0; chunkLang = nil
-        activity.resetAll()
-        chunksSent = 0; chunksDroppedSilent = 0; chunksEmptyResult = 0
-        consecutiveSilentDrops = 0; chunksKeptUnsure = 0
-        guard openNewChunk() else { status = .unavailable("Couldn't start recording."); return }
-        openTake(format)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
+        startInput(prepare: { [weak self] format in
+            guard let self else { return false }
+            self.chunkSettings = format.settings; self.sampleRate = format.sampleRate
+            self.whisperCommitted = ""; self.transcript = ""; self.totalFrames = 0; self.chunkLang = nil
+            self.activity.resetAll()
+            self.chunksSent = 0; self.chunksDroppedSilent = 0; self.chunksEmptyResult = 0
+            self.consecutiveSilentDrops = 0; self.chunksKeptUnsure = 0
+            guard self.openNewChunk() else { self.status = .unavailable("Couldn't start recording."); return false }
+            self.openTake(format)
+            return true
+        }, handle: { [weak self] buf in
             guard let self else { return }
             self.writeTake(buf)
             self.chunkLock.lock()
@@ -379,14 +391,15 @@ final class VoiceService: ObservableObject {
             self.totalFrames += AVAudioFramePosition(buf.frameLength)
             self.chunkLock.unlock()
             self.observe(buf)
-        }
-        engine.prepare()
-        do { try engine.start() } catch { status = .unavailable(error.localizedDescription); finish(); return }
-        status = .recording; startedAt = Date()
-        Diagnostics.info(.voice, "Whisper recording started · model \(whisperModel) · sr \(Int(sampleRate))")
-        chunkTimer?.invalidate()
-        chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.maybeCutChunk() }
+        }) { [weak self] ok in
+            guard let self else { return }
+            guard ok else { self.finish(); return }
+            self.status = .recording; self.startedAt = Date()
+            Diagnostics.info(.voice, "Whisper recording started · model \(self.whisperModel) · sr \(Int(self.sampleRate))\(self.fromSystem ? " · the Mac's sound" : "")")
+            self.chunkTimer?.invalidate()
+            self.chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.maybeCutChunk() }
+            }
         }
     }
 
@@ -523,8 +536,7 @@ final class VoiceService: ObservableObject {
 
     private func finishWhisperAndTranscribe() {
         chunkTimer?.invalidate(); chunkTimer = nil
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        stopInput()
         closeTake()
         let recorded = totalFrames
         cutChunk(final: true)             // flush + enqueue the final chunk
@@ -642,19 +654,56 @@ final class VoiceService: ObservableObject {
 
     /// Mic tap for Apple Speech — appends buffers to the live recognition request. (Whisper
     /// installs its own tap that writes to chunk files.)
-    private func installTap() -> Bool {
+    // MARK: - Input: the microphone, or what the Mac is playing
+
+    /// Record the Mac's own sound — a Zoom or Teams call, a lecture video — instead of the mic.
+    var fromSystem: Bool { UserDefaults.standard.string(forKey: "voiceSource") == "system" }
+    private let systemAudio = SystemAudio()
+    /// Buffers are flowing from the source; what recognition and rotation check before going on.
+    private var capturing = false
+
+    /// Start the chosen source. `prepare` gets the buffers' format before the first one arrives
+    /// (the take and chunks open in it), `handle` every buffer on the audio thread, and
+    /// `started` whether it's running.
+    private func startInput(prepare: @escaping (AVAudioFormat) -> Bool,
+                            handle: @escaping (AVAudioPCMBuffer) -> Void,
+                            started: @escaping @MainActor (Bool) -> Void) {
+        if fromSystem {
+            guard prepare(SystemAudio.format) else { started(false); return }
+            Task { @MainActor in
+                do {
+                    try await systemAudio.start(handle)
+                    capturing = true
+                    started(true)
+                } catch {
+                    Diagnostics.warn(.voice, "System audio didn't start: \(error.localizedDescription)")
+                    status = .unavailable(SystemAudio.denied)
+                    started(false)
+                }
+            }
+            return
+        }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); return false }
-        openTake(format)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buf, _ in
-            guard let self else { return }
-            self.request?.append(buf)
-            self.writeTake(buf)
-            if let r = Self.rms(buf) { self.pushLevel(rms: r) }
-        }
+        guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); started(false); return }
+        guard prepare(format) else { started(false); return }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in handle(buf) }
         engine.prepare()
-        return true
+        do {
+            try engine.start()
+            capturing = true
+            started(true)
+        } catch {
+            status = .unavailable(error.localizedDescription)
+            started(false)
+        }
+    }
+
+    private func stopInput() {
+        capturing = false
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        systemAudio.stop()
     }
 
     /// Throttled *before* the hop, not inside it.
@@ -685,8 +734,7 @@ final class VoiceService: ObservableObject {
     private func finish() {
         rotateTimer?.invalidate(); rotateTimer = nil
         chunkTimer?.invalidate(); chunkTimer = nil
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        stopInput()
         task?.cancel(); task = nil; request = nil
         chunkLock.lock(); chunkFile = nil; chunkURL = nil; chunkLock.unlock()
         closeTake()
