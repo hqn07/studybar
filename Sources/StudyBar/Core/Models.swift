@@ -652,6 +652,7 @@ struct AppData: Codable, Equatable {
     var timeBlocks: [TimeBlock]? = nil // planned work on a day timeline (decode-safe)
     var rssRead: [String]? = nil       // links of read News articles (decode-safe; unioned on merge)
     var studyFiles: [StudyFile]? = nil // course material attached in Study (decode-safe)
+    var topicResults: [TopicResult]? = nil // marked quiz/exam answers, for topic scores (decode-safe)
 }
 
 extension AppData {

@@ -31,6 +31,8 @@ final class QuizModel: ObservableObject {
     @Published var error: String?
     @Published var addedTo: String?
     @Published var feedback: [UUID: String] = [:]
+    /// Topics the next quiz should draw on — set by "Quiz me on the weakest", used once.
+    @Published var focus: [String] = []
     var task: Task<Void, Never>?
     var job: UUID?
 }
@@ -58,7 +60,7 @@ struct StudyModuleView: View {
     @State private var dropTargeted = false
 
     enum Tab: String, CaseIterable, Identifiable {
-        case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide"
+        case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide", progress = "Progress"
         var id: String { rawValue }
     }
 
@@ -104,6 +106,7 @@ struct StudyModuleView: View {
                                 QuizPane(exam: false, course: course, material: material, m: session.quiz).opacity(tab == .quiz ? 1 : 0).allowsHitTesting(tab == .quiz)
                                 QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
                                 GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
+                                ProgressPane(course: course, quiz: session.quiz) { tab = .quiz }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
                             }
                         }
                     }
@@ -449,6 +452,10 @@ private struct QuizPane: View {
     @State private var minutes = 30
 
     var body: some View {
+        Group { phases }.onChange(of: m.phase) { _, p in if p == .done { record() } }
+    }
+
+    @ViewBuilder private var phases: some View {
         switch m.phase {
         case .setup: setup
         case .generating:
@@ -461,6 +468,12 @@ private struct QuizPane: View {
         case .taking: exam ? AnyView(examSheet) : AnyView(quizCard)
         case .done: results
         }
+    }
+
+    /// A finished quiz's marked answers go on record, for Progress.
+    private func record() {
+        let new = TopicScores.results(m.questions, m.responses, course: course?.id)
+        if !new.isEmpty { state.data.topicResults = (state.data.topicResults ?? []) + new }
     }
 
     private var setup: some View {
@@ -478,6 +491,12 @@ private struct QuizPane: View {
                 }.fixedSize()
             }
             if let error = m.error { Text(error).font(.caption).foregroundStyle(.orange) }
+            if !m.focus.isEmpty {
+                HStack(spacing: 6) {
+                    Label("On your weakest topics: \(m.focus.joined(separator: ", "))", systemImage: "scope").font(.callout)
+                    Button { m.focus = [] } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+            }
             Button(exam ? "Start exam" : "Start quiz") { start() }.buttonStyle(.borderedProminent)
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -485,7 +504,13 @@ private struct QuizPane: View {
     }
 
     private func start() {
-        let passages = material()
+        var passages = material()
+        if !m.focus.isEmpty {
+            // The material behind the weak topics; all of it if the search finds none.
+            let found = StudyIndex.search(m.focus.joined(separator: " "), in: passages, k: 10)
+            if !found.isEmpty { passages = found }
+            m.focus = []
+        }
         guard !passages.isEmpty else { m.error = "Tick at least one source with some text in it."; return }
         guard let provider = AIService.makeProvider(for: .ask) else { return }
         m.error = nil; m.phase = .generating; m.progress = (0, 0)
@@ -724,6 +749,68 @@ private struct QuestionCard: View {
     }
 }
 
+// MARK: - Progress
+
+/// How each topic is going, from the quizzes and exams taken — weakest first — and the
+/// course's flashcards. One click turns the weakest topics into the next quiz.
+private struct ProgressPane: View {
+    @EnvironmentObject var state: AppState
+    let course: Course?
+    @ObservedObject var quiz: QuizModel
+    let openQuiz: () -> Void
+
+    var body: some View {
+        let scores = TopicScores.of(course: course?.id, in: state.data.topicResults ?? [])
+        let decks = Set(state.data.decks.filter { $0.courseID == course?.id }.map(\.id))
+        let cards = state.data.flashcards.filter { decks.contains($0.deckID) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if scores.isEmpty {
+                    Text("Take a quiz or a practice exam — your score on each topic shows here, weakest first.")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        Text("Topics").font(.headline)
+                        Spacer()
+                        Button("Quiz me on the weakest") {
+                            let weak = scores.filter { $0.ratio < 0.8 }.prefix(3).map(\.topic)
+                            quiz.focus = weak.isEmpty ? scores.prefix(3).map(\.topic) : weak
+                            openQuiz()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(quiz.phase == .generating || quiz.phase == .taking)
+                    }
+                    ForEach(scores) { s in
+                        HStack(spacing: 10) {
+                            Text(s.topic).font(.callout).frame(width: 220, alignment: .leading).lineLimit(1)
+                            ProgressView(value: s.ratio).tint(s.ratio < 0.5 ? .red : s.ratio < 0.8 ? .orange : .green)
+                            Text("\(s.right)/\(s.total) · \(Int((s.ratio * 100).rounded()))%")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 80, alignment: .trailing)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    Text("Each topic counts its last \(TopicScores.window) answers, so what you've since learned shows.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !cards.isEmpty {
+                    Divider()
+                    HStack {
+                        let due = cards.filter(\.isDue).count, missed = cards.filter { $0.lapses >= 2 }.count
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Flashcards").font(.headline)
+                            Text("\(due) due now of \(cards.count)" + (missed > 0 ? " · \(missed) you keep missing" : ""))
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Review") { state.selectedModuleID = "flashcards" }.disabled(due == 0)
+                    }
+                }
+            }
+            .padding(20).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+        }
+    }
+}
+
 // MARK: - Study guide
 
 private struct GuidePane: View {
@@ -844,6 +931,13 @@ enum StudySnapshot {
             QuestionCard(q: tf, response: .constant(QuizResponse(bool: true)), revealed: false, feedback: nil, check: {})
             QuestionCard(q: short, response: .constant(QuizResponse(text: "Because E is constant on it")), revealed: true, feedback: nil, check: {})
         }.padding(20), "cards.png", CGSize(width: 720, height: 760))
+        state.data.topicResults = [("Gauss's law", [true, false, false, true, false]), ("Conductors", [true, true, true, false]),
+                                   ("Electric flux", [true, true, true, true, true, true]), ("Potential", [false, false, true])]
+            .flatMap { t, oks in oks.map { TopicResult(courseID: course.id, topic: t, correct: $0) } }
+        let deck = Deck(name: "PHY2049", courseID: course.id)
+        state.data.decks = [deck]
+        state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
+        save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
         if let files = ProcessInfo.processInfo.environment["SB_CONVERT_FILES"] {
             ConvertQueue.shared.add(files.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
             save(ConvertView(), "convert.png", CGSize(width: 900, height: 560))

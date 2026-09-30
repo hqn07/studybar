@@ -625,6 +625,30 @@ enum StudySelfTest {
         Jobs.shared.end(job, done: nil)
         check("a job is listed while it runs, and not after", listed && !Jobs.shared.running.contains { $0.id == job })
 
+        // Topic scores: one topic however the model capitalized it, weakest first, recent answers only.
+        do {
+            let c = UUID(), day = Date(timeIntervalSince1970: 1_000_000)
+            func r(_ topic: String, _ ok: Bool, _ n: Double, course: UUID? = nil) -> TopicResult {
+                TopicResult(courseID: course ?? c, topic: topic, correct: ok, at: day.addingTimeInterval(n))
+            }
+            var rs = [r("Gauss's law", false, 1), r("gauss's Law", false, 2), r("Gauss's law ", true, 3),
+                      r("Conductors", true, 4), r("Conductors", true, 5), r("Flux", false, 6, course: UUID())]
+            var scores = TopicScores.of(course: c, in: rs)
+            check("topics merge across spelling, weakest first",
+                  scores.map(\.topic) == ["Gauss's law", "Conductors"] && scores.first?.right == 1 && scores.first?.total == 3,
+                  "\(scores)")
+            rs = (0..<25).map { r("Flux", $0 >= 5, Double($0)) }
+            scores = TopicScores.of(course: c, in: rs)
+            check("old mistakes age out of a topic", scores.first?.right == 20 && scores.first?.total == 20, "\(scores)")
+            let q = QuizQuestion(kind: .tf, prompt: "p", answerBool: true, explanation: "", topic: "Flux", source: "")
+            let skipped = QuizQuestion(kind: .mcq, prompt: "p", choices: ["a", "b"], answerIndex: 0, explanation: "", topic: "Flux", source: "")
+            let marked = TopicScores.results([q, skipped], [q.id: QuizResponse(bool: true)], course: c)
+            check("a finished quiz records its marked answers", marked.count == 1 && marked[0].correct)
+            let a = r("A", true, 1), b = r("B", false, 2)
+            let merged = mergeOptLists(base: nil, mine: [a], theirs: [b]) ?? []
+            check("results from two devices both survive", Set(merged.map(\.id)) == [a.id, b.id])
+        }
+
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }
@@ -763,6 +787,49 @@ enum StudyPack {
             let made = [cards.isEmpty ? nil : "\(cards.count) flashcards in \(deckName)",
                         questions == 0 ? nil : "a \(questions)-question quiz in Study"].compactMap { $0 }
             Jobs.shared.end(job, done: made.isEmpty ? "Couldn't make the study pack" : "Study pack ready: " + made.joined(separator: " and "))
+        }
+    }
+}
+
+// MARK: - Topic scores
+
+/// One marked answer from a Study quiz or exam: the raw record topic scores are made from.
+struct TopicResult: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var courseID: UUID?
+    var topic: String
+    var correct: Bool
+    var at: Date = .now
+}
+
+enum TopicScores {
+    struct Score: Identifiable, Equatable {
+        let topic: String, right: Int, total: Int
+        var id: String { topic.lowercased() }
+        var ratio: Double { Double(right) / Double(max(1, total)) }
+    }
+
+    /// Answers kept per topic: recent work counts, and a topic you've since learned recovers.
+    static let window = 20
+
+    /// A course's topics, weakest first. Topic names come from the model, so "Gauss's law" and
+    /// "gauss's Law" are one topic, shown as first written.
+    static func of(course: UUID?, in results: [TopicResult]) -> [Score] {
+        let mine = results.filter { $0.courseID == course && !$0.topic.trimmingCharacters(in: .whitespaces).isEmpty }
+            .sorted { $0.at < $1.at }
+        let groups = Dictionary(grouping: mine) { $0.topic.trimmingCharacters(in: .whitespaces).lowercased() }
+        return groups.values.map { rs in
+            let recent = rs.suffix(window)
+            return Score(topic: rs[0].topic.trimmingCharacters(in: .whitespaces), right: recent.filter(\.correct).count, total: recent.count)
+        }
+        .sorted { ($0.ratio, -$0.total, $0.topic) < ($1.ratio, -$1.total, $1.topic) }
+    }
+
+    /// The marked answers of a finished quiz, for the record. Short answers not yet marked are left out.
+    static func results(_ questions: [QuizQuestion], _ responses: [UUID: QuizResponse], course: UUID?) -> [TopicResult] {
+        questions.compactMap { q in
+            Quiz.isCorrect(q, responses[q.id] ?? QuizResponse())
+                .map { TopicResult(courseID: course, topic: q.topic.isEmpty ? "Other" : q.topic, correct: $0) }
         }
     }
 }
