@@ -597,6 +597,92 @@ struct OnDeviceProvider: AIProvider {
 }
 #endif
 
+/// A paid engine in a test build, on a daily allowance. Only a run on a throwaway store that
+/// opted in (STUDYBAR_DATA_DIR and SB_REAL_AI=1) gets here; the app itself never does.
+///
+/// Before a request is sent it reserves its input, estimated high (characters ÷ 3, images at
+/// 1,500 tokens), plus the largest reply the app lets an engine write — `maxOutputTokens`,
+/// which on OpenAI's reasoning models includes the thinking it bills but never shows. If that
+/// would pass the day's allowance (SB_AI_BUDGET tokens, 200,000 by default) the request is
+/// refused, not sent; after the reply the unused part of the reservation is given back. So
+/// spending can't pass the allowance. One ledger keeps the day's total across every test run.
+struct BudgetedProvider: AIProvider {
+    let base: AIProvider
+    var allowance = Int(ProcessInfo.processInfo.environment["SB_AI_BUDGET"] ?? "") ?? 200_000
+    var ledger = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("StudyBar/test-ai-spend.json")
+
+    static func guarding(_ p: AIProvider) -> AIProvider {
+        let env = ProcessInfo.processInfo.environment
+        return env["STUDYBAR_DATA_DIR"] != nil && env["SB_REAL_AI"] == "1" ? BudgetedProvider(base: p) : p
+    }
+
+    struct Day: Codable { var day: String; var tokens: Int }
+    static let lock = NSLock()
+
+    private var today: String { ISO8601DateFormatter.string(from: .now, timeZone: .current, formatOptions: [.withFullDate]) }
+
+    func spent() -> Int {
+        guard let d = try? JSONDecoder().decode(Day.self, from: Data(contentsOf: ledger)), d.day == today else { return 0 }
+        return d.tokens
+    }
+
+    /// Reserve the request's input and its largest possible reply, or refuse it.
+    private func admit(_ input: Int) throws -> Int {
+        let reserve = input + AIConfig.maxOutputTokens
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        let used = spent()
+        guard used + reserve <= allowance else {
+            throw AIError.unavailable("Test budget reached: \(used) of \(allowance) tokens today. This request (up to ~\(reserve)) was not sent.")
+        }
+        write(used + reserve)
+        return reserve
+    }
+
+    /// Settle a reservation: what the reply cost, the rest given back. Capped at the reserve —
+    /// the engine was told it couldn't write more.
+    private func settle(_ reserved: Int, input: Int, reply: String) {
+        let cost = min(reserved, input + Self.estimate(reply: reply))
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        write(max(0, spent() - reserved + cost))
+    }
+
+    private func write(_ tokens: Int) {
+        try? FileManager.default.createDirectory(at: ledger.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(Day(day: today, tokens: tokens)).write(to: ledger, options: .atomic)
+    }
+
+    static func estimate(_ system: String, _ messages: [AIMessage]) -> Int {
+        (system.count + messages.reduce(0) { $0 + $1.text.count }) / 3 + messages.reduce(0) { $0 + $1.images.count } * 1_500 + 1
+    }
+    static func estimate(reply: String) -> Int { reply.count / 3 * 3 }
+
+    /// A failed request keeps its reservation: whether the engine billed anything is unknown,
+    /// and erring on the side of the allowance is the point.
+    private func metered(_ system: String, _ messages: [AIMessage], _ call: () async throws -> String) async throws -> String {
+        let input = Self.estimate(system, messages)
+        let reserved = try admit(input)
+        let out = try await call()
+        settle(reserved, input: input, reply: out)
+        return out
+    }
+
+    func complete(system: String, messages: [AIMessage]) async throws -> String {
+        try await metered(system, messages) { try await base.complete(system: system, messages: messages) }
+    }
+
+    func completePlain(system: String, messages: [AIMessage]) async throws -> String {
+        try await metered(system, messages) { try await base.completePlain(system: system, messages: messages) }
+    }
+
+    func streamPlain(system: String, messages: [AIMessage], numCtx: Int, temperature: Double,
+                     onReply: @MainActor @escaping (String) -> Void) async throws -> String {
+        try await metered(system, messages) {
+            try await base.streamPlain(system: system, messages: messages, numCtx: numCtx, temperature: temperature, onReply: onReply)
+        }
+    }
+}
+
 /// Local models via Ollama (http://localhost:11434). Free, no key, no cloud.
 struct OllamaProvider: AIProvider {
     let host: String
@@ -886,10 +972,10 @@ enum AIService {
             return nil
         case .claude:
             guard let key = Keychain.get(account: AIConfig.claudeKeyAccount), !key.isEmpty else { return nil }
-            return AnthropicProvider(apiKey: key, model: AIConfig.claudeModel)
+            return BudgetedProvider.guarding(AnthropicProvider(apiKey: key, model: AIConfig.claudeModel))
         case .openai:
             guard let key = Keychain.get(account: AIConfig.openaiKeyAccount), !key.isEmpty else { return nil }
-            return OpenAIProvider(apiKey: key, model: AIConfig.openaiModel, host: AIConfig.openaiHost)
+            return BudgetedProvider.guarding(OpenAIProvider(apiKey: key, model: AIConfig.openaiModel, host: AIConfig.openaiHost))
         case .ollama:
             return OllamaProvider(host: AIConfig.ollamaHost, model: AIConfig.ollamaModel)
         }
@@ -2410,6 +2496,50 @@ enum AIToolSelfTest {
               ScreenGrab.bareLatex("```latex\n$$\\frac{a}{b}$$\n```") == "\\frac{a}{b}"
               && ScreenGrab.bareLatex("\\[ E = mc^2 \\]") == "E = mc^2"
               && ScreenGrab.bareLatex("x^2 + y^2") == "x^2 + y^2")
+
+        // The test budget: a request past the allowance is refused before it's sent.
+        do {
+            struct Echo: AIProvider {
+                func complete(system: String, messages: [AIMessage]) async throws -> String { String(repeating: "x", count: 300) }
+                func completePlain(system: String, messages: [AIMessage]) async throws -> String { try await complete(system: system, messages: messages) }
+            }
+            let ledger = FileManager.default.temporaryDirectory.appendingPathComponent("budget-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: ledger) }
+            // Room for two requests' reservations (input + the largest reply), not three.
+            let one = BudgetedProvider.estimate("", [AIMessage(role: .user, text: String(repeating: "q", count: 600))]) + AIConfig.maxOutputTokens
+            let p = BudgetedProvider(base: Echo(), allowance: one * 2 + one / 2, ledger: ledger)
+            let ask = [AIMessage(role: .user, text: String(repeating: "q", count: 600))]
+            var sent = 0, refused = false
+            let done = DispatchSemaphore(value: 0)
+            Task.detached {
+                for _ in 0..<5 {
+                    do { _ = try await p.completePlain(system: "", messages: ask); sent += 1 } catch { refused = true; break }
+                }
+                done.signal()
+            }
+            while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            // Replies are small, so reservations are refunded and more fit than two — but never past the allowance.
+            check("the test budget never passes its allowance (\(sent) sent, \(p.spent()) of \(p.allowance) tokens)",
+                  sent >= 2 && p.spent() <= p.allowance)
+            // An allowance too small for one request's reservation: refused, and never sent.
+            final class Count: @unchecked Sendable { var n = 0 }
+            struct Counted: AIProvider {
+                let c: Count
+                func complete(system: String, messages: [AIMessage]) async throws -> String { c.n += 1; return "x" }
+                func completePlain(system: String, messages: [AIMessage]) async throws -> String { try await complete(system: system, messages: messages) }
+            }
+            let calls = Count()
+            let tight = BudgetedProvider(base: Counted(c: calls), allowance: one - 1, ledger: ledger.appendingPathExtension("2"))
+            defer { try? FileManager.default.removeItem(at: ledger.appendingPathExtension("2")) }
+            var blocked = false
+            let done2 = DispatchSemaphore(value: 0)
+            Task.detached {
+                do { _ = try await tight.completePlain(system: "", messages: ask) } catch { blocked = true }
+                done2.signal()
+            }
+            while done2.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            check("a request the budget can't cover is refused and never sent", blocked && calls.n == 0 && tight.spent() == 0)
+        }
 
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1

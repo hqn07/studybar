@@ -34,6 +34,9 @@ enum Keychain {
     /// A build pointed at a throwaway store (STUDYBAR_DATA_DIR) is a test run: it must not read
     /// the student's real API keys, and asking would put a Keychain prompt in front of them.
     private static let isolated = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil
+    /// …unless the run opts into a paid engine (SB_REAL_AI=1). It may then *read* a key — every
+    /// request it makes goes through BudgetedProvider's daily allowance — and still never writes one.
+    private static let readsBlocked = isolated && ProcessInfo.processInfo.environment["SB_REAL_AI"] != "1"
 
     static func set(_ value: String, account: String) {
         guard !isolated else { return }
@@ -65,7 +68,7 @@ enum Keychain {
     /// Populate the cache off the main thread. Call at launch for every account the UI asks
     /// about. Idempotent, and cheap once an account is cached.
     static func warm(_ accounts: [String]) {
-        guard !isolated else { return }
+        guard !readsBlocked else { return }
         let cold = accounts.filter { a in
             lock.lock(); defer { lock.unlock() }
             return cache[a] == nil && !warming.contains(a)
@@ -84,7 +87,7 @@ enum Keychain {
 
     /// Reads the Keychain, blocking. Never call this from a view body — see `has`.
     static func get(account: String) -> String? {
-        if isolated { return nil }
+        if readsBlocked { return nil }
         lock.lock()
         if let hit = cache[account] { lock.unlock(); return hit }
         lock.unlock()
