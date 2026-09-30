@@ -571,7 +571,115 @@ enum MathEvalSelfTest {
             failures += 1; print("  FAIL compiled tree parses")
         }
 
+        // Units: Foundation does the arithmetic; this is the reading of "3 ft in cm".
+        check("feet to centimetres", UnitConvert.run("3 ft in cm")?.display ?? "nil", "91.44 cm")
+        check("fahrenheit to celsius", UnitConvert.run("212 °F to C")?.display ?? "nil", "100 C")
+        check("inches, the unit, in cm", UnitConvert.run("12 in in cm")?.display ?? "nil", "30.48 cm")
+        check("speed", UnitConvert.run("100 km/h in mph")?.display ?? "nil", "62.1371192237 mph")
+        check("an atmosphere in kPa", UnitConvert.run("1 atm to kPa")?.display ?? "nil", "101.325 kPa")
+        check("a pound is exactly 453.59237 g", UnitConvert.run("1 lb in g")?.display ?? "nil", "453.59237 g")
+        check("mixing kinds is not a conversion", UnitConvert.run("3 kg in cm") == nil ? "nil" : "converted", "nil")
+        check("plain arithmetic is left alone", UnitConvert.run("3 * 4") == nil ? "nil" : "converted", "nil")
+
         print(failures == 0 ? "MATHEVAL SELFTEST: ALL PASS" : "MATHEVAL SELFTEST: \(failures) FAILED")
         return failures == 0 ? 0 : 1
     }
+}
+
+/// "3 ft in cm", "72 °F to C", "100 km/h in mph": Foundation's own units and conversions. A
+/// line that isn't a conversion returns nil and the calculator carries on as before.
+enum UnitConvert {
+    struct Result { let value: Double; let display: String }
+
+    static func run(_ line: String) -> Result? {
+        let s = line.replacingOccurrences(of: ",", with: "")
+        guard let m = s.firstMatch(of: /^\s*(-?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(.+?)\s+(?:in|to|as|->|→)\s+(.+?)\s*$/),
+              let x = Double(m.1),
+              let from = units[m.2.lowercased()], let to = units[m.3.lowercased()],
+              // Built-in units are private subclasses, so compare families by their base unit.
+              type(of: from).baseUnit().symbol == type(of: to).baseUnit().symbol else { return nil }
+        let v = Measurement(value: x, unit: from).converted(to: to).value
+        return Result(value: v, display: "\(MathEval.format(v)) \(m.3)")
+    }
+
+    private static let units: [String: Dimension] = {
+        var u: [String: Dimension] = [:]
+        func add(_ d: Dimension, _ names: String) { for n in names.split(separator: " ") { u[String(n)] = d } }
+        func lin(_ c: Double) -> UnitConverterLinear { UnitConverterLinear(coefficient: c) }
+        // Foundation rounds several customary units to six digits (a pound is 0.453592 kg) and
+        // the calculator prints twelve, so those are defined exactly here. Volumes are US.
+        add(UnitLength.nanometers, "nm nanometer nanometers")
+        add(UnitLength.micrometers, "µm um micrometer micrometers micron microns")
+        add(UnitLength.millimeters, "mm millimeter millimeters millimetre millimetres")
+        add(UnitLength.centimeters, "cm centimeter centimeters centimetre centimetres")
+        add(UnitLength.meters, "m meter meters metre metres")
+        add(UnitLength.kilometers, "km kilometer kilometers kilometre kilometres")
+        add(UnitLength.inches, "in inch inches")
+        add(UnitLength.feet, "ft foot feet")
+        add(UnitLength.yards, "yd yard yards")
+        add(UnitLength.miles, "mi mile miles")
+        add(UnitLength.nauticalMiles, "nmi")
+        add(UnitLength.lightyears, "ly lightyear lightyears")
+        add(UnitLength.astronomicalUnits, "au")
+        add(UnitMass.milligrams, "mg milligram milligrams")
+        add(UnitMass.grams, "g gram grams")
+        add(UnitMass.kilograms, "kg kilogram kilograms")
+        add(UnitMass.metricTons, "t tonne tonnes")
+        add(UnitMass(symbol: "oz", converter: lin(0.028349523125)), "oz ounce ounces")
+        add(UnitMass(symbol: "lb", converter: lin(0.45359237)), "lb lbs pound pounds")
+        add(UnitMass(symbol: "st", converter: lin(6.35029318)), "st stone stones")
+        add(UnitVolume.milliliters, "ml milliliter milliliters millilitre millilitres cc cm3 cm³")
+        add(UnitVolume.centiliters, "cl")
+        add(UnitVolume.deciliters, "dl")
+        add(UnitVolume.liters, "l liter liters litre litres")
+        add(UnitVolume.cubicMeters, "m3 m³")
+        add(UnitVolume(symbol: "tsp", converter: lin(0.00492892159375)), "tsp teaspoon teaspoons")
+        add(UnitVolume(symbol: "tbsp", converter: lin(0.01478676478125)), "tbsp tablespoon tablespoons")
+        add(UnitVolume(symbol: "fl oz", converter: lin(0.0295735295625)), "floz")
+        add(UnitVolume(symbol: "cup", converter: lin(0.2365882365)), "cup cups")
+        add(UnitVolume(symbol: "pt", converter: lin(0.473176473)), "pt pint pints")
+        add(UnitVolume(symbol: "qt", converter: lin(0.946352946)), "qt quart quarts")
+        add(UnitVolume(symbol: "gal", converter: lin(3.785411784)), "gal gallon gallons")
+        add(UnitTemperature.celsius, "c °c celsius")
+        add(UnitTemperature.fahrenheit, "f °f fahrenheit")
+        add(UnitTemperature.kelvin, "k kelvin")
+        add(UnitDuration.milliseconds, "ms millisecond milliseconds")
+        add(UnitDuration.seconds, "s sec secs second seconds")
+        add(UnitDuration.minutes, "min mins minute minutes")
+        add(UnitDuration.hours, "h hr hrs hour hours")
+        add(UnitDuration(symbol: "d", converter: lin(86_400)), "d day days")
+        add(UnitDuration(symbol: "wk", converter: lin(604_800)), "wk week weeks")
+        add(UnitSpeed.metersPerSecond, "m/s")
+        add(UnitSpeed(symbol: "km/h", converter: lin(1 / 3.6)), "km/h kph kmh")
+        add(UnitSpeed.milesPerHour, "mph")
+        add(UnitSpeed(symbol: "kn", converter: lin(1852.0 / 3600)), "kn knot knots")
+        add(UnitEnergy.joules, "j joule joules")
+        add(UnitEnergy.kilojoules, "kj kilojoule kilojoules")
+        add(UnitEnergy.calories, "cal calorie calories")
+        add(UnitEnergy.kilocalories, "kcal kilocalorie kilocalories")
+        add(UnitEnergy.kilowattHours, "kwh")
+        add(UnitEnergy(symbol: "eV", converter: lin(1.602176634e-19)), "ev")
+        add(UnitPressure.newtonsPerMetersSquared, "pa pascal pascals")
+        add(UnitPressure.hectopascals, "hpa")
+        add(UnitPressure.kilopascals, "kpa")
+        add(UnitPressure.megapascals, "mpa")
+        add(UnitPressure.bars, "bar bars")
+        add(UnitPressure.millibars, "mbar")
+        add(UnitPressure(symbol: "psi", converter: lin(6894.757293168361)), "psi")
+        add(UnitPressure(symbol: "mmHg", converter: lin(133.322387415)), "mmhg")
+        add(UnitPressure(symbol: "atm", converter: lin(101_325)), "atm")
+        add(UnitPressure(symbol: "Torr", converter: lin(101_325.0 / 760)), "torr")
+        add(UnitArea.squareMillimeters, "mm2 mm²")
+        add(UnitArea.squareCentimeters, "cm2 cm²")
+        add(UnitArea.squareMeters, "m2 m²")
+        add(UnitArea.squareKilometers, "km2 km²")
+        add(UnitArea.squareInches, "in2 in²")
+        add(UnitArea.squareFeet, "ft2 ft²")
+        add(UnitArea.squareMiles, "mi2 mi²")
+        add(UnitArea.acres, "acre acres")
+        add(UnitArea.hectares, "ha hectare hectares")
+        add(UnitAngle.degrees, "deg degree degrees °")
+        add(UnitAngle.radians, "rad radian radians")
+        return u
+    }()
 }

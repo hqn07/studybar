@@ -94,8 +94,9 @@ final class CalculatorModel: ObservableObject {
     /// error that flashes at every character.
     var preview: String? {
         let source = MathEval.assignment(in: input)?.expression ?? input
-        guard !source.trimmingCharacters(in: .whitespaces).isEmpty,
-              let r = try? MathEval.evaluate(source, variables: variables, angle: angle) else { return nil }
+        guard !source.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        if let u = UnitConvert.run(source) { return u.display }
+        guard let r = try? MathEval.evaluate(source, variables: variables, angle: angle) else { return nil }
         return r.display
     }
 
@@ -107,6 +108,13 @@ final class CalculatorModel: ObservableObject {
         guard !line.isEmpty else { return }
         let assignment = MathEval.assignment(in: line)
         let source = assignment?.expression ?? line
+        if let u = UnitConvert.run(source) {
+            if let a = assignment { variables[a.name] = u.value }
+            variables["ans"] = u.value
+            history.append(Entry(expression: line, value: u.value))
+            input = ""; error = nil
+            return
+        }
         do {
             let r = try MathEval.evaluate(source, variables: variables, angle: angle)
             if let a = assignment { variables[a.name] = r.value }

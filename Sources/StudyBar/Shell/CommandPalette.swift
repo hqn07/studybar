@@ -95,6 +95,12 @@ struct CommandPalette: View {
                 NSPasteboard.general.setString(r.display, forType: .string)
                 isPresented = false
             }, at: 0)
+        } else if let u = UnitConvert.run(q) {
+            out.insert(.init(title: "= \(u.display)", subtitle: "Copy · ↩", symbol: "ruler") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(u.display, forType: .string)
+                isPresented = false
+            }, at: 0)
         }
         if AIConfig.isReady {
             out.append(.init(title: "Ask Assistant: “\(q)”", subtitle: "Intelligence", symbol: "sparkles") {
