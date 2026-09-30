@@ -77,15 +77,7 @@ struct StudyModuleView: View {
 
     var body: some View {
         ModulePane(title: "Study") {
-            if !state.data.courses.isEmpty {
-                Picker("", selection: Binding(get: { course?.id.uuidString ?? "" },
-                                              set: { courseRaw = $0; excluded = [] })) {
-                    // "MAP2302 — MAP2302" when a course's name is its code.
-                    ForEach(state.data.courses) { c in
-                        Text(c.code.isEmpty || c.code == c.name ? c.name : "\(c.code) — \(c.name)").tag(c.id.uuidString)
-                    }
-                }.labelsHidden().fixedSize()
-            }
+            EmptyView()
         } content: {
             if state.data.courses.isEmpty {
                 EmptyState(symbol: "graduationcap", title: "Add a course to study",
@@ -124,6 +116,21 @@ struct StudyModuleView: View {
 
     private var sourceColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The course heads the column it fills. In the window's title row, far from the
+            // sources it changes, it read as decoration and was missed in a narrow window.
+            VStack(alignment: .leading, spacing: 4) {
+                SectionHeader(title: "Course")
+                Picker("Course", selection: Binding(get: { course?.id.uuidString ?? "" },
+                                                    set: { courseRaw = $0; excluded = [] })) {
+                    // "MAP2302 — MAP2302" when a course's name is its code.
+                    ForEach(state.data.courses) { c in
+                        Text(c.code.isEmpty || c.code == c.name ? c.name : "\(c.code) — \(c.name)").tag(c.id.uuidString)
+                    }
+                }
+                .labelsHidden().fixedSize().frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 8)
+            Divider()
             HStack {
                 SectionHeader(title: "Sources", count: selected.count)
                 Spacer()
