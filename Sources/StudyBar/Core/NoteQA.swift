@@ -132,9 +132,7 @@ enum NoteQA {
     static func parseCards(_ raw: String) -> [(front: String, back: String)] {
         guard let start = raw.firstIndex(of: "["), let end = raw.lastIndex(of: "]"), start < end
         else { return [] }
-        let slice = String(raw[start...end])
-        let repaired = slice.replacingOccurrences(of: #"\\(?![\\/"bfnrtu])"#,
-                                                  with: #"\\\\"#, options: .regularExpression)
+        let repaired = latexEscaped(String(raw[start...end]))
         guard let data = repaired.data(using: .utf8),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return [] }
@@ -146,6 +144,35 @@ enum NoteQA {
             guard !front.isEmpty, !back.isEmpty else { return nil }
             return (front, back)
         }
+    }
+
+    /// Double the backslashes of LaTeX a model left raw inside JSON strings. Some LaTeX reads as
+    /// a valid JSON escape and used to decode silently wrong: `\theta` as a tab and "heta",
+    /// `\frac` as a form feed, `\beta`, `\nabla`, `\rho` likewise, and `\underline` sank the
+    /// whole reply as a bad `\u` escape. So `\b \f \r \t` before a letter, `\n` before a
+    /// lowercase letter, and `\u` without four hex digits count as LaTeX; real pairs (`\\`,
+    /// `\"`, `\/`) and ordinary escapes are left alone.
+    static func latexEscaped(_ s: String) -> String {
+        var out = ""
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            i = s.index(after: i)
+            guard c == "\\", i < s.endIndex else { out.append(c); continue }
+            let n = s[i], after = s.index(after: i) < s.endIndex ? s[s.index(after: i)] : nil
+            let hex = s[s.index(after: i)...].prefix(4)
+            let latex: Bool
+            switch n {
+            case "\\", "\"", "/":
+                out += "\\" + String(n); i = s.index(after: i); continue     // a real escape pair
+            case "b", "f", "r", "t": latex = after?.isLetter == true
+            case "n": latex = after?.isLowercase == true
+            case "u": latex = !(hex.count == 4 && hex.allSatisfy(\.isHexDigit))
+            default: latex = true                                      // not a JSON escape at all
+            }
+            out += latex ? "\\\\" : "\\"
+        }
+        return out
     }
 
     /// Roughly four characters per token, plus headroom for the answer and the thread.
@@ -231,6 +258,12 @@ enum NoteQASelfTest {
         check("card math is normalized to $…$", cards.first?.front.contains("$\\Phi_E$") == true,
               cards.first?.front ?? "")
         check("a reply with no array yields nothing", NoteQA.parseCards("I can't do that").isEmpty)
+        // LaTeX commands that start like JSON escapes: \t in \theta, \f in \frac, \b, \n, \r, \u.
+        let latex = NoteQA.parseCards(#"[{"front":"Flux through a tilted plate?","back":"$EA\cos\theta$, $\frac{1}{2}\beta$, $\nabla\cdot E$, $\rho$, $\underline{x}$"}]"#)
+        check("LaTeX that looks like a JSON escape survives",
+              latex.first?.back == #"$EA\cos\theta$, $\frac{1}{2}\beta$, $\nabla\cdot E$, $\rho$, $\underline{x}$"#, "\(latex)")
+        let proper = NoteQA.parseCards(#"[{"front":"Line one\nLine two","back":"$\\frac{a}{b}$ \"q\""}]"#)
+        check("real escapes still decode", proper.first?.front == "Line one\nLine two" && proper.first?.back == #"$\frac{a}{b}$ "q""#, "\(proper)")
         check("cards prompt refuses to refuse", NoteQA.cardSystem.contains("never refuse"))
 
         check("small context gets the floor window", NoteQA.contextTokens(chars: 200) == 8_192)
