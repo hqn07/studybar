@@ -122,7 +122,10 @@ struct CommandPalette: View {
                 }
             }
         }
-        .onAppear { focused = true }
+        // Deferred, like Ask's field: focused right away, the field often isn't in the window
+        // yet, so the header search kept the keyboard — ⌘K, then typing, searched instead, and
+        // Escape (handled by this field) couldn't close the palette.
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true } }
     }
 
     private var card: some View {
@@ -136,15 +139,21 @@ struct CommandPalette: View {
                     .onKeyPress(.downArrow) { move(1); return .handled }
                     .onKeyPress(.upArrow) { move(-1); return .handled }
                     .onKeyPress(.return) { runSelected(); return .handled }
-                    .onKeyPress(.escape) { isPresented = false; return .handled }
+                    // Not onKeyPress(.escape): a focused text field takes Escape as its own
+                    // cancel command, so that handler never ran and Escape left the palette open.
+                    .onExitCommand { isPresented = false }
             }
             .padding(12)
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(Array(filtered.enumerated()), id: \.element.id) { i, a in
-                            row(a, active: i == selected).id(i).onTapGesture { a.run() }
+                        // Keyed by position. Each Action gets a new UUID whenever the list is
+                        // rebuilt, and the extra `.id(i)` pinned rows to their index, so the lazy
+                        // stack kept drawing the old rows: typing "3 ft in cm" gave the right
+                        // number of rows under the wrong titles, and ↩ ran one you couldn't see.
+                        ForEach(Array(filtered.enumerated()), id: \.offset) { i, a in
+                            row(a, active: i == selected).onTapGesture { a.run() }
                         }
                     }.padding(6)
                 }
