@@ -269,7 +269,12 @@ final class AppState: ObservableObject {
         data = initial
         baseData = initial
         loadedMtime = AppState.mtime(fileURL)
-        if !saveBlocked { AppState.pruneConflictCopies(in: fileURL.deletingLastPathComponent()) }
+        // Off the main thread: a Mac that built up thousands of copies before the fix spent a
+        // minute here moving them out of iCloud Drive, with StudyBar not yet on screen.
+        if !saveBlocked {
+            let dir = fileURL.deletingLastPathComponent()
+            Task.detached(priority: .utility) { AppState.pruneConflictCopies(in: dir) }
+        }
         // Recordings whose notes are gone. Only against a store that was actually read from
         // disk: a fresh or unreadable one would make every recording look orphaned.
         if !saveBlocked, existingRaw != nil, !initial.notes.isEmpty {
