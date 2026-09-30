@@ -171,8 +171,13 @@ final class AppState: ObservableObject {
     private(set) var saveBlocked = false
     var dataSaveBlocked: Bool { saveBlocked }
 
-    private static func mtime(_ url: URL) -> Date? {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    /// Read from the file system every time. `url.resourceValues` caches on the URL until the
+    /// run loop turns, so the read straight after a save returned the date from *before* it —
+    /// and every later save took this app's own last write for another device's, copied the
+    /// file to a `.conflict-*` backup and merged. That made 2,197 copies (761 MB of iCloud
+    /// Drive) in a month, one per save.
+    nonisolated static func mtime(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 
     static var localDir: URL {
@@ -256,6 +261,7 @@ final class AppState: ObservableObject {
         data = initial
         baseData = initial
         loadedMtime = AppState.mtime(fileURL)
+        if !saveBlocked { AppState.pruneConflictCopies(in: fileURL.deletingLastPathComponent()) }
         pomodoro.onComplete = { [weak self] seconds, label, courseID, assignmentID in
             self?.logPomodoro(seconds: seconds, label: label, courseID: courseID, assignmentID: assignmentID)
         }
@@ -444,6 +450,21 @@ final class AppState: ObservableObject {
         let dst = fileURL.deletingLastPathComponent()
             .appendingPathComponent("data.json.conflict-\(f.string(from: Date()))")
         try? FileManager.default.copyItem(at: fileURL, to: dst)
+        AppState.pruneConflictCopies(in: fileURL.deletingLastPathComponent())
+    }
+
+    /// Keep the newest 10 `.conflict-*` copies and move the rest to the Trash (recoverable,
+    /// unlike BackupManager's own pruning).
+    nonisolated static func pruneConflictCopies(in dir: URL) {
+        let fm = FileManager.default
+        let old = staleConflictCopies((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
+        for n in old { try? fm.trashItem(at: dir.appendingPathComponent(n), resultingItemURL: nil) }
+        if !old.isEmpty { Diagnostics.info(.sync, "Moved \(old.count) old conflict copies to the Trash") }
+    }
+
+    /// All but the newest 10. The names carry the timestamp, so name order is age.
+    nonisolated static func staleConflictCopies(_ names: [String]) -> [String] {
+        Array(names.filter { $0.hasPrefix("data.json.conflict-") }.sorted(by: >).dropFirst(10))
     }
 
     /// The on-disk file changed under us (another device/instance): merge it into our

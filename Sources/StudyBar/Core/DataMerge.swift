@@ -324,6 +324,27 @@ enum MergeSelfTest {
             check("unstamped records still resolve to local", merged3.first?.title == "local")
         }
 
+        // A save records the file's date so the next save can tell another device's write from
+        // its own. That date has to be the one this write produced, read in the same breath.
+        do {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("studybar-mtime-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+            try? Data("a".utf8).write(to: url, options: .atomic)
+            let before = AppState.mtime(url)
+            Thread.sleep(forTimeInterval: 1.5)
+            try? Data("b".utf8).write(to: url, options: .atomic)
+            let after = AppState.mtime(url)
+            check("the date read right after a save is that save's", before != nil && after != nil && after! > before!)
+        }
+
+        do {
+            let names = (1...12).map { String(format: "data.json.conflict-202609%02d-120000", $0) } + ["data.json"]
+            let stale = AppState.staleConflictCopies(names.shuffled())
+            check("conflict pruning drops only the two oldest copies",
+                  Set(stale) == ["data.json.conflict-20260901-120000", "data.json.conflict-20260902-120000"])
+        }
+
         print(failures == 0 ? "MERGE SELFTEST: ALL PASS" : "MERGE SELFTEST: \(failures) FAILURE(S)")
         return failures == 0 ? 0 : 1
     }
