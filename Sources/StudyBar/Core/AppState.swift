@@ -270,6 +270,14 @@ final class AppState: ObservableObject {
         baseData = initial
         loadedMtime = AppState.mtime(fileURL)
         if !saveBlocked { AppState.pruneConflictCopies(in: fileURL.deletingLastPathComponent()) }
+        // Recordings whose notes are gone. Only against a store that was actually read from
+        // disk: a fresh or unreadable one would make every recording look orphaned.
+        if !saveBlocked, existingRaw != nil, !initial.notes.isEmpty {
+            let trashed = (initial.trash ?? []).filter { $0.collection == "notes" }
+                .compactMap { try? JSONDecoder.studybar.decode(Note.self, from: $0.payload) }
+            let n = VoiceService.trashOrphans(keeping: Set((initial.notes + trashed).compactMap(\.audioPath)))
+            if n > 0 { Diagnostics.info(.voice, "Moved \(n) recordings whose notes are gone to the Trash") }
+        }
         pomodoro.onComplete = { [weak self] seconds, label, courseID, assignmentID in
             self?.logPomodoro(seconds: seconds, label: label, courseID: courseID, assignmentID: assignmentID)
         }

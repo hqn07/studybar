@@ -753,16 +753,18 @@ final class VoiceService: ObservableObject {
         return d
     }
 
-    /// AAC at the mic's own rate. The encoder treats the bitrate as a hint — measured at about
-    /// 110 kbps, so roughly 50 MB for an hour of lecture. A device with more than two channels
-    /// gets no take rather than a failed recording.
+    /// HE-AAC at 24 kbps a channel, the rate speech podcasts use: measured on five minutes of
+    /// speech at about 11 MB an hour, where plain AAC at 64 kbps was 29 (58 from a stereo mic)
+    /// — a term of lectures in about 1.5 GB instead of 4–8. The take is only for listening back;
+    /// transcription works from its own chunks. A device with more than two channels gets no
+    /// take rather than a failed recording.
     fileprivate func openTake(_ format: AVAudioFormat) {
         guard format.channelCount <= 2 else { return }
         let url = Self.recordingsDir.appendingPathComponent("take-\(UUID().uuidString).m4a")
-        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC_HE,
                                        AVSampleRateKey: format.sampleRate,
                                        AVNumberOfChannelsKey: format.channelCount,
-                                       AVEncoderBitRateKey: 64_000 * Int(format.channelCount)]
+                                       AVEncoderBitRateKey: 24_000 * Int(format.channelCount)]
         guard let f = try? AVAudioFile(forWriting: url, settings: settings,
                                        commonFormat: format.commonFormat, interleaved: format.isInterleaved) else {
             Diagnostics.warn(.voice, "Couldn't open the audio take; recording continues without it")
@@ -798,6 +800,29 @@ final class VoiceService: ObservableObject {
         closeTake()
         if let url = takeURL { try? FileManager.default.removeItem(at: url) }
         takeURL = nil
+    }
+
+    /// Recordings nothing points to any more — their note deleted and past the trash's 30 days
+    /// — and takes a crash left unsaved for over a week. Pure, for the self-test; see trashOrphans.
+    static func orphans(_ files: [(name: String, modified: Date)], keeping: Set<String>, now: Date = .now) -> [String] {
+        files.filter { f in
+            guard f.name.hasSuffix(".m4a") else { return false }
+            return f.name.hasPrefix("take-") ? now.timeIntervalSince(f.modified) > 7 * 86_400 : !keeping.contains(f.name)
+        }.map(\.name)
+    }
+
+    /// Orphaned recordings (and their timelines) to the Trash, where they can still be put back.
+    static func trashOrphans(keeping: Set<String>) -> Int {
+        let fm = FileManager.default, dir = recordingsDir
+        let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let files = urls.map { ($0.lastPathComponent, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .now) }
+        let gone = orphans(files, keeping: keeping)
+        for name in gone {
+            let url = dir.appendingPathComponent(name)
+            try? fm.trashItem(at: url, resultingItemURL: nil)
+            if fm.fileExists(atPath: LectureTimeline.url(beside: url).path) { try? fm.trashItem(at: LectureTimeline.url(beside: url), resultingItemURL: nil) }
+        }
+        return gone.count
     }
 
     /// Move the take next to the note it belongs to; returns the file name to store on it.
@@ -927,7 +952,7 @@ enum VoiceTakeSelfTest {
             let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1024)!
             buf.frameLength = 1024
             var phase: Float = 0
-            for _ in 0..<(48_000 * 3 / 1024) {          // three seconds of a 440 Hz tone
+            for _ in 0..<(48_000 * 30 / 1024) {         // thirty seconds of a 440 Hz tone: long enough that the rate, not the file's fixed overhead, sets the size
                 for i in 0..<1024 {
                     phase += 2 * .pi * 440 / 48_000
                     for c in 0..<Int(channels) { buf.floatChannelData![c][i] = 0.3 * sin(phase) }
@@ -939,9 +964,10 @@ enum VoiceTakeSelfTest {
                 check("\(channels)ch take is readable", false); continue
             }
             let secs = Double(back.length) / back.fileFormat.sampleRate
-            check("\(channels)ch take is ~3 s", abs(secs - 3) < 0.2, String(format: "(%.2f s)", secs))
+            check("\(channels)ch take is ~30 s", abs(secs - 30) < 0.5, String(format: "(%.2f s)", secs))
             let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            check("\(channels)ch take is compressed", bytes > 0 && bytes < 100_000, "(\(bytes) bytes)")
+            // 24 kbps a channel is 90 kB per channel for 30 s; the old 64 kbps was 240 kB.
+            check("\(channels)ch take is compressed for speech", bytes > 0 && bytes < 150_000 * Int(channels), "(\(bytes) bytes for 30 s)")
             let id = UUID()
             let name = voice.claimTake(for: id)
             check("\(channels)ch claim moves it beside the note", name == "\(id.uuidString).m4a"
@@ -975,6 +1001,14 @@ enum VoiceTakeSelfTest {
             try? JSONEncoder().encode(t).write(to: LectureTimeline.url(beside: audio))
             check("kept beside the recording", LectureTimeline.load(beside: audio) == t)
             try? FileManager.default.removeItem(at: LectureTimeline.url(beside: audio))
+        }
+
+        // Only recordings nothing points to go, and only takes that were abandoned long ago.
+        do {
+            let now = Date(), kept = "A.m4a", gone = "B.m4a", fresh = "take-1.m4a", stale = "take-2.m4a"
+            let files: [(name: String, modified: Date)] = [(kept, now), (gone, now), ("A.json", now),
+                                                           (fresh, now.addingTimeInterval(-3600)), (stale, now.addingTimeInterval(-8 * 86_400))]
+            check("orphaned recordings are found, and only those", Set(VoiceService.orphans(files, keeping: [kept], now: now)) == [gone, stale])
         }
 
         print(fail == 0 ? "TAKE SELFTEST: ALL PASS" : "TAKE SELFTEST: \(fail) FAILED")
