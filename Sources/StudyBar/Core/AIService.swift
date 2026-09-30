@@ -214,6 +214,18 @@ enum AIConfig {
 
     static func isReady(for surface: AIService.Surface) -> Bool { isReady(engine(for: surface)) }
 
+    /// Whether the engine reads images. Hosted OpenAI-compatible hosts vary (DeepSeek doesn't),
+    /// so only the two known to; a local model only when it is a vision model by name. Everyone
+    /// else gets the text read off the image instead.
+    static func canSee(_ mode: AIMode) -> Bool {
+        switch mode {
+        case .claude: return true
+        case .openai: return ["api.openai.com", "openrouter.ai"].contains { openaiHost.contains($0) }
+        case .ollama: return ["vl", "llava", "vision", "gemma3", "minicpm-v", "moondream"].contains { ollamaModel.lowercased().contains($0) }
+        default: return false
+        }
+    }
+
     static func isReady(_ mode: AIMode) -> Bool {
         switch mode {
         case .off:      return false
@@ -230,6 +242,32 @@ struct AIMessage {
     enum Role: String { case user, assistant }
     let role: Role
     let text: String
+    /// JPEG/PNG bytes shown to the model with the text — a photographed problem. Only engines
+    /// that can see get these (`AIConfig.canSee`); the caller reads the text off the image for
+    /// the rest.
+    var images: [Data] = []
+
+    static func mime(_ d: Data) -> String { d.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg" }
+
+    /// Anthropic's shape: a plain string, or blocks with the images first.
+    var anthropicContent: Any {
+        guard !images.isEmpty else { return text }
+        return images.map { ["type": "image", "source": ["type": "base64", "media_type": Self.mime($0),
+                                                         "data": $0.base64EncodedString()]] as [String: Any] }
+            + [["type": "text", "text": text]]
+    }
+    /// OpenAI's `/chat/completions` shape.
+    var openAIContent: Any {
+        guard !images.isEmpty else { return text }
+        return images.map { ["type": "image_url", "image_url": ["url": "data:\(Self.mime($0));base64,\($0.base64EncodedString())"]] as [String: Any] }
+            + [["type": "text", "text": text]]
+    }
+    /// Ollama's shape: text, with images alongside as base64.
+    var ollama: [String: Any] {
+        var d: [String: Any] = ["role": role.rawValue, "content": text]
+        if !images.isEmpty { d["images"] = images.map { $0.base64EncodedString() } }
+        return d
+    }
 }
 
 enum AIError: LocalizedError {
@@ -350,7 +388,7 @@ struct AnthropicProvider: AIProvider {
             "model": model,
             "max_tokens": AIConfig.maxOutputTokens,
             "system": system,
-            "messages": messages.map { ["role": $0.role.rawValue, "content": $0.text] },
+            "messages": messages.map { ["role": $0.role.rawValue, "content": $0.anthropicContent] },
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -538,7 +576,7 @@ extension OpenAIProvider {
     }
 
     func asDicts(_ messages: [AIMessage]) -> [[String: Any]] {
-        messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        messages.map { ["role": $0.role.rawValue, "content": $0.openAIContent] }
     }
 }
 
@@ -571,8 +609,8 @@ struct OllamaProvider: AIProvider {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 120
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var msgs: [[String: Any]] = [["role": "system", "content": system]]
+        msgs += messages.map(\.ollama)
         // format:json constrains Ollama's grammar to a single valid JSON object — this
         // is what makes weak local models reliable (no prose prefixes, no malformed
         // braces). Low temperature keeps the structured output stable.
@@ -610,8 +648,8 @@ struct OllamaProvider: AIProvider {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 120
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var msgs: [[String: Any]] = [["role": "system", "content": system]]
+        msgs += messages.map(\.ollama)
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": true, "format": "json",
             "keep_alive": AIConfig.ollamaKeepAlive,
@@ -658,8 +696,8 @@ struct OllamaProvider: AIProvider {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 300
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var msgs: [[String: Any]] = [["role": "system", "content": system]]
+        msgs += messages.map(\.ollama)
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": false,
             "keep_alive": AIConfig.ollamaKeepAlive,
@@ -690,8 +728,8 @@ struct OllamaProvider: AIProvider {
         // A large prompt (e.g. a syllabus) can take minutes of prompt-eval on a local model
         // before the first token streams; don't time out during that.
         req.timeoutInterval = 300
-        var msgs: [[String: String]] = [["role": "system", "content": system]]
-        msgs += messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+        var msgs: [[String: Any]] = [["role": "system", "content": system]]
+        msgs += messages.map(\.ollama)
         let body: [String: Any] = [
             "model": model, "messages": msgs, "stream": true,
             "keep_alive": AIConfig.ollamaKeepAlive,

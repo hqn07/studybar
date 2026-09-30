@@ -1410,7 +1410,9 @@ struct NoteEditor: View {
         if action == .complete {
             aiTask = Task {
                 let out = await LectureNotes.run(scope.text, job: .complete, provider: provider,
-                                                 mode: AIConfig.engine(for: .ask)) { notes, _, _ in aiText = notes }
+                                                 mode: AIConfig.engine(for: .ask),
+                                                 material: StudyMaterial.coursePassages(draft.courseID, in: state.data,
+                                                                                        excludingNote: draft.id)) { notes, _, _ in aiText = notes }
                 await MainActor.run {
                     aiText = out ?? ""
                     aiDone = true

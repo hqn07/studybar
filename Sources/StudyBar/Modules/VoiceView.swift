@@ -306,8 +306,10 @@ struct VoiceBody: View {
         Task {
             // Detailed notes plus marked additions, part by part when the lecture is longer
             // than the engine can read at once — see LectureNotes.
+            let course = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
             let text = await LectureNotes.run(raw, job: .lecture, provider: provider,
-                                              mode: AIConfig.engine(for: .transcript)) { notes, part, total in
+                                              mode: AIConfig.engine(for: .transcript),
+                                              material: StudyMaterial.coursePassages(course, in: state.data)) { notes, part, total in
                 organizeStream = notes; organizePart = (part, total)
             }
             await MainActor.run {

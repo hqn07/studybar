@@ -86,13 +86,18 @@ enum LectureNotes {
     /// The user turn repeats the one instruction that matters. Small local models weight the
     /// last user message far above the system prompt: on qwen2.5:7b, with it only in the
     /// system prompt, a full lecture came back with no additions at all.
-    static func user(_ job: Job, _ text: String) -> String {
+    static func user(_ job: Job, _ text: String, material: String = "") -> String {
+        // The course's own pages, when there are any, so an addition comes from the textbook
+        // the exam is set from rather than from general knowledge — and says which page.
+        let course = material.isEmpty ? "" : "COURSE MATERIAL — the student's own textbook, slides and notes. "
+            + "Prefer it when filling in, and end an addition that uses it with its source in brackets, "
+            + "e.g. [Serway, p. 12]:\n\"\"\"\n\(material)\n\"\"\"\n\n"
         switch job {
         case .lecture:
-            return "Write the study notes for this lecture transcript, keeping every detail, and fill in "
+            return course + "Write the study notes for this lecture transcript, keeping every detail, and fill in "
                 + "what it leaves out on lines starting with `\(addedPrefix)`.\n\nTRANSCRIPT:\n\"\"\"\n\(text)\n\"\"\""
         case .complete:
-            return "Return these notes in full, unchanged, with lines starting with `\(addedPrefix)` "
+            return course + "Return these notes in full, unchanged, with lines starting with `\(addedPrefix)` "
                 + "filling in what they leave out.\n\nNOTES:\n\"\"\"\n\(text)\n\"\"\""
         }
     }
@@ -147,17 +152,23 @@ enum LectureNotes {
 
     /// Runs the job part by part. `progress` gets the notes so far, and which part is running.
     /// nil if any part fails — the caller still holds the original.
+    /// A quarter of each request goes to course material when there is some; the part shrinks to make room.
+    static func materialChars(for mode: AIMode) -> Int { chunkChars(for: mode) / 4 }
+
     static func run(_ text: String, job: Job, provider: AIProvider, mode: AIMode,
+                    material: [StudyPassage] = [],
                     progress: @escaping @MainActor (_ notes: String, _ part: Int, _ total: Int) -> Void) async -> String? {
         let limit = chunkChars(for: mode)
-        let parts = chunks(text, maxChars: limit)
+        let budget = material.isEmpty ? 0 : materialChars(for: mode)
+        let parts = chunks(text, maxChars: limit - budget)
         var done: [String] = []
         for (i, part) in parts.enumerated() {
             guard !Task.isCancelled else { return nil }
             let prior = done
             let out = try? await provider.streamPlain(
                 system: system(job, part: i + 1, of: parts.count),
-                messages: [AIMessage(role: .user, text: user(job, part))], temperature: 0.3) { partial in
+                messages: [AIMessage(role: .user, text: user(job, part, material: relevant(material, to: part, budget: budget)))],
+                temperature: 0.3) { partial in
                     progress(stitch(prior + [partial]), i + 1, parts.count)
                 }
             guard let out, !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -185,6 +196,16 @@ enum LectureNotes {
         while let f = lines.first?.trimmingCharacters(in: .whitespaces), f == "\"\"\"" || f.hasPrefix("```") { lines.removeFirst() }
         while let l = lines.last?.trimmingCharacters(in: .whitespaces), l == "\"\"\"" || l == "```" { lines.removeLast() }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The passages that best match this part, as many as fit.
+    static func relevant(_ material: [StudyPassage], to part: String, budget: Int) -> String {
+        guard budget > 0 else { return "" }
+        var picked: [StudyPassage] = [], used = 0
+        for p in StudyIndex.search(part, in: material, k: 8) where used + p.text.count <= budget {
+            picked.append(p); used += p.text.count + p.cite.count + 4
+        }
+        return StudyMaterial.block(picked)
     }
 
     /// The additions in a completed note, each with the line it follows (nil at the very top).

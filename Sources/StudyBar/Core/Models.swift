@@ -651,6 +651,7 @@ struct AppData: Codable, Equatable {
     var trash: [TrashedItem]? = nil    // soft-deleted items, recoverable (decode-safe)
     var timeBlocks: [TimeBlock]? = nil // planned work on a day timeline (decode-safe)
     var rssRead: [String]? = nil       // links of read News articles (decode-safe; unioned on merge)
+    var studyFiles: [StudyFile]? = nil // course material attached in Study (decode-safe)
 }
 
 extension AppData {
