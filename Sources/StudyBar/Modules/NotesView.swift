@@ -638,6 +638,7 @@ struct NoteEditor: View {
         .onAppear {
             editor.onEdit = { scheduleAutosave(); refreshLive(); liveWords = countWords(editor.plainText) }
             editor.onOpenLink = { openLink($0) }
+            editor.onExplain = { picked in openAsk(); ask("Explain this part of the note, in the context of the rest: “\(picked)”") }
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear

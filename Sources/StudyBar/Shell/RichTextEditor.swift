@@ -44,6 +44,8 @@ final class RichTextController: ObservableObject {
     private var linkReplaceRange: NSRange?
     /// Called when a `[[link]]` is clicked (title passed up so the view can navigate).
     var onOpenLink: (String) -> Void = { _ in }
+    /// "Explain" on the right-click menu of a selection; nil hides the item.
+    var onExplain: ((String) -> Void)?
 
     // MARK: Slash commands — `/` opens a block-insert menu
     @Published var slashQuery: String?
@@ -1096,8 +1098,19 @@ final class FoldingTextView: NSTextView {
             menu.insertItem(item, at: 0)
             menu.insertItem(.separator(), at: 1)
         }
+        let picked = (string as NSString).substring(with: selectedRange()).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !picked.isEmpty, mathController?.onExplain != nil, AIConfig.isReady(for: .ask) {
+            explainText = picked
+            let shown = picked.count > 30 ? picked.prefix(30) + "…" : Substring(picked)
+            let it = NSMenuItem(title: "Explain “\(shown)”", action: #selector(explainSelection), keyEquivalent: "")
+            it.target = self
+            menu.insertItem(it, at: 0)
+            menu.insertItem(.separator(), at: 1)
+        }
         return menu
     }
+    private var explainText = ""
+    @objc private func explainSelection() { mathController?.onExplain?(explainText) }
     @objc private func tblRowAbove() { mathController?.tableMutate(.insertRowAbove, at: tableActionLocation) }
     @objc private func tblRowBelow() { mathController?.tableMutate(.insertRowBelow, at: tableActionLocation) }
     @objc private func tblColLeft()  { mathController?.tableMutate(.insertColLeft, at: tableActionLocation) }
