@@ -5,6 +5,26 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [2.4.5] — 2026-09-30
+
+- **Click a sentence to hear it** — a lecture recorded in StudyBar now keeps every sentence with its moment in the audio. Under the note's recording, **Transcript** lists them with their times; click one and the recording plays from just before it. It lists the recording rather than the note, so it still works after *Make study notes* has rewritten the text.
+
+- **Star the moments that matter** — while recording, ⭐ in the recording bar, the menu-bar menu or a global shortcut marks the moment ("this will be on the exam"). The sentence gets a star in the transcript, with a *Starred only* filter, and *Make study notes* puts it in bold, keeps the ⭐ and makes it a likely exam question.
+
+- **Record what the Mac is playing** — Voice ▸ *Listen to* ▸ *The Mac's sound* records a Zoom or Teams lecture, or a video, without the microphone, and everything else works as it does for the mic: live transcript, Whisper, the saved recording, stars. The first time, macOS asks to let StudyBar record the screen and its audio.
+
+- **A study pack from a lecture's notes** — the note's ✨ AI menu ▸ *Study pack* makes flashcards from the note into the course's deck and writes a 10-question quiz from it, waiting on Study's Quiz tab, with a notification when it's ready. Lecture notes also end with *Questions to ask*: what the lecture left unclear, worth taking to the professor.
+
+- **Progress: how each topic is going** — Study's new Progress tab scores every topic of the course from the quizzes and practice exams you've taken, weakest first, over each topic's last 20 answers, so what you've since learned shows. *Quiz me on the weakest* aims the next quiz at the material behind them. The course's flashcards due, and the ones you keep missing, are there too.
+
+- **Plan review for an exam** — an assignment called an exam, midterm, final, test or quiz gets *Plan review*: review sessions 14, 10, 7, 5 and 3 days out, a timed practice exam two days out and a short last review the day before go on the day planner, each in free time around your classes, with what to do in Study. Planning again replaces the earlier plan; it's one undo.
+
+- **Note history** — the clock on a note shows its earlier versions: one kept every ten minutes while you write, and one right before any big change, like an AI rewrite. Pick one to see, line by line, what restoring it brings back and removes, then restore it — and undo the restore the same way. History is kept on this Mac.
+
+- **VoiceOver** — the controls added in 2.4 and here say what they do, and the ⌘K list and Shelf items can be used with VoiceOver.
+
+- **Fixed: flashcards lost their math** — `$\cos\theta$` in a card made by the AI came out as "\cos", a tab and "heta", `\frac` and `\beta` broke the same way, and one `\underline` lost every card in the reply.
+
 ## [2.4.0] — 2026-09-30
 
 - **Study — learn a course from its own material** — a new module: pick a course and tick what to study from — its notes, textbook PDFs, syllabus, slides (.pptx), Word files, and photos of handouts (scanned pages are read on-device). Then ask the tutor, take a quiz, sit a timed practice exam scored by topic, or have a study guide written, each answer citing the page it came from. Quiz answers are checked against the material before you see them, missed questions go to a flashcard deck in one click, and a course can be searched by meaning as well as by word.
