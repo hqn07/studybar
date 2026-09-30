@@ -106,6 +106,7 @@ enum Keychain {
     }
 
     static func delete(account: String) {
+        guard !isolated else { return }      // a test run never removes a real key
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
