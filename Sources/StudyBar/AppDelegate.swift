@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Headless self-test hook: `StudyBar --merge-selftest` runs the 3-way merge
         // suite and exits, without touching the menu bar or the user's data file.
+        if CommandLine.arguments.contains("--history-selftest") {
+            exit(NoteHistorySelfTest.run())
+        }
         if CommandLine.arguments.contains("--merge-selftest") {
             exit(MergeSelfTest.run())
         }

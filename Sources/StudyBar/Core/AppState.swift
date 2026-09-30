@@ -373,6 +373,7 @@ final class AppState: ObservableObject {
             return
         }
         stampEdits()
+        NoteHistory.record(before: baseData.notes, after: data.notes)
         guard let raw = try? JSONEncoder.studybar.encode(data) else {
             Diagnostics.error(.sync, "Save skipped: could not encode the store")
             return

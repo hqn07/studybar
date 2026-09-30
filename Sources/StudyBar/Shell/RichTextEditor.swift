@@ -123,6 +123,15 @@ final class RichTextController: ObservableObject {
     }
     var plainText: String { textView?.string ?? snapshot?.string ?? "" }
 
+    /// Replace the whole note — a restored version — rendered the way opening it renders.
+    func load(_ a: NSAttributedString) {
+        snapshot = a
+        guard let tv = textView as? FoldingTextView else { return }
+        tv.textStorage?.setAttributedString(a.installingFolds().installingMath(defaultColor: RichTextController.resolvedLabel(tv))
+            .installingWikilinks().applyingNotesTypography())
+        tv.highlightCode()
+    }
+
     /// Selected text, or the word under the caret — for "Define".
     var wordToDefine: String {
         let sel = selectedString.trimmingCharacters(in: .whitespacesAndNewlines)

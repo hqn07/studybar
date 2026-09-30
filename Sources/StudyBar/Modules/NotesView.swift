@@ -536,6 +536,7 @@ struct NoteEditor: View {
     @State private var askPickerQuery = ""
     @State private var askCardsBusy = false
     @State private var askCardsNote: String?
+    @State private var showingHistory = false
     @State private var askError: String?
     /// Width of the Ask column beside the note, dragged by the rule between them. Persisted,
     /// like the notes list width.
@@ -724,6 +725,13 @@ struct NoteEditor: View {
             .keyboardShortcut("e", modifiers: .command)
             .help("Full preview (renders Markdown & LaTeX) — ⌘E")
             .onHover { setHint(showPreview ? "Back to editing (⌘E)" : "Preview (renders Markdown & LaTeX) — ⌘E", $0) }
+            Button { persist(); showingHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary)
+                .help("Earlier versions of this note — see what changed, restore one")
+                .onHover { setHint("History — earlier versions of this note", $0) }
+                .sheet(isPresented: $showingHistory) {
+                    NoteHistorySheet(noteID: draft.id, current: draft.body) { restore($0) }
+                }
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
@@ -1905,6 +1913,17 @@ struct NoteEditor: View {
     private func save() { saveTask?.cancel(); persist(); dismiss() }
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
+    /// Back to an earlier version. The version being replaced is kept too (a restore is a large
+    /// change), so a restore can itself be undone from History.
+    private func restore(_ v: NoteHistory.Version) {
+        let attr = v.rich.flatMap(NSAttributedString.fromRTFD) ?? NSAttributedString(string: v.body,
+            attributes: [.font: RichTextController.baseFont, .foregroundColor: NSColor.labelColor,
+                         .paragraphStyle: RichTextController.bodyParagraph])
+        editor.load(attr)
+        draft.title = v.title
+        persist()
+    }
+
     private func persist() {
         if deleted { return }   // don't resurrect a note the user just deleted
         let attr = editor.attributedString.expandingMath().expandingFolds()   // math→$…$, folds→[[fold:]]
@@ -2043,6 +2062,71 @@ struct NoteEditor: View {
 }
 
 /// The lecture a voice note was made from, playable above the note.
+/// A note's earlier versions: pick one to see what restoring it would change, line by line.
+private struct NoteHistorySheet: View {
+    let noteID: UUID
+    let current: String
+    let onRestore: (NoteHistory.Version) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var versions: [NoteHistory.Version] = []
+    @State private var picked: NoteHistory.Version?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("History").font(.headline)
+                Spacer()
+                if let picked {
+                    Button("Restore this version") { onRestore(picked); dismiss() }.buttonStyle(.borderedProminent)
+                }
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }.padding(12)
+            Divider()
+            if versions.isEmpty {
+                EmptyState(symbol: "clock.arrow.circlepath", title: "No earlier versions yet",
+                           subtitle: "A version is kept as you edit — every ten minutes while typing, and right before any big change such as an AI rewrite.")
+            } else {
+                HStack(spacing: 0) {
+                    List(versions, selection: Binding(get: { picked?.id }, set: { id in picked = versions.first { $0.id == id } })) { v in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(v.at.formatted(date: .abbreviated, time: .shortened)).font(.callout)
+                            Text("\(v.body.split(whereSeparator: \.isWhitespace).count) words").font(.caption).foregroundStyle(.secondary)
+                        }.tag(v.id)
+                    }
+                    .frame(width: 200)
+                    Divider()
+                    if let picked { changes(picked) } else {
+                        Text("Pick a version to see what restoring it would change.").foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+        }
+        .frame(width: 760, height: 520)
+        .onAppear { versions = NoteHistory.versions(of: noteID); picked = versions.first }
+    }
+
+    private func changes(_ v: NoteHistory.Version) -> some View {
+        let rows = NoteHistory.diff(from: current.components(separatedBy: "\n"), to: v.body.components(separatedBy: "\n"))
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(rows.contains { $0.change != 0 } ? "Restoring brings back the green lines and removes the red ones."
+                                                  : "Same text as now.")
+                .font(.caption).foregroundStyle(.secondary).padding(10)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
+                        Text(r.change < 0 ? "− " + r.line : r.change > 0 ? "+ " + r.line : "  " + r.line)
+                            .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10).padding(.vertical, 1)
+                            .background(r.change < 0 ? Color.red.opacity(0.12) : r.change > 0 ? Color.green.opacity(0.14) : .clear)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The lecture's recording above its note, and — for recordings made since the timeline was
 /// kept — what was said, sentence by sentence: click one to hear that moment. It still works
 /// once "Make study notes" has rewritten the note, because it lists the recording, not the note.
