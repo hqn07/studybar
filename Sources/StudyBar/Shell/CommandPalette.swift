@@ -154,6 +154,8 @@ struct CommandPalette: View {
                         // number of rows under the wrong titles, and ↩ ran one you couldn't see.
                         ForEach(Array(filtered.enumerated()), id: \.offset) { i, a in
                             row(a, active: i == selected).onTapGesture { a.run() }
+                                .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
+                                .accessibilityAction { a.run() }
                         }
                     }.padding(6)
                 }

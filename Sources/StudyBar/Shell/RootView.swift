@@ -440,6 +440,7 @@ struct RecordingBar: View {
                 }
                 .buttonStyle(.borderless).font(.caption).foregroundStyle(.orange)
                 .help("Star this moment — it's marked in the note's transcript and stressed in the study notes")
+                .accessibilityLabel(voice.timeline.stars.isEmpty ? "Star this moment" : "Star this moment, \(voice.timeline.stars.count) starred")
                 Button("Open", action: open).buttonStyle(.borderless).font(.caption)
                 Button { voice.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
                     .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)

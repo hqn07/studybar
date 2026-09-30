@@ -727,6 +727,7 @@ struct NoteEditor: View {
             .onHover { setHint(showPreview ? "Back to editing (⌘E)" : "Preview (renders Markdown & LaTeX) — ⌘E", $0) }
             Button { persist(); showingHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
+                .accessibilityLabel("History")
                 .help("Earlier versions of this note — see what changed, restore one")
                 .onHover { setHint("History — earlier versions of this note", $0) }
                 .sheet(isPresented: $showingHistory) {
@@ -2120,6 +2121,7 @@ private struct NoteHistorySheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 10).padding(.vertical, 1)
                             .background(r.change < 0 ? Color.red.opacity(0.12) : r.change > 0 ? Color.green.opacity(0.14) : .clear)
+                            .accessibilityLabel(r.change < 0 ? "Removed: \(r.line)" : r.change > 0 ? "Brought back: \(r.line)" : r.line)
                     }
                 }
             }
@@ -2152,6 +2154,7 @@ private struct NoteRecordingBar: View {
                     }
                     Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
                         .buttonStyle(.borderless).help("Show the recording in Finder")
+                        .accessibilityLabel("Show the recording in Finder")
                 }
                 .padding(.horizontal, 12).padding(.vertical, 4)
                 if showing, let timeline { lines(timeline) }
@@ -2185,6 +2188,8 @@ private struct NoteRecordingBar: View {
                                 .padding(.horizontal, 12).padding(.vertical, 3).contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("\(Self.clock(line.t))\(starred.contains(i) ? ", starred" : ""): \(line.text)")
+                            .accessibilityHint("Plays the recording from here")
                         }
                     }
                 }

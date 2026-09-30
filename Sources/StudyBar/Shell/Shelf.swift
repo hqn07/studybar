@@ -205,12 +205,14 @@ private struct ShelfView: View {
             Spacer(minLength: 0)
             Button { store.remove(item) } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).opacity(selected == item.id ? 1 : 0)
+                .accessibilityLabel("Remove \(item.name) from the Shelf")
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(selected == item.id ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { open(item) }
         .onTapGesture { selected = item.id }
+        .accessibilityAction(named: "Open") { open(item) }
         .onDrag { store.provider(item) }
         .contextMenu {
             Button("Open") { open(item) }

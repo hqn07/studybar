@@ -83,6 +83,7 @@ struct ConvertView: View {
                             Text(u.lastPathComponent).lineLimit(1).truncationMode(.middle)
                             Spacer()
                             Button { queue.files.removeAll { $0 == u } } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).foregroundStyle(.secondary)
+                                .accessibilityLabel("Remove \(u.lastPathComponent)")
                         }.padding(.horizontal, 12).padding(.vertical, 4)
                     }
                 }.padding(.vertical, 6)

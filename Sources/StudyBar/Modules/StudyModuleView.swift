@@ -343,6 +343,7 @@ struct TutorPane: View {
                             Image(systemName: "doc.text")
                             Text(a.name).lineLimit(1)
                             Button { attached.removeAll { $0.id == a.id } } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                                .accessibilityLabel("Remove \(a.name)")
                         }
                         .font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
                         .background(.sbSurface, in: Capsule())
@@ -355,13 +356,16 @@ struct TutorPane: View {
                         ZStack(alignment: .topTrailing) {
                             NSImage(data: m.images[i]).map { Image(nsImage: $0).resizable().scaledToFit().frame(height: 54) }
                             Button { m.images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                                .accessibilityLabel("Remove image \(i + 1)")
                         }
                     }
                 }
             }
             HStack(alignment: .bottom, spacing: 8) {
                 Button { attach() } label: { Image(systemName: "paperclip") }.help("Attach a photo or screenshot of the problem")
+                    .accessibilityLabel("Attach an image")
                 Button { pasteImage() } label: { Image(systemName: "doc.on.clipboard") }.help("Paste an image from the clipboard")
+                    .accessibilityLabel("Paste an image")
                 TextField("Ask, or describe what you're stuck on…", text: $input, axis: .vertical)
                     .lineLimit(1...6).textFieldStyle(.roundedBorder)
                     .onSubmit { send() }
@@ -495,6 +499,7 @@ private struct QuizPane: View {
                 HStack(spacing: 6) {
                     Label("On your weakest topics: \(m.focus.joined(separator: ", "))", systemImage: "scope").font(.callout)
                     Button { m.focus = [] } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.secondary)
+                        .accessibilityLabel("Quiz on everything instead")
                 }
             }
             Button(exam ? "Start exam" : "Start quiz") { start() }.buttonStyle(.borderedProminent)
