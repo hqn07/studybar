@@ -51,6 +51,9 @@ struct ConvertView: View {
                 if queue.files.isEmpty { dropHint } else { fileList }
                 if !results.isEmpty { Divider(); resultList }
             }
+            // Filling the pane keeps the file list at the top (unsized, the window centered the
+            // whole module, header and all) and makes all of it a drop target.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(targeted ? Color.accentColor.opacity(0.07) : Color.clear)
             .onDrop(of: [.fileURL], isTargeted: $targeted) { _ in
                 let urls = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
