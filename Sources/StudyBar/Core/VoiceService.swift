@@ -744,8 +744,11 @@ final class VoiceService: ObservableObject {
 
     // MARK: - The take (audio kept with the note)
 
+    /// Beside the store when a build runs on a throwaway one (STUDYBAR_DATA_DIR), so a test
+    /// recording never lands among the student's lectures.
     static var recordingsDir: URL {
-        let d = AppState.localDir.appendingPathComponent("Recordings", isDirectory: true)
+        let base = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) } ?? AppState.localDir
+        let d = base.appendingPathComponent("Recordings", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
