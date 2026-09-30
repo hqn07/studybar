@@ -35,7 +35,7 @@ enum Keychain {
     /// the student's real API keys, and asking would put a Keychain prompt in front of them.
     private static let isolated = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil
     /// …unless the run opts into a paid engine (SB_REAL_AI=1). It may then *read* a key — every
-    /// request it makes goes through BudgetedProvider's daily allowance — and still never writes one.
+    /// request it makes goes through BudgetedProvider's spending limit — and still never writes one.
     private static let readsBlocked = isolated && ProcessInfo.processInfo.environment["SB_REAL_AI"] != "1"
 
     static func set(_ value: String, account: String) {
