@@ -114,6 +114,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--format-selftest") {
             exit(NoteFormatSelfTest.run())
         }
+        // `StudyBar --lecture-run <transcript.txt> [--complete] [--engine ollama|claude|openai]`:
+        // the real notes job on a real engine, printed — to read what a prompt change does.
+        if let i = CommandLine.arguments.firstIndex(of: "--lecture-run"), i + 1 < CommandLine.arguments.count {
+            let args = CommandLine.arguments
+            let mode = args.firstIndex(of: "--engine").flatMap { $0 + 1 < args.count ? AIMode(rawValue: args[$0 + 1]) : nil } ?? .ollama
+            Task { @MainActor in
+                guard let text = try? String(contentsOfFile: args[i + 1], encoding: .utf8),
+                      let provider = AIService.makeProvider(mode: mode) else { print("no input or engine"); exit(1) }
+                let t0 = Date()
+                let out = await LectureNotes.run(text, job: args.contains("--complete") ? .complete : .lecture,
+                                                 provider: provider, mode: mode) { _, part, total in
+                    FileHandle.standardError.write("\rpart \(part)/\(total)".data(using: .utf8)!)
+                }
+                print("\n--- \(Int(Date().timeIntervalSince(t0)))s ---\n" + (out ?? "FAILED"))
+                exit(out == nil ? 1 : 0)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--lecture-selftest") {
+            exit(LectureNotesSelfTest.run())
+        }
         if CommandLine.arguments.contains("--take-selftest") {
             exit(VoiceTakeSelfTest.run())
         }

@@ -845,6 +845,14 @@ struct NoteEditor: View {
             }.frame(maxHeight: 170)
             if aiDone && !aiText.isEmpty {
                 HStack(spacing: 8) {
+                    if action == .complete {
+                        // No Replace: the note is never swapped for the model's copy of it.
+                        let n = LectureNotes.additions(in: aiText).count
+                        Button { aiInsert() } label: { Label("Add \(n) addition\(n == 1 ? "" : "s")", systemImage: "text.badge.plus") }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                        Spacer()
+                        Button("Discard") { closeAI() }.buttonStyle(.bordered).controlSize(.small)
+                    } else {
                     let insert = Button { aiInsert() } label: { Label(action.mode == .insert ? "Insert" : "Insert below", systemImage: "text.insert") }
                     let replace = Button { aiReplace() } label: { Label(action.mode == .replace ? "Replace" : "Replace selection", systemImage: "arrow.triangle.2.circlepath") }
                     if action.mode == .insert {
@@ -856,6 +864,7 @@ struct NoteEditor: View {
                     }
                     Spacer()
                     Button("Discard") { closeAI() }.buttonStyle(.bordered).controlSize(.small)
+                    }
                 }
             }
         }
@@ -1391,11 +1400,25 @@ struct NoteEditor: View {
     }
 
     private func runAI(_ action: NoteAI) {
-        guard AIConfig.isReady(for: .rewrite), let provider = AIService.makeProvider(for: .rewrite) else { return }
+        // Completing adds knowledge rather than reshaping text — the engine chosen for questions.
+        let surface: AIService.Surface = action == .complete ? .ask : .rewrite
+        guard AIConfig.isReady(for: surface), let provider = AIService.makeProvider(for: surface) else { return }
         let scope = editor.aiScope()
         guard !scope.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         aiAction = action; aiText = ""; aiDone = false; aiStart = Date(); aiRange = scope.range
         aiTask?.cancel()
+        if action == .complete {
+            aiTask = Task {
+                let out = await LectureNotes.run(scope.text, job: .complete, provider: provider,
+                                                 mode: AIConfig.engine(for: .ask)) { notes, _, _ in aiText = notes }
+                await MainActor.run {
+                    aiText = out ?? ""
+                    aiDone = true
+                    if LectureNotes.additions(in: aiText).isEmpty { aiAction = nil }   // nothing to add, or failed
+                }
+            }
+            return
+        }
         aiTask = Task {
             let sys = action.system()
             let msgs = [AIMessage(role: .user, text: action.user(scope.text))]
@@ -1423,7 +1446,26 @@ struct NoteEditor: View {
     }
     private func aiInsert() {
         guard !aiText.isEmpty else { return }
+        if aiAction == .complete { aiInsertAdditions(); return }
         editor.insertPlain("\n\n" + aiText + "\n", at: aiRange.upperBound); scheduleAutosave(); closeAI()
+    }
+    /// Completing a note inserts only its marked additions, each after the line it follows —
+    /// the note itself is never replaced, so its formatting and images stay, and nothing the
+    /// model reworded or dropped in its copy can go missing. Bottom-up, so earlier offsets hold.
+    private func aiInsertAdditions() {
+        let text = editor.plainText as NSString
+        let scope = NSRange(location: min(aiRange.location, text.length),
+                            length: min(aiRange.length, max(0, text.length - aiRange.location)))
+        let region = text.substring(with: scope)
+        var anchored: [(Int, String)] = [], loose: [String] = []
+        for add in LectureNotes.additions(in: aiText) {
+            if let a = add.after, let p = LectureNotes.insertionPoint(after: a, in: region) {
+                anchored.append((scope.location + p, add.text))
+            } else { loose.append(add.text) }
+        }
+        if !loose.isEmpty { editor.insertPlain("\n" + loose.joined(separator: "\n"), at: scope.upperBound) }
+        for (loc, add) in anchored.sorted(by: { $0.0 > $1.0 }) { editor.insertPlain("\n" + add, at: loc) }
+        scheduleAutosave(); closeAI()
     }
     private func closeAI() { aiTask?.cancel(); aiTask = nil; aiAction = nil; aiText = ""; aiDone = false; aiStart = nil }
 

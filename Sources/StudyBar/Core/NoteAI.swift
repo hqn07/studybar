@@ -4,7 +4,7 @@ import Foundation
 /// inline review card the user accepts or discards, never routing to the Assistant module.
 /// Faithful transforms only (no invented facts); output is plain text, no preamble.
 enum NoteAI: String, CaseIterable, Identifiable {
-    case summarize, keyPoints, rewrite, proofread, continueWriting
+    case summarize, keyPoints, rewrite, proofread, continueWriting, complete
 
     var id: String { rawValue }
 
@@ -14,7 +14,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
     var mode: Mode {
         switch self {
         case .rewrite, .proofread: return .replace
-        case .summarize, .keyPoints, .continueWriting: return .insert
+        case .summarize, .keyPoints, .continueWriting, .complete: return .insert
         }
     }
 
@@ -25,6 +25,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .rewrite:        return "Rewrite clearer"
         case .proofread:      return "Proofread"
         case .continueWriting: return "Continue writing"
+        case .complete:       return "Complete these notes"
         }
     }
     var icon: String {
@@ -34,6 +35,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .rewrite:        return "wand.and.stars"
         case .proofread:      return "checkmark.seal"
         case .continueWriting: return "text.append"
+        case .complete:       return "text.badge.plus"
         }
     }
 
@@ -54,6 +56,8 @@ enum NoteAI: String, CaseIterable, Identifiable {
             return "Correct ONLY spelling, grammar, punctuation and obvious typos. Keep the exact wording, structure and length otherwise — do not rephrase. If nothing needs fixing, return the text unchanged."
         case .continueWriting:
             return "Write 1–2 more sentences that continue the note naturally, in the same voice and on the same topic. Output ONLY the new text to append — never repeat or restate what is already there."
+        case .complete:
+            return "Fill in what's missing, each addition marked."      // runs through LectureNotes
         }
     }
 
@@ -66,6 +70,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .summarize:       return 0.3
         case .rewrite:         return 0.5
         case .continueWriting: return 0.7
+        case .complete:        return 0.3
         }
     }
 
@@ -75,7 +80,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
     var wantsListRules: Bool {
         switch self {
         case .keyPoints, .rewrite: return true
-        case .summarize, .proofread, .continueWriting: return false
+        case .summarize, .proofread, .continueWriting, .complete: return false
         }
     }
 

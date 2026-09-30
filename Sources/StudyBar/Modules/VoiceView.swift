@@ -27,6 +27,7 @@ struct VoiceBody: View {
     @State private var organizeStart: Date?
     @State private var rawBeforeOrganize: String?
     @State private var organizeError: String?
+    @State private var organizePart = (1, 1)      // which part of a long lecture is being written
     /// True while the model is being asked which course this belongs to.
     @State private var naming = false
     @State private var draftAvailable = false
@@ -242,7 +243,7 @@ struct VoiceBody: View {
                             ProgressView().controlSize(.small)
                             TimelineView(.periodic(from: .now, by: 1)) { _ in
                                 let secs = max(0, Int(Date().timeIntervalSince(organizeStart ?? Date())))
-                                Text("Organizing into notes… \(secs)s · your raw transcript is kept")
+                                Text("Writing notes\(organizePart.1 > 1 ? " — part \(organizePart.0) of \(organizePart.1)" : "")… \(secs)s · your raw transcript is kept")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -270,9 +271,9 @@ struct VoiceBody: View {
                                 Label("Revert to raw", systemImage: "arrow.uturn.backward")
                             }.buttonStyle(.bordered).help("Undo AI organize — restore the original transcript")
                         } else if AIConfig.isReady {
-                            Button { organize() } label: { Label("Organize with AI", systemImage: "sparkles") }
+                            Button { organize() } label: { Label("Make study notes", systemImage: "sparkles") }
                                 .buttonStyle(.bordered)
-                                .help("Reshape the raw transcript into structured notes — the original is kept, revertible")
+                                .help("Organize the lecture into detailed notes, with definitions, examples and a review filled in and marked as added — the original is kept, revertible")
                         }
                         Button("Discard") { voice.transcript = ""; voice.discardTake(); rawBeforeOrganize = nil; organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
                             .buttonStyle(.bordered)
@@ -300,26 +301,14 @@ struct VoiceBody: View {
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider(for: .transcript) else { return }
-        organizeError = nil; organizeStream = ""; organizeStart = Date()
+        organizeError = nil; organizeStream = ""; organizeStart = Date(); organizePart = (1, 1)
         organizing = true
         Task {
-            let sys = """
-            You are a study assistant. Reorganize the student's own lecture transcript into \
-            clean, structured study notes. Use rich markdown: a `#` title, `##` section \
-            headings, **bold** for key terms, bullet lists, and a table when the material \
-            compares things. Capture the key facts, terms, definitions, dates, and numbers; \
-            write any math as LaTeX in $…$. Be faithful — do NOT add information that isn't in \
-            the transcript, don't answer questions or editorialize. Output ONLY the notes as \
-            markdown — no JSON, no code fences, no preamble.
-
-            \(NoteFormat.listRules)
-            """
-            let msgs = [AIMessage(role: .user, text: raw)]
-            // completePlain drops Ollama's format:json (which would force a JSON blob).
-            // On Ollama, stream tokens so the user watches the notes form.
-            let text: String?
-            text = try? await provider.streamPlain(system: sys, messages: msgs) { partial in
-                organizeStream = partial
+            // Detailed notes plus marked additions, part by part when the lecture is longer
+            // than the engine can read at once — see LectureNotes.
+            let text = await LectureNotes.run(raw, job: .lecture, provider: provider,
+                                              mode: AIConfig.engine(for: .transcript)) { notes, part, total in
+                organizeStream = notes; organizePart = (part, total)
             }
             await MainActor.run {
                 organizing = false; organizeStream = ""
@@ -334,7 +323,7 @@ struct VoiceBody: View {
                     rawBeforeOrganize = raw            // keep the original — never lost, revertible
                     voice.transcript = cleaned
                 } else {
-                    // The model returned junk (e.g. a JSON blob). Leave the transcript ALONE.
+                    // The model returned junk (e.g. a JSON blob) or a part failed. Leave the transcript ALONE.
                     organizeError = "The AI returned an unusable result — your transcript is unchanged. A stronger engine (Settings ▸ Intelligence) organizes far better than the local model."
                 }
             }
