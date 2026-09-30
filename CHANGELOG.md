@@ -5,6 +5,32 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-09-30
+
+- **Study — learn a course from its own material** — a new module: pick a course and tick what to study from — its notes, textbook PDFs, syllabus, slides (.pptx), Word files, and photos of handouts (scanned pages are read on-device). Then ask the tutor, take a quiz, sit a timed practice exam scored by topic, or have a study guide written, each answer citing the page it came from. Quiz answers are checked against the material before you see them, missed questions go to a flashcard deck in one click, and a course can be searched by meaning as well as by word.
+
+- **A tutor that teaches and works problems** — Hint, Next step, Full solution or Explain, from a typed question or a photo or screenshot of the problem. A full solution ends with its arithmetic written out, and StudyBar's own calculator recomputes it and flags a step that doesn't add up. The homework restriction is gone: StudyBar helps with the work you're actually doing.
+
+- **Lecture recordings become study notes** — *Make study notes* keeps every detail of the lecture and adds definitions, examples, background and likely exam questions, drawn from your course's textbook and slides. Each addition is marked *💡 Added*, so what the AI wrote never passes for what was said. A lecture of any length is written in parts and joined, so nothing is cut off. *Complete these notes* does the same for notes you typed.
+
+- **Recordings are kept, and the Mac stays awake for them** — the audio is saved with the note and plays above it. The Mac no longer sleeps mid-lecture, ⌘Q asks before ending a recording, and a notification warns once if the battery reaches 15% or the disk has under 1 GB left. Apple Speech adds punctuation and expects your course's own terms. Whisper gains Large v3 Turbo — about 630 MB, close to Large v3 and several times faster — and transcribes lecture videos as well as audio.
+
+- **PDFs that look like the note** — export and print use the same renderer as the reading view, so paper matches the screen. Pages break between blocks: never through a table row or an equation, and never leaving a heading at the foot of a page. A preview shows the pages first, with paper size, margins, text size, a header and page numbers. Styled notes keep their colors, highlights and images, and every heading becomes a bookmark in the PDF's sidebar.
+
+- **Tabs, windows, and the chat beside your work** — open a module or a note in a new tab (⌘T) or window (⌥⌘N), each keeping its own place. ⌥-click a module to open it on the right; ⌘J opens the tutor beside whatever you have open — the note, the book at its page, the assignment — already knowing what it is. **Start** on an assignment opens it with the tutor and a focus timer running.
+
+- **The Shelf** — a small floating box (menu-bar menu ▸ Show Shelf) for files, links, text and images: drop things in, carry them between apps and modules, drag them out. Quick Look and Share included, and it survives restarts.
+
+- **Convert — files into other files, with what macOS has** — Word, RTF, ODT, HTML, text and Markdown to each other and to PDF; Office files to PDF with their exact layout through Pages, Keynote or Numbers; PDFs to Word, text, images or slides, or to a smaller or searchable PDF; merge, split, extract and rotate pages; images, audio and video between formats. From the Convert module, the Shelf, or Finder's right-click ▸ Services ▸ Convert with StudyBar. Slides become study notes, and a note becomes a slide deck.
+
+- **Capture from the screen** — ⌃⌥G, the menu-bar menu or ⌘K, then drag over a Zoom slide, a figure or a problem: copy its text, copy its math as LaTeX (with an engine that reads images), send it to the tutor, or copy the image.
+
+- **Long AI jobs keep going when you leave** — a quiz, exam, study guide or lecture notes being written, and the tutor conversation, survive switching modules. A bar under the window shows what's still running elsewhere, and a notification says when it's done.
+
+- **Smaller things** — unit conversion in ⌘K and the calculator ("3 ft in cm", "72 °F to C"); right-click a selection in a note to have it explained; Paste and Match Style (⌥⇧⌘V); `{course}` and `{week}` in snippets; saved links drop their tracking parameters. Answers from Claude and OpenAI can run to 16,000 tokens instead of 4,096, and Settings picks the model from the provider's own list.
+
+- **Fixed: a backup copy of your data on every save** — StudyBar took its own saves for another device's, so each one copied your data to a `.conflict-*` backup and merged it. One store had collected 2,197 copies, 761 MB of iCloud Drive. Only the newest 10 are kept now; the rest move to the Trash.
+
 ## [2.3.0] — 2026-09-14
 
 - **Math — a calculator you can reach without leaving what you're doing** — a new module with a keypad, a tape of past results and a display you can type into, plus variables (`x = 12`), `ans`, and a visible DEG/RAD switch so `sin(30)` means what your course means. Type arithmetic into ⌘K and the answer is the first row; ⌃⌥C summons the same calculator over any app; `studybar://calculator?expr=` lets a Shortcut hand it a number. All four share one history. `0.1 + 0.2` prints `0.3`, `2pi` and `3(4)` work as written on paper, and `1,250` is a number while `max(1,2)` keeps its comma.
