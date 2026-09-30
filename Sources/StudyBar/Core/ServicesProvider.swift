@@ -20,6 +20,13 @@ final class ServicesProvider: NSObject {
         }
     }
 
+    /// Finder ▸ Services ▸ Convert with StudyBar: the selected files, into the Convert module.
+    @objc func convertFilesService(_ pboard: NSPasteboard, userData: String?,
+                                   error: AutoreleasingUnsafeMutablePointer<NSString>?) {
+        let urls = (pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        Task { @MainActor in ConvertQueue.shared.open(urls) }
+    }
+
     static func register() {
         NSApp.servicesProvider = shared
         NSUpdateDynamicServices()

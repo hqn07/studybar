@@ -240,6 +240,17 @@ enum NotePDF {
 /// styled note that matched was printed from its plain text, dropping its colors and images.
 enum NoteHTML {
     static func body(from attr: NSAttributedString) -> String {
+        let (md, raw) = serialize(attr, asMarkdown: false)
+        return MathMarkdown.bodyHTML(md, raw: raw)
+    }
+
+    /// The same reading of a styled document, as portable Markdown: headings, lists, tables,
+    /// bold, italic, code and links. Color, highlight and images have no Markdown and are left out.
+    static func markdown(from attr: NSAttributedString) -> String {
+        serialize(attr, asMarkdown: true).0
+    }
+
+    private static func serialize(_ attr: NSAttributedString, asMarkdown: Bool) -> (String, [String]) {
         var raw: [String] = []
         func tok(_ html: String) -> String { raw.append(html); return "\u{E010}\(raw.count - 1)\u{E011}" }
 
@@ -250,8 +261,26 @@ enum NoteHTML {
         func inline(_ p: NSAttributedString, heading: Bool) -> String {
             var out = ""
             p.enumerateAttributes(in: NSRange(location: 0, length: p.length)) { a, r, _ in
-                if let att = a[.attachment] as? NSTextAttachment { out += image(att).map(tok) ?? ""; return }
+                if let att = a[.attachment] as? NSTextAttachment { if !asMarkdown { out += image(att).map(tok) ?? "" }; return }
                 var text = (p.string as NSString).substring(with: r)
+                if asMarkdown {
+                    text = text.replacingOccurrences(of: "\u{2028}", with: " ")
+                    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { out += text; return }
+                    var open = "", close = ""
+                    if let f = a[.font] as? NSFont {
+                        let t = f.fontDescriptor.symbolicTraits
+                        if t.contains(.bold), !heading { open += "**"; close = "**" + close }
+                        if t.contains(.italic) { open += "*"; close = "*" + close }
+                        if f.isFixedPitch, !baseMono { open += "`"; close = "`" + close }
+                    }
+                    if (a[.strikethroughStyle] as? Int ?? 0) != 0 { open += "~~"; close = "~~" + close }
+                    // Emphasis marks hug the words; the run's own edge spaces stay outside them.
+                    let lead = String(text.prefix { $0 == " " }), trail = String(text.reversed().prefix { $0 == " " })
+                    var core = open + text.trimmingCharacters(in: .whitespaces) + close
+                    if let link = a[.link] { core = "[\(core)](\((link as? URL)?.absoluteString ?? "\(link)"))" }
+                    out += lead + core + trail
+                    return
+                }
                 text = text.replacingOccurrences(of: "\u{2028}", with: tok("<br>"))
                 var open = "", close = ""
                 func wrap(_ o: String, _ c: String) { open += o; close = c + close }
@@ -320,7 +349,7 @@ enum NoteHTML {
             let ps = p.length > 0 ? p.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle : nil
             if let cell = ps?.textBlocks.first as? NSTextTableBlock {
                 if table?.0 !== cell.table { flushTable(); table = (cell.table, [:]) }
-                let text = inline(p, heading: false).replacingOccurrences(of: "|", with: tok("|"))
+                let text = inline(p, heading: false).replacingOccurrences(of: "|", with: asMarkdown ? "\\|" : tok("|"))
                 table?.1[cell.startingRow, default: [:]][cell.startingColumn] = text.isEmpty ? " " : text
                 return
             }
@@ -332,7 +361,7 @@ enum NoteHTML {
         // `[[Note title]]` links mean nothing on paper; keep their text.
         let md = lines.joined(separator: "\n")
             .replacingOccurrences(of: #"\[\[([^\]\n]+)\]\]"#, with: "$1", options: .regularExpression)
-        return MathMarkdown.bodyHTML(md, raw: raw)
+        return (md, raw)
     }
 
     /// The most common font size, by characters — the body size, whatever the editor setting was.

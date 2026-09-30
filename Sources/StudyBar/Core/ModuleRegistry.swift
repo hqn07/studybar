@@ -73,6 +73,8 @@ enum ModuleRegistry {
 
         .init(id: "math", title: "Math", symbol: "function",
               category: .research) { AnyView(MathView()) },
+        .init(id: "convert", title: "Convert", symbol: "arrow.triangle.2.circlepath.doc.on.clipboard",
+              category: .research) { AnyView(ConvertView()) },
 
         // Study
         .init(id: "study", title: "Study", symbol: "brain.head.profile",

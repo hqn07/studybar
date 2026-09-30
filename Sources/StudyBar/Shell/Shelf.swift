@@ -157,6 +157,10 @@ private struct ShelfView: View {
                 Text("Shelf").font(.headline)
                 if !store.items.isEmpty { Text("\(store.items.count)").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
+                if store.items.contains(where: { $0.kind == .file }) {
+                    Button("Convert") { ConvertQueue.shared.open(store.items.compactMap(store.url)) }
+                        .buttonStyle(.borderless).font(.caption).help("Open the Shelf's files in Convert")
+                }
                 if !store.items.isEmpty { Button("Clear") { store.clear() }.buttonStyle(.borderless).font(.caption) }
             }
             .padding(.horizontal, 12).padding(.top, 26).padding(.bottom, 6)
@@ -213,6 +217,7 @@ private struct ShelfView: View {
             if item.kind == .file, let url = store.url(item) {
                 Button("Quick Look") { ShelfPanel.shared?.quickLook([url]) }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                Button("Convert…") { ConvertQueue.shared.open([url]) }
                 Button("Share…") { share(url) }
             }
             if item.kind != .file {

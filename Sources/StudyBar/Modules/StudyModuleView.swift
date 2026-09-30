@@ -803,6 +803,10 @@ enum StudySnapshot {
             QuestionCard(q: tf, response: .constant(QuizResponse(bool: true)), revealed: false, feedback: nil, check: {})
             QuestionCard(q: short, response: .constant(QuizResponse(text: "Because E is constant on it")), revealed: true, feedback: nil, check: {})
         }.padding(20), "cards.png", CGSize(width: 720, height: 760))
+        if let files = ProcessInfo.processInfo.environment["SB_CONVERT_FILES"] {
+            ConvertQueue.shared.add(files.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
+            save(ConvertView(), "convert.png", CGSize(width: 900, height: 560))
+        }
         print("wrote \(out)/module.png, cards.png")
         return 0
     }

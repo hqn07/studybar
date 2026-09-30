@@ -1688,6 +1688,7 @@ struct NoteEditor: View {
                     Button { exportPDF() } label: { Label("Export as PDF", systemImage: "arrow.down.doc.fill") }
                     Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
                     Button { exportNote(markdown: false) } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
+                    Button { exportSlides() } label: { Label("Export as Slides (.pptx)", systemImage: "rectangle.on.rectangle") }
                     Divider()
                     // Out of the footer row: a permanent red target beside Share is a mis-click
                     // waiting to happen. Undo covers the delete itself.
@@ -2000,6 +2001,30 @@ struct NoteEditor: View {
         PDFExportWindow.show(body: NoteHTML.body(from: exportAttributed()),
                              meta: .init(title: draft.title,
                                          subtitle: [course, date].compactMap { $0 }.joined(separator: " · ")))
+    }
+
+    /// The note as a PowerPoint deck. The AI condenses it when an engine is set; otherwise, or if
+    /// it returns nothing usable, the note's own headings and points become the slides. Where to
+    /// save is asked first, so the wait comes after the last question, and Finder shows it when done.
+    private func exportSlides() {
+        persist()
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = (draft.title.isEmpty ? "Note" : draft.title) + ".pptx"
+        panel.allowedContentTypes = [UTType(filenameExtension: "pptx") ?? .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let md = NoteHTML.markdown(from: exportAttributed())
+        let title = draft.title.isEmpty ? "Note" : draft.title
+        let provider = AIConfig.isReady(for: .rewrite) ? AIService.makeProvider(for: .rewrite) : nil
+        Task {
+            var slides = PPTX.outline(md, title: title)
+            if let provider, let short = await PPTX.condensed(md, title: title, provider: provider) { slides = short }
+            do {
+                try PPTX.write(slides, title: title, to: url)
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                Diagnostics.log(.data, .error, "slides export failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Turn the editor's plaintext mirror into portable Markdown (its list markers → md).

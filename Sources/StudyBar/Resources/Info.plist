@@ -36,7 +36,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>StudyBar reads the active browser tab so you can bookmark it in one click.</string>
+	<string>StudyBar reads the active browser tab so you can bookmark it in one click, and asks Pages, Keynote and Numbers to convert documents when you choose an exact-layout conversion.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>StudyBar shows your upcoming calendar events alongside your assignments.</string>
 	<key>NSCalendarsUsageDescription</key>
@@ -51,6 +51,23 @@
 	<string>StudyBar can push your assignment due dates into Apple Reminders.</string>
 	<key>NSServices</key>
 	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Convert with StudyBar</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertFilesService</string>
+			<key>NSPortName</key>
+			<string>StudyBar</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
 		<dict>
 			<key>NSMenuItem</key>
 			<dict>

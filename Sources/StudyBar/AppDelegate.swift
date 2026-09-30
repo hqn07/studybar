@@ -131,6 +131,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             return
         }
+        // `StudyBar --convert-run <file> <target>`: one real conversion, for the routes the
+        // self-test can't take (Pages, Keynote, Numbers need the user's Automation permission).
+        if let i = CommandLine.arguments.firstIndex(of: "--convert-run"), i + 2 < CommandLine.arguments.count,
+           let t = Converter.Target(rawValue: CommandLine.arguments[i + 2]) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+            Task { @MainActor in
+                do { print(try await Converter.convert(url, to: t).map(\.path)); exit(0) }
+                catch { print("FAILED: \(error.localizedDescription)"); exit(1) }
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--convert-selftest") {
+            Task { @MainActor in exit(await ConvertSelfTest.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--study-run") {
             Task { @MainActor in exit(await StudyRun.run(CommandLine.arguments)) }
             return

@@ -10,7 +10,8 @@ import Foundation
 /// fit an 8k local context: the model silently read part of it. Long input is now split at
 /// sentence boundaries into parts sized to the engine, and the parts are joined back up.
 enum LectureNotes {
-    enum Job { case lecture, complete }
+    /// `slides`: the text of a slide deck, which is a lecture's outline without the lecture.
+    enum Job { case lecture, slides, complete }
 
     static let addedPrefix = "> 💡 **Added:** "
 
@@ -41,7 +42,7 @@ enum LectureNotes {
         \(NoteFormat.listRules)
         """
         switch job {
-        case .lecture:
+        case .lecture, .slides:
             let scope: String
             if total == 1 {
                 scope = "Start with a `#` title for the lecture. End with a `## Review` section: \(reviewSpec)"
@@ -50,15 +51,15 @@ enum LectureNotes {
                     + (part == 1 ? "Start with a `#` title for the lecture. " : "Do not write a `#` title. ")
                     + "Do not write a summary or review section — the parts are joined afterwards."
             }
+            let keep = job == .slides
+                ? "Slides are terse: turn each slide's points into full explanations, under a `##` heading per slide or topic, in slide order. Keep every definition, fact, number, formula and example on them."
+                : "Keep everything that was said. Organize it under `##` headings in lecture order, with **bold** key terms, bullet points, and a table when things are compared. Keep every definition, fact, number, date and example — the detail is the point, don't compress it away. Where the transcription clearly misheard a term, write the right one."
             return """
-            You turn a student's lecture transcript into complete study notes they can learn from.
+            You turn \(job == .slides ? "the text of a student's lecture slides" : "a student's lecture transcript") into complete study notes they can learn from.
 
             \(scope)
 
-            1. Keep everything that was said. Organize it under `##` headings in lecture order, with \
-            **bold** key terms, bullet points, and a table when things are compared. Keep every \
-            definition, fact, number, date and example — the detail is the point, don't compress it \
-            away. Where the transcription clearly misheard a term, write the right one.
+            1. \(keep)
             2. \(fillIn)
 
             \(format)
@@ -96,6 +97,9 @@ enum LectureNotes {
         case .lecture:
             return course + "Write the study notes for this lecture transcript, keeping every detail, and fill in "
                 + "what it leaves out on lines starting with `\(addedPrefix)`.\n\nTRANSCRIPT:\n\"\"\"\n\(text)\n\"\"\""
+        case .slides:
+            return course + "Write the study notes these lecture slides outline, keeping every point on them, and fill in "
+                + "what they leave out on lines starting with `\(addedPrefix)`.\n\nSLIDES:\n\"\"\"\n\(text)\n\"\"\""
         case .complete:
             return course + "Return these notes in full, unchanged, with lines starting with `\(addedPrefix)` "
                 + "filling in what they leave out.\n\nNOTES:\n\"\"\"\n\(text)\n\"\"\""
@@ -178,7 +182,7 @@ enum LectureNotes {
 
         // A lecture in parts gets its review from the joined notes — or, when those no longer
         // fit, from their headings and key terms.
-        if job == .lecture, parts.count > 1, !Task.isCancelled {
+        if job != .complete, parts.count > 1, !Task.isCancelled {
             let digest = notes.count <= limit ? notes : String(notes.components(separatedBy: "\n")
                 .filter { $0.hasPrefix("#") || $0.contains("**") }.joined(separator: "\n").prefix(limit))
             let sys = "Write ONLY a `## Review` section for these lecture notes: \(reviewSpec) Output Markdown only, no preamble."
