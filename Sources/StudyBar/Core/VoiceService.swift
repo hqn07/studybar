@@ -3,6 +3,7 @@ import Speech
 import AVFoundation
 import WhisperKit
 import IOKit.ps
+import NaturalLanguage
 
 /// The mic level, deliberately kept off `VoiceService`.
 ///
@@ -67,6 +68,19 @@ final class VoiceService: ObservableObject {
     @Published private(set) var takeURL: URL?
     private nonisolated(unsafe) var takeFile: AVAudioFile?
     private let takeLock = NSLock()
+    /// Frames written to the take, and its rate: the clock for the timeline and stars, so a
+    /// time in them is a time in the audio that plays back.
+    private nonisolated(unsafe) var takeFrames: AVAudioFramePosition = 0
+    private nonisolated(unsafe) var takeRate: Double = 48_000
+    private var takeElapsed: Double {
+        takeLock.lock(); defer { takeLock.unlock() }
+        return Double(takeFrames) / takeRate
+    }
+    /// This recording's sentences with their times, and its stars — saved beside the take.
+    @Published private(set) var timeline = LectureTimeline()
+    /// Where the current Apple Speech request began in the take, and its latest word times.
+    private var segmentOffset: Double = 0
+    private var lastWords: [(offset: Int, t: Double)] = []
     private var awake: NSObjectProtocol?
     private var healthTimer: Timer?
     /// Which low-battery / low-disk warnings this recording has already given.
@@ -190,6 +204,7 @@ final class VoiceService: ObservableObject {
     func start() {
         discardTake()                         // a new take replaces one that was never saved
         transcript = ""; committed = ""; currentPartial = ""; wantsRecording = true
+        timeline = LectureTimeline()
         meter.reset()
         whisperMode = useWhisper
         Task { @MainActor in
@@ -270,6 +285,7 @@ final class VoiceService: ObservableObject {
         segmentID &+= 1
         let myID = segmentID
         segmentStart = Date(); rotating = false; segmentGotResult = false
+        segmentOffset = takeElapsed; lastWords = []
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.addsPunctuation = true
@@ -282,6 +298,7 @@ final class VoiceService: ObservableObject {
                 if let result {
                     self.segmentGotResult = true; self.everGotResult = true
                     self.currentPartial = result.bestTranscription.formattedString
+                    self.lastWords = result.bestTranscription.segments.map { ($0.substringRange.location, $0.timestamp) }
                     self.transcript = self.join(self.committed, self.currentPartial)
                     if result.isFinal { self.rotate(restart: self.wantsRecording) }
                 } else if error != nil {
@@ -319,6 +336,7 @@ final class VoiceService: ObservableObject {
 
     private func commitCurrent() {
         guard !currentPartial.isEmpty else { return }
+        timeline.add(currentPartial, from: segmentOffset, to: takeElapsed, words: lastWords)
         committed = join(committed, currentPartial)
         transcript = committed
         currentPartial = ""
@@ -451,13 +469,14 @@ final class VoiceService: ObservableObject {
     private func cutChunk(final: Bool) {
         chunkLock.lock()
         let url = chunkURL; let frames = chunkFrames
+        let start = Double(totalFrames - frames) / sampleRate   // where this chunk sits in the take
         chunkFile = nil; chunkURL = nil          // dropping the ref flushes + closes the file
         chunkLock.unlock()
         let hadSpeech = activity.snapshot().chunkHadSpeech
         if let url {
             if frames > AVAudioFramePosition(sampleRate * 0.4) && hadSpeech {
                 chunksSent += 1
-                enqueueTranscribe(url)
+                enqueueTranscribe(url, at: start)
             } else {
                 // Too short to be worth a pass, or silence only.
                 if !hadSpeech { chunksDroppedSilent += 1 }
@@ -468,12 +487,14 @@ final class VoiceService: ObservableObject {
     }
 
     /// Serial background transcription: chunk N is appended before N+1 is transcribed.
-    private func enqueueTranscribe(_ url: URL) {
+    private func enqueueTranscribe(_ url: URL, at start: Double) {
         let prev = transcribeChain
         transcribeChain = Task { @MainActor in
             _ = await prev?.value
-            let text = await transcribeChunk(url)
+            let heard = await transcribeChunk(url)
             try? FileManager.default.removeItem(at: url)
+            let text = heard?.text
+            for seg in heard?.segments ?? [] { timeline.add(seg.text, from: start + seg.start, to: start + seg.end) }
             if let text, !text.isEmpty {
                 whisperCommitted = join(whisperCommitted, text)
                 transcript = whisperCommitted
@@ -484,7 +505,7 @@ final class VoiceService: ObservableObject {
         }
     }
 
-    private func transcribeChunk(_ url: URL) async -> String? {
+    private func transcribeChunk(_ url: URL) async -> (text: String, segments: [(start: Double, end: Double, text: String)])? {
         try? await ensureWhisper()      // first chunk waits for the model; the rest are instant
         guard let whisper else { return nil }
         // No promptTokens: seeding Whisper with the previous text makes it intermittently emit
@@ -496,7 +517,8 @@ final class VoiceService: ObservableObject {
                                    skipSpecialTokens: true)
         guard let results = try? await whisper.transcribe(audioPath: url.path, decodeOptions: opts) else { return nil }
         if whisperLang == "auto", chunkLang == nil { chunkLang = results.first?.language }
-        return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let segments = results.flatMap(\.segments).map { (Double($0.start), Double($0.end), $0.text) }
+        return (results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines), segments)
     }
 
     private func finishWhisperAndTranscribe() {
@@ -695,17 +717,24 @@ final class VoiceService: ObservableObject {
             Diagnostics.warn(.voice, "Couldn't open the audio take; recording continues without it")
             return
         }
-        takeLock.lock(); takeFile = f; takeLock.unlock()
+        takeLock.lock(); takeFile = f; takeFrames = 0; takeRate = format.sampleRate; takeLock.unlock()
         takeURL = url
     }
 
     nonisolated fileprivate func writeTake(_ buf: AVAudioPCMBuffer) {
-        takeLock.lock(); try? takeFile?.write(from: buf); takeLock.unlock()
+        takeLock.lock(); try? takeFile?.write(from: buf); takeFrames += AVAudioFramePosition(buf.frameLength); takeLock.unlock()
     }
 
     /// Dropping the file is what writes the M4A's index; a take that is never closed can't be played.
     fileprivate func closeTake() {
         takeLock.lock(); takeFile = nil; takeLock.unlock()
+    }
+
+    /// Mark this moment of the lecture as one that matters: it gets a ⭐ in the note's
+    /// transcript, and "Make study notes" gives it prominence.
+    func star() {
+        guard status == .recording else { return }
+        timeline.stars.append(takeElapsed)
     }
 
     /// Quitting mid-recording: stop the mic and close the take so the file is playable.
@@ -728,6 +757,7 @@ final class VoiceService: ObservableObject {
         try? FileManager.default.removeItem(at: dst)
         guard (try? FileManager.default.moveItem(at: url, to: dst)) != nil else { return nil }
         takeURL = nil
+        if !timeline.lines.isEmpty { try? JSONEncoder().encode(timeline).write(to: LectureTimeline.url(beside: dst)) }
         return name
     }
 
@@ -776,6 +806,53 @@ final class VoiceService: ObservableObject {
 
     private func join(_ a: String, _ b: String) -> String {
         if a.isEmpty { return b }; if b.isEmpty { return a }; return a + " " + b
+    }
+}
+
+// MARK: - Timeline
+
+/// A recording's sentences and when in the audio each was said — so a note can play any of
+/// them back — plus the moments starred while recording. Kept beside the audio
+/// (`Recordings/<note>.json`), not in the synced store.
+struct LectureTimeline: Codable, Equatable {
+    struct Line: Codable, Equatable { var t: Double; var text: String }
+    var lines: [Line] = []
+    var stars: [Double] = []
+
+    /// Text heard between two times, one line per sentence. With word times (Apple Speech) a
+    /// sentence starts at its first word; without, at its share of the span.
+    // ponytail: proportional placement is off by a few seconds in a long Apple Speech segment
+    // without word times; playback starts a moment early to cover it.
+    mutating func add(_ text: String, from t0: Double, to t1: Double, words: [(offset: Int, t: Double)] = []) {
+        let length = Double(max(1, (text as NSString).length))
+        let timed = words.contains { $0.t > 0 }
+        let tok = NLTokenizer(unit: .sentence)
+        tok.string = text
+        tok.enumerateTokens(in: text.startIndex..<text.endIndex) { r, _ in
+            let sentence = text[r].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sentence.isEmpty else { return true }
+            let at = NSRange(r, in: text).location
+            let dt = timed ? (words.last { $0.offset <= at }?.t ?? 0) : Double(at) / length * (t1 - t0)
+            lines.append(Line(t: t0 + dt, text: sentence))
+            return true
+        }
+    }
+
+    /// The line being said at each star, or the one just before — you star what you just heard.
+    var starred: Set<Int> { Set(stars.compactMap { s in lines.lastIndex { $0.t <= s + 0.5 } }) }
+
+    /// The transcript with ⭐ before each starred sentence, for the notes to give it prominence.
+    func marking(_ transcript: String) -> String {
+        var out = transcript
+        for i in starred {
+            if let r = out.range(of: lines[i].text) { out.replaceSubrange(r, with: "⭐ " + lines[i].text) }
+        }
+        return out
+    }
+
+    static func url(beside audio: URL) -> URL { audio.deletingPathExtension().appendingPathExtension("json") }
+    static func load(beside audio: URL) -> LectureTimeline? {
+        (try? Data(contentsOf: url(beside: audio))).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
     }
 }
 
@@ -829,6 +906,25 @@ enum VoiceTakeSelfTest {
         let terms = CourseVocabulary.terms(course: course, notes: notes)
         check("vocabulary from the course's notes", ["Linear Algebra", "MAS3105", "Eigenvalues", "eigenvector", "Diagonalization"].allSatisfy(terms.contains), "\(terms)")
         check("vocabulary skips math and other courses", !terms.contains { $0.contains("$") || $0 == "Unrelated" })
+
+        // The timeline: sentences placed in time, stars on the line just heard, ⭐ for the notes.
+        do {
+            var t = LectureTimeline()
+            t.add("Flux is field through area. Gauss's law counts the charge inside. Pick a symmetric surface.", from: 10, to: 40)
+            let ts = t.lines.map(\.t)
+            check("one line per sentence", t.lines.count == 3 && t.lines[1].text == "Gauss's law counts the charge inside.", "\(t.lines.map(\.text))")
+            check("placed in order within the span", ts.first == 10 && ts == ts.sorted() && ts.last! < 40, "\(ts)")
+            t.add("A second block. With word times.", from: 60, to: 70, words: [(0, 0.5), (2, 1.0), (16, 4.0)])
+            check("word times place a sentence at its first word", t.lines.last.map { abs($0.t - 64) < 0.01 } == true, "\(t.lines.map(\.t))")
+            t.stars = [ts[1] + 3]
+            check("a star marks the line just heard", t.starred == [1])
+            check("starred sentences are marked for the notes",
+                  t.marking("Flux is field through area. Gauss's law counts the charge inside.").contains("⭐ Gauss's law"))
+            let audio = FileManager.default.temporaryDirectory.appendingPathComponent("tl-\(UUID().uuidString).m4a")
+            try? JSONEncoder().encode(t).write(to: LectureTimeline.url(beside: audio))
+            check("kept beside the recording", LectureTimeline.load(beside: audio) == t)
+            try? FileManager.default.removeItem(at: LectureTimeline.url(beside: audio))
+        }
 
         print(fail == 0 ? "TAKE SELFTEST: ALL PASS" : "TAKE SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1

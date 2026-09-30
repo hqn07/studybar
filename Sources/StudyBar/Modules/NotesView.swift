@@ -919,7 +919,7 @@ struct NoteEditor: View {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     if let name = draft.audioPath {
-                        NoteRecordingBar(url: VoiceService.recordingsDir.appendingPathComponent(name))
+                        NoteRecordingBar(url: VoiceService.recordingsDir.appendingPathComponent(name)).id(name)   // a new player and transcript per recording
                         Divider()
                     }
                     editorOrPreview
@@ -2040,30 +2040,94 @@ struct NoteEditor: View {
 }
 
 /// The lecture a voice note was made from, playable above the note.
+/// The lecture's recording above its note, and — for recordings made since the timeline was
+/// kept — what was said, sentence by sentence: click one to hear that moment. It still works
+/// once "Make study notes" has rewritten the note, because it lists the recording, not the note.
 private struct NoteRecordingBar: View {
     let url: URL
+    @State private var player: AVPlayer?
+    @State private var timeline: LectureTimeline?
+    @State private var showing = false
+    @State private var starredOnly = false
+
     var body: some View {
         if FileManager.default.fileExists(atPath: url.path) {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform").foregroundStyle(.secondary)
-                AudioPlayerView(url: url).frame(height: 28)
-                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(.borderless).help("Show the recording in Finder")
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform").foregroundStyle(.secondary)
+                    if let player { AudioPlayerView(player: player).frame(height: 28) }
+                    if let timeline, !timeline.lines.isEmpty {
+                        Button { showing.toggle() } label: {
+                            Label("Transcript", systemImage: showing ? "chevron.up" : "text.alignleft")
+                        }
+                        .buttonStyle(.borderless).font(.caption)
+                        .help("What was said, with times — click a sentence to hear it")
+                    }
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(.borderless).help("Show the recording in Finder")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 4)
+                if showing, let timeline { lines(timeline) }
             }
-            .padding(.horizontal, 12).padding(.vertical, 4)
+            .onAppear {
+                if player?.currentItem == nil { player = AVPlayer(url: url) }
+                timeline = LectureTimeline.load(beside: url)
+            }
         }
+    }
+
+    private func lines(_ t: LectureTimeline) -> some View {
+        let starred = t.starred
+        return VStack(alignment: .leading, spacing: 0) {
+            if !starred.isEmpty {
+                Toggle("Starred only (\(starred.count))", isOn: $starredOnly)
+                    .toggleStyle(.checkbox).font(.caption).padding(.horizontal, 12).padding(.bottom, 4)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(t.lines.enumerated()), id: \.offset) { i, line in
+                        if !starredOnly || starred.contains(i) {
+                            Button { play(line.t) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(Self.clock(line.t)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                        .frame(width: 44, alignment: .trailing)
+                                    Image(systemName: "star.fill").font(.caption2).foregroundStyle(.orange)
+                                        .opacity(starred.contains(i) ? 1 : 0)
+                                    Text(line.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 3).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 180)
+            Divider()
+        }
+    }
+
+    /// A moment early, so the sentence isn't clipped.
+    private func play(_ t: Double) {
+        player?.seek(to: CMTime(seconds: max(0, t - 1), preferredTimescale: 600))
+        player?.play()
+    }
+
+    static func clock(_ t: Double) -> String {
+        let s = Int(t)
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
 private struct AudioPlayerView: NSViewRepresentable {
-    let url: URL
+    let player: AVPlayer
     func makeNSView(context: Context) -> AVPlayerView {
         let v = AVPlayerView()
         v.controlsStyle = .inline
-        v.player = AVPlayer(url: url)
+        v.player = player
         return v
     }
     func updateNSView(_ v: AVPlayerView, context: Context) {
-        if (v.player?.currentItem?.asset as? AVURLAsset)?.url != url { v.player = AVPlayer(url: url) }
+        if v.player !== player { v.player = player }
     }
 }

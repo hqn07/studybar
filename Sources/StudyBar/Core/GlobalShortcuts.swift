@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import AppKit
 
 enum HotAction: String, CaseIterable, Identifiable {
-    case palette, note, task, pomodoro, calculator, capture
+    case palette, note, task, pomodoro, calculator, capture, star
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -12,18 +12,19 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .pomodoro: return "Start / pause Pomodoro"
         case .calculator: return "Calculator"
         case .capture: return "Capture from screen"
+        case .star: return "Star the lecture moment"
         }
     }
     var hotID: UInt32 {
         switch self {
         case .palette: return 1; case .note: return 2; case .task: return 3
-        case .pomodoro: return 4; case .calculator: return 5; case .capture: return 6
+        case .pomodoro: return 4; case .calculator: return 5; case .capture: return 6; case .star: return 7
         }
     }
     var defaultKeyCode: UInt32 {
         switch self {
         case .palette: return Keys.s; case .note: return Keys.n; case .task: return Keys.t
-        case .pomodoro: return Keys.p; case .calculator: return Keys.c; case .capture: return Keys.g
+        case .pomodoro: return Keys.p; case .calculator: return Keys.c; case .capture: return Keys.g; case .star: return Keys.b
         }
     }
 }
@@ -92,6 +93,7 @@ enum GlobalShortcuts {
         case .pomodoro: return { AppActions.togglePomodoro() }
         case .calculator: return { CalculatorPanel.shared.toggle() }
         case .capture: return { ScreenGrab.start() }
+        case .star: return { AppState.current?.voice.star() }
         }
     }
 

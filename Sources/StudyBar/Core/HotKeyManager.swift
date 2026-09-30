@@ -87,4 +87,5 @@ enum Keys {
     static let f = UInt32(kVK_ANSI_F)
     static let c = UInt32(kVK_ANSI_C)
     static let g = UInt32(kVK_ANSI_G)
+    static let b = UInt32(kVK_ANSI_B)
 }

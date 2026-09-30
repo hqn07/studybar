@@ -60,7 +60,7 @@ enum LectureNotes {
             \(scope)
 
             1. \(keep)
-            2. \(fillIn)
+            2. \(fillIn)\(job == .lecture ? "\n3. A sentence starting with ⭐ was starred by the student while listening: it matters. Give it a prominent place in **bold**, keep the ⭐, and make it a likely exam question in the review." : "")
 
             \(format)
             """

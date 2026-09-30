@@ -435,6 +435,11 @@ struct RecordingBar: View {
                 LevelMeter(meter: voice.meter).frame(width: 44, height: 16)
                 Text("Recording").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 8)
+                Button { voice.star() } label: {
+                    Label(voice.timeline.stars.isEmpty ? "Star" : "\(voice.timeline.stars.count)", systemImage: "star.fill")
+                }
+                .buttonStyle(.borderless).font(.caption).foregroundStyle(.orange)
+                .help("Star this moment — it's marked in the note's transcript and stressed in the study notes")
                 Button("Open", action: open).buttonStyle(.borderless).font(.caption)
                 Button { voice.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
                     .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
