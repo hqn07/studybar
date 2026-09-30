@@ -5,6 +5,16 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Study reads a whole course** — with ChatGPT, Claude or DeepSeek, a quiz, practice exam or study guide now reads up to 120,000 characters of the course at once — every note, where a 10-question quiz on a large course used to be written from about a quarter of it. The tutor sends as many of the best-matching passages as fit, instead of five. The local model reads what it always did.
+
+- **The tutor can start over** — *New chat* clears the conversation, in Study and in the chat beside your work.
+
+- **Pick the course where you'd look for it** — Study's course menu now heads the Sources column it fills, instead of sitting at the far end of the title row; a course named by its code shows once.
+
+- **A calculator that works the way calculators do** — open brackets close themselves, shown in grey until you press =; `sin 30°`, `sqrt 2` and `ln 5` work without brackets; after =, an operator carries on from the answer; the clear key says C or AC for what it will clear, and Escape clears the line. The = key fills its space, and keys no longer appear twice.
+
+- **Fixed: a slow first launch** — on a Mac with thousands of old backup copies, StudyBar moved them to the Trash before appearing, which took about a minute. It now does that in the background.
+
 ## [2.4.5] — 2026-09-30
 
 - **Click a sentence to hear it** — a lecture recorded in StudyBar now keeps every sentence with its moment in the audio. Under the note's recording, **Transcript** lists them with their times; click one and the recording plays from just before it. It lists the recording rather than the note, so it still works after *Make study notes* has rewritten the text.
