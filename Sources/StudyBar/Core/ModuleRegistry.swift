@@ -75,6 +75,8 @@ enum ModuleRegistry {
               category: .research) { AnyView(MathView()) },
 
         // Study
+        .init(id: "study", title: "Study", symbol: "brain.head.profile",
+              category: .study, wide: true) { AnyView(StudyModuleView()) },
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
               category: .study) { AnyView(FlashcardsView()) },
         .init(id: "reading", title: "Reading", symbol: "book",
