@@ -52,10 +52,16 @@ struct MarkdownText: View {
     }
 }
 
-/// Expands snippet placeholders when copying: {date} {time} {datetime} {clipboard}.
+/// Expands snippet placeholders when copying: {date} {time} {datetime} {clipboard} {course} {week}.
+/// {course} is the class in session (or starting within half an hour) and {week} the term
+/// week; both are empty when there's nothing to say.
 enum SnippetExpand {
+    @MainActor
     static func run(_ body: String) -> String {
         let now = Date()
+        let state = AppState.current
+        let course = state?.course(state?.currentCourseID).map { $0.code.isEmpty ? $0.name : $0.code } ?? ""
+        let week = SemesterWeek.number(for: now, termStart: state?.data.termStart).map(String.init) ?? ""
         let df = DateFormatter(); df.dateStyle = .medium
         let tf = DateFormatter(); tf.timeStyle = .short
         let dtf = DateFormatter(); dtf.dateStyle = .medium; dtf.timeStyle = .short
@@ -65,6 +71,10 @@ enum SnippetExpand {
             .replacingOccurrences(of: "{time}", with: tf.string(from: now))
             .replacingOccurrences(of: "{datetime}", with: dtf.string(from: now))
             .replacingOccurrences(of: "{clipboard}", with: clip)
+            .replacingOccurrences(of: "{course}", with: course)
+            .replacingOccurrences(of: "{week}", with: week)
     }
-    static var hasPlaceholders: (String) -> Bool { { $0.contains("{date}") || $0.contains("{time}") || $0.contains("{datetime}") || $0.contains("{clipboard}") } }
+    static var hasPlaceholders: (String) -> Bool {
+        { s in ["{date}", "{time}", "{datetime}", "{clipboard}", "{course}", "{week}"].contains { s.contains($0) } }
+    }
 }
