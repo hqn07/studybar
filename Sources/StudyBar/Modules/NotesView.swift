@@ -725,7 +725,8 @@ struct NoteEditor: View {
             .keyboardShortcut("e", modifiers: .command)
             .help("Full preview (renders Markdown & LaTeX) — ⌘E")
             .onHover { setHint(showPreview ? "Back to editing (⌘E)" : "Preview (renders Markdown & LaTeX) — ⌘E", $0) }
-            Button { persist(); showingHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+            // Saved first, so the version this edit replaced is already in the list.
+            Button { persist(); state.saveNow(); showingHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
                 .accessibilityLabel("History")
                 .help("Earlier versions of this note — see what changed, restore one")
@@ -2144,7 +2145,9 @@ private struct NoteRecordingBar: View {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Image(systemName: "waveform").foregroundStyle(.secondary)
-                    if let player { AudioPlayerView(player: player).frame(height: 28) }
+                    // The inline controls are a 44-point bar; in a shorter row they drew over the
+                    // header above and the format bar below.
+                    if let player { AudioPlayerView(player: player).frame(height: 46) }
                     if let timeline, !timeline.lines.isEmpty {
                         Button { showing.toggle() } label: {
                             Label("Transcript", systemImage: showing ? "chevron.up" : "text.alignleft")
