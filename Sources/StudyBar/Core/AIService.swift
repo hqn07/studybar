@@ -2405,6 +2405,12 @@ enum AIToolSelfTest {
         check("a link with only tracking loses its ?", CleanURL.strip("https://youtu.be/abc?si=XYZ") == "https://youtu.be/abc")
         check("a clean link is untouched", CleanURL.strip("https://ex.com/?q=a%20b") == "https://ex.com/?q=a%20b")
 
+        // LaTeX read off the screen comes back bare, whatever the model wrapped it in.
+        check("LaTeX fences and delimiters removed",
+              ScreenGrab.bareLatex("```latex\n$$\\frac{a}{b}$$\n```") == "\\frac{a}{b}"
+              && ScreenGrab.bareLatex("\\[ E = mc^2 \\]") == "E = mc^2"
+              && ScreenGrab.bareLatex("x^2 + y^2") == "x^2 + y^2")
+
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")
         return fail == 0 ? 0 : 1
     }

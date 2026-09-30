@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import AppKit
 
 enum HotAction: String, CaseIterable, Identifiable {
-    case palette, note, task, pomodoro, calculator
+    case palette, note, task, pomodoro, calculator, capture
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,18 +11,19 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .task: return "Quick task"
         case .pomodoro: return "Start / pause Pomodoro"
         case .calculator: return "Calculator"
+        case .capture: return "Capture from screen"
         }
     }
     var hotID: UInt32 {
         switch self {
         case .palette: return 1; case .note: return 2; case .task: return 3
-        case .pomodoro: return 4; case .calculator: return 5
+        case .pomodoro: return 4; case .calculator: return 5; case .capture: return 6
         }
     }
     var defaultKeyCode: UInt32 {
         switch self {
         case .palette: return Keys.s; case .note: return Keys.n; case .task: return Keys.t
-        case .pomodoro: return Keys.p; case .calculator: return Keys.c
+        case .pomodoro: return Keys.p; case .calculator: return Keys.c; case .capture: return Keys.g
         }
     }
 }
@@ -90,6 +91,7 @@ enum GlobalShortcuts {
         case .task: return { QuickCapture.shared.show(.task) }
         case .pomodoro: return { AppActions.togglePomodoro() }
         case .calculator: return { CalculatorPanel.shared.toggle() }
+        case .capture: return { ScreenGrab.start() }
         }
     }
 

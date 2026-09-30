@@ -362,6 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         add("New Task…  ⌃⌥T", #selector(newTask))
         add("New Note…  ⌃⌥N", #selector(newNote))
+        add("Capture from Screen…  \(HotKeyStore.display(HotKeyStore.binding(.capture)))", #selector(captureScreen))
         add(state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro", #selector(togglePomodoro))
         m.addItem(.separator())
         add("Open StudyBar", #selector(openMain))
@@ -505,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func newTask() { QuickCapture.shared.show(.task) }
     @objc private func newNote() { QuickCapture.shared.show(.note) }
+    @objc private func captureScreen() { ScreenGrab.start() }
     @objc private func togglePomodoro() { AppActions.togglePomodoro() }
     @objc private func openMain() { showWindow() }
     @objc private func toggleShelf() { ShelfPanel.toggle() }

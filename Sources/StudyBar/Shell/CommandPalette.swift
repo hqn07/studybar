@@ -30,6 +30,9 @@ struct CommandPalette: View {
         out.append(.init(title: "Calculator", subtitle: "Math · ⌃⌥C", symbol: "function") {
             isPresented = false; CalculatorPanel.shared.show()
         })
+        out.append(.init(title: "Capture from Screen", subtitle: "Text · LaTeX · ask the tutor · ⌃⌥G", symbol: "text.viewfinder") {
+            isPresented = false; ScreenGrab.start()
+        })
         out.append(.init(title: "Open in Window", subtitle: "View", symbol: "macwindow") {
             WindowOpener.open?("main"); isPresented = false
         })

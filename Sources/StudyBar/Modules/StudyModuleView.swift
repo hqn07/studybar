@@ -12,6 +12,8 @@ final class StudySession {
 @MainActor
 final class TutorModel: ObservableObject {
     @Published var thread: [Tutor.Turn] = []
+    /// Images for the next question — here so a screen grab can hand one over.
+    @Published var images: [Data] = []
     @Published var busy = false
     var task: Task<Void, Never>?
 }
@@ -248,7 +250,6 @@ struct TutorPane: View {
     var openItem: () -> (title: String, text: String)? = { nil }
     @State private var input = ""
     @State private var mode: Tutor.Mode = .explain
-    @State private var images: [Data] = []
     /// Files dropped on the chat (from the Shelf, Finder…): their text goes with the next question.
     @State private var attached: [Attached] = []
     @State private var dropping = false
@@ -281,7 +282,7 @@ struct TutorPane: View {
         let urls = (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         for u in urls {
             if UTType(filenameExtension: u.pathExtension)?.conforms(to: .image) == true, let img = NSImage(contentsOf: u), let d = Self.jpeg(img) {
-                images.append(d)
+                m.images.append(d)
             } else if StudyMaterial.fileTypes.contains(u.pathExtension.lowercased()) {
                 let name = u.lastPathComponent
                 Task {
@@ -290,7 +291,7 @@ struct TutorPane: View {
                 }
             }
         }
-        if urls.isEmpty, let img = NSImage(pasteboard: pb), let d = Self.jpeg(img) { images.append(d) }
+        if urls.isEmpty, let img = NSImage(pasteboard: pb), let d = Self.jpeg(img) { m.images.append(d) }
         return true
     }
 
@@ -344,12 +345,12 @@ struct TutorPane: View {
                     }
                 }
             }
-            if !images.isEmpty {
+            if !m.images.isEmpty {
                 HStack {
-                    ForEach(images.indices, id: \.self) { i in
+                    ForEach(m.images.indices, id: \.self) { i in
                         ZStack(alignment: .topTrailing) {
-                            NSImage(data: images[i]).map { Image(nsImage: $0).resizable().scaledToFit().frame(height: 54) }
-                            Button { images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                            NSImage(data: m.images[i]).map { Image(nsImage: $0).resizable().scaledToFit().frame(height: 54) }
+                            Button { m.images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
                         }
                     }
                 }
@@ -364,7 +365,7 @@ struct TutorPane: View {
                     Button("Stop") { m.task?.cancel(); m.busy = false }
                 } else {
                     Button("Send") { send() }.buttonStyle(.borderedProminent)
-                        .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && images.isEmpty && attached.isEmpty)
+                        .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && m.images.isEmpty && attached.isEmpty)
                 }
             }
         }
@@ -376,11 +377,11 @@ struct TutorPane: View {
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
         guard panel.runModal() == .OK else { return }
-        images += panel.urls.compactMap { NSImage(contentsOf: $0).flatMap(Self.jpeg) }
+        m.images += panel.urls.compactMap { NSImage(contentsOf: $0).flatMap(Self.jpeg) }
     }
 
     private func pasteImage() {
-        if let img = NSImage(pasteboard: .general), let d = Self.jpeg(img) { images.append(d) }
+        if let img = NSImage(pasteboard: .general), let d = Self.jpeg(img) { m.images.append(d) }
     }
 
     /// At most 1600 px on the long side: enough to read a problem, small enough to send.
@@ -397,10 +398,10 @@ struct TutorPane: View {
 
     private func send() {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !m.busy, !q.isEmpty || !images.isEmpty || !attached.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return }
+        guard !m.busy, !q.isEmpty || !m.images.isEmpty || !attached.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return }
         let engine = AIConfig.engine(for: .ask)
         let sees = AIConfig.canSee(engine)
-        let imgs = images, turnMode = mode, prior = m.thread
+        let imgs = m.images, turnMode = mode, prior = m.thread
         // An engine that can't see gets the text read off the image instead.
         let imageText = sees ? "" : imgs.compactMap { NSImage(data: $0)?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
             .map(StudyMaterial.ocr).joined(separator: "\n\n")
@@ -414,7 +415,7 @@ struct TutorPane: View {
 
         m.thread.append(Tutor.Turn(question: q, mode: turnMode, images: imgs))
         let idx = m.thread.count - 1
-        input = ""; images = []; attached = []; m.busy = true
+        input = ""; m.images = []; attached = []; m.busy = true
         m.task = Task {
             let msgs = Tutor.messages(thread: prior, question: q, material: [files, StudyMaterial.block(found)].filter { !$0.isEmpty }.joined(separator: "\n\n"),
                                       images: sees ? imgs : [], imageText: imageText, mode: turnMode, open: open)
