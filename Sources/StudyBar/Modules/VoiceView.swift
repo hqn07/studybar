@@ -22,12 +22,6 @@ struct VoiceBody: View {
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
     @AppStorage("voiceWhisperModel") private var voiceWhisperModel = "base"
     @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
-    @State private var organizing = false
-    @State private var organizeStream = ""
-    @State private var organizeStart: Date?
-    @State private var rawBeforeOrganize: String?
-    @State private var organizeError: String?
-    @State private var organizePart = (1, 1)      // which part of a long lecture is being written
     /// True while the model is being asked which course this belongs to.
     @State private var naming = false
     @State private var draftAvailable = false
@@ -233,23 +227,23 @@ struct VoiceBody: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
 
-                if let err = organizeError {
+                if let err = voice.organizeError {
                     Label(err, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                         .multilineTextAlignment(.center)
                 }
-                if organizing {
+                if voice.organizing {
                     VStack(alignment: .leading, spacing: DS.Space.s) {
                         HStack(spacing: DS.Space.s) {
                             ProgressView().controlSize(.small)
                             TimelineView(.periodic(from: .now, by: 1)) { _ in
-                                let secs = max(0, Int(Date().timeIntervalSince(organizeStart ?? Date())))
-                                Text("Writing notes\(organizePart.1 > 1 ? " — part \(organizePart.0) of \(organizePart.1)" : "")… \(secs)s · your raw transcript is kept")
+                                let secs = max(0, Int(Date().timeIntervalSince(voice.organizeStart ?? Date())))
+                                Text("Writing notes\(voice.organizePart.1 > 1 ? " — part \(voice.organizePart.0) of \(voice.organizePart.1)" : "")… \(secs)s · your raw transcript is kept")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        if !organizeStream.isEmpty {
+                        if !voice.organizeStream.isEmpty {
                             ScrollView {
-                                Text(organizeStream)
+                                Text(voice.organizeStream)
                                     .font(.callout).textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                                     .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
@@ -266,8 +260,8 @@ struct VoiceBody: View {
                         }
                         .disabled(naming)
                             .buttonStyle(.borderedProminent)
-                        if let raw = rawBeforeOrganize {
-                            Button { voice.transcript = raw; rawBeforeOrganize = nil; organizeError = nil } label: {
+                        if let raw = voice.rawBeforeOrganize {
+                            Button { voice.transcript = raw; voice.rawBeforeOrganize = nil; voice.organizeError = nil } label: {
                                 Label("Revert to raw", systemImage: "arrow.uturn.backward")
                             }.buttonStyle(.bordered).help("Undo AI organize — restore the original transcript")
                         } else if AIConfig.isReady {
@@ -275,7 +269,7 @@ struct VoiceBody: View {
                                 .buttonStyle(.bordered)
                                 .help("Organize the lecture into detailed notes, with definitions, examples and a review filled in and marked as added — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = ""; voice.discardTake(); rawBeforeOrganize = nil; organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
+                        Button("Discard") { voice.transcript = ""; voice.discardTake(); voice.rawBeforeOrganize = nil; voice.organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -301,8 +295,9 @@ struct VoiceBody: View {
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider(for: .transcript) else { return }
-        organizeError = nil; organizeStream = ""; organizeStart = Date(); organizePart = (1, 1)
-        organizing = true
+        voice.organizeError = nil; voice.organizeStream = ""; voice.organizeStart = Date(); voice.organizePart = (1, 1)
+        voice.organizing = true
+        let job = Jobs.shared.begin("Study notes from the recording", module: "voice")
         Task {
             // Detailed notes plus marked additions, part by part when the lecture is longer
             // than the engine can read at once — see LectureNotes.
@@ -310,10 +305,11 @@ struct VoiceBody: View {
             let text = await LectureNotes.run(raw, job: .lecture, provider: provider,
                                               mode: AIConfig.engine(for: .transcript),
                                               material: StudyMaterial.coursePassages(course, in: state.data)) { notes, part, total in
-                organizeStream = notes; organizePart = (part, total)
+                voice.organizeStream = notes; voice.organizePart = (part, total)
+                if total > 1 { Jobs.shared.update(job, "part \(part) of \(total)") }
             }
             await MainActor.run {
-                organizing = false; organizeStream = ""
+                voice.organizing = false; voice.organizeStream = ""
                 // Same reason as the Notes AI card: the system prompt above already asks for
                 // `$…$` and the model still returns `\[…\]`, so normalize deterministically.
                 // `NoteFormat.tidy` is the same bargain for list shape — the rules above ask
@@ -321,12 +317,13 @@ struct VoiceBody: View {
                 // hold and a label lands as a sibling of the points it introduces.
                 let cleaned = NoteFormat.tidy(
                     MathSupport.normalized((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)))
+                Jobs.shared.end(job, done: isPlausibleNotes(cleaned) ? "Study notes ready" : "Couldn't write the study notes")
                 if isPlausibleNotes(cleaned) {
-                    rawBeforeOrganize = raw            // keep the original — never lost, revertible
+                    voice.rawBeforeOrganize = raw            // keep the original — never lost, revertible
                     voice.transcript = cleaned
                 } else {
                     // The model returned junk (e.g. a JSON blob) or a part failed. Leave the transcript ALONE.
-                    organizeError = "The AI returned an unusable result — your transcript is unchanged. A stronger engine (Settings ▸ Intelligence) organizes far better than the local model."
+                    voice.organizeError = "The AI returned an unusable result — your transcript is unchanged. A stronger engine (Settings ▸ Intelligence) organizes far better than the local model."
                 }
             }
         }
@@ -408,7 +405,7 @@ struct VoiceBody: View {
         note.updatedAt = .now
         state.data.notes.append(note)
         voice.transcript = ""
-        rawBeforeOrganize = nil
+        voice.rawBeforeOrganize = nil
         VoiceService.clearDraft(); draftAvailable = false     // saved for real — clear the crash-safe draft
         // Open it with the title selected: a generated name should be one keystroke from
         // being the name you wanted.

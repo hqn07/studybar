@@ -100,6 +100,7 @@ struct RootView: View {
                 windowBody
             }
             recordingBar
+            JobsBar(here: surface == .window ? win.moduleID : nil)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // The window is `fullSizeContentView` with a transparent titlebar, but SwiftUI still
@@ -394,6 +395,29 @@ struct RootView: View {
 /// ticks invalidated the sidebar, the header and whichever module was on screen, and using the
 /// app during a lecture recording was visibly slow. `AppState` now forwards only `status` and
 /// `startedAt`, and the meter's churn stops at this bar.
+/// Long AI jobs started in another module, under the window like the recording bar — so
+/// leaving the module a quiz is being written in doesn't hide that it's still coming.
+struct JobsBar: View {
+    @ObservedObject private var jobs = Jobs.shared
+    /// The module on screen; its own jobs already show their progress there.
+    let here: String?
+
+    var body: some View {
+        ForEach(jobs.running.filter { $0.module != here }) { j in
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(j.detail.isEmpty ? j.title : "\(j.title) · \(j.detail)")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open") { AppActions.open(module: j.module) }.buttonStyle(.borderless).font(.caption)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(.tint.opacity(0.05))
+        }
+    }
+}
+
 struct RecordingBar: View {
     @ObservedObject var voice: VoiceService
     let open: () -> Void

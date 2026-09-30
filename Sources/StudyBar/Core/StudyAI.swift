@@ -613,6 +613,18 @@ enum StudySelfTest {
         check("a point on the heading line is kept", inline.contains("- **Flux** — field through a surface.") && inline.contains("**Gauss**"), inline)
         check("sections in order", (merged.range(of: "## Definitions")?.lowerBound ?? merged.endIndex) < (merged.range(of: "## Formulas")?.lowerBound ?? merged.startIndex))
 
+        // A job's state lives past its pane: the same course gets the same session back.
+        if let state = AppState.current {
+            let c = UUID()
+            check("a course's study session is kept", state.studySession(c) === state.studySession(c)
+                  && state.studySession(c) !== state.studySession(UUID()))
+        }
+        let job = Jobs.shared.begin("Quiz · TEST", module: "study")
+        Jobs.shared.update(job, "part 1 of 2")
+        let listed = Jobs.shared.running.first { $0.id == job }?.detail == "part 1 of 2"
+        Jobs.shared.end(job, done: nil)
+        check("a job is listed while it runs, and not after", listed && !Jobs.shared.running.contains { $0.id == job })
+
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }

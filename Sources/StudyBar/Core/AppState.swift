@@ -50,6 +50,14 @@ final class AppState: ObservableObject {
         var unverified: [UUID: Int] = [:]
     }
 
+    /// Study state per course (nil = no course yet), kept for the session — see StudySession.
+    private var studySessions: [UUID?: StudySession] = [:]
+    func studySession(_ course: UUID?) -> StudySession {
+        if let s = studySessions[course] { return s }
+        let s = StudySession(); studySessions[course] = s
+        return s
+    }
+
     @Published var modulePrefs = ModulePrefs()
 
     // MARK: Undo — Gmail-style one-level undo for destructive actions.
@@ -808,5 +816,30 @@ extension AppData {
                         body: "This is your first note. Everything is stored locally on your Mac.\n\nAdd courses, then assignments, notes, links and timers all hang off them.",
                         pinned: true)]
         return d
+    }
+}
+
+/// Long AI jobs in flight — a quiz or guide being written, a lecture turned into notes — for
+/// the bar under the window and a notification when one finishes where you aren't looking.
+@MainActor
+final class Jobs: ObservableObject {
+    static let shared = Jobs()
+    struct Job: Identifiable, Equatable { let id = UUID(); let title: String; let module: String; var detail = "" }
+    @Published private(set) var running: [Job] = []
+
+    func begin(_ title: String, module: String) -> UUID {
+        let j = Job(title: title, module: module)
+        running.append(j)
+        return j.id
+    }
+    func update(_ id: UUID?, _ detail: String) {
+        if let i = running.firstIndex(where: { $0.id == id }) { running[i].detail = detail }
+    }
+    /// `done` is what the notification says; nil (cancelled) says nothing.
+    func end(_ id: UUID?, done: String?) {
+        guard let i = running.firstIndex(where: { $0.id == id }) else { return }
+        let j = running.remove(at: i)
+        guard let done, !NSApp.isActive || !WindowManager.shared.isShowing(j.module) else { return }
+        Notifier.post(title: done, body: j.title, module: j.module)
     }
 }

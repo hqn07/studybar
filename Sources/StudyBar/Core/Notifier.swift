@@ -20,9 +20,11 @@ enum Notifier {
         UNUserNotificationCenter.current().setNotificationCategories([cat])
     }
 
-    static func post(title: String, body: String) {
+    /// `module`: clicking the notification opens it.
+    static func post(title: String, body: String, module: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title; content.body = body; content.sound = .default
+        if let module { content.userInfo = ["module": module] }
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)
     }
@@ -130,6 +132,10 @@ final class NotifDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if let module = info["module"] as? String {
+            await MainActor.run { AppActions.open(module: module) }
+            return
+        }
         guard let idStr = info["assignmentID"] as? String, let id = UUID(uuidString: idStr) else { return }
         let action = response.actionIdentifier
         await MainActor.run {

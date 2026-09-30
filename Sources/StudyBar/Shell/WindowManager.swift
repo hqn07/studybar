@@ -95,6 +95,10 @@ final class WindowManager {
     }
 
     var windows: [NSWindow] { entries.map(\.window) }
+    /// Whether a visible window has this module open, on either side of a split.
+    func isShowing(_ module: String) -> Bool {
+        entries.contains { $0.window.isVisible && ($0.model.moduleID == module || $0.model.rightID == module) }
+    }
 
     func refreshTabBars() {
         for e in entries {

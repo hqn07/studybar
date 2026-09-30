@@ -36,6 +36,14 @@ final class VoiceService: ObservableObject {
     enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
     @Published var status: Status = .idle { didSet { holdAwake(status == .recording || status == .transcribing) } }
     @Published var transcript = ""
+    /// "Make study notes" in progress, and the transcript it replaced (so it can be reverted).
+    /// Here rather than in the view so that leaving Voice mid-job doesn't drop either.
+    @Published var organizing = false
+    @Published var organizeStream = ""
+    @Published var organizeStart: Date?
+    @Published var rawBeforeOrganize: String?
+    @Published var organizeError: String?
+    @Published var organizePart = (1, 1)      // which part of a long lecture is being written
     /// Not `@Published`: see `VoiceMeter`. Its own object so a 30 Hz meter doesn't re-render
     /// every view that observes the recorder.
     let meter = VoiceMeter()
