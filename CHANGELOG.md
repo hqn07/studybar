@@ -49,6 +49,8 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Fill-in answers forgive subscripts** — ε0 now counts for ε₀, and m2 for m², in quizzes and shared quizzes.
 
+- **Fixed: spoken audio stopped after a few sentences** — Convert's text → spoken audio cut a long text off at its first pause: 1,500 words came out as a few seconds. It now reads all of it.
+
 ## [2.4.5] — 2026-09-30
 
 - **Click a sentence to hear it** — a lecture recorded in StudyBar now keeps every sentence with its moment in the audio. Under the note's recording, **Transcript** lists them with their times; click one and the recording plays from just before it. It lists the recording rather than the note, so it still works after *Make study notes* has rewritten the text.
