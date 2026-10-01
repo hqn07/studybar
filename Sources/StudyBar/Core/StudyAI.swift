@@ -1,4 +1,4 @@
-import Foundation
+import AVFoundation
 
 // MARK: - Practice questions
 
@@ -297,10 +297,10 @@ enum AudioReview {
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Writes the review into `out`. Progress is a word for the jobs bar.
-    @MainActor
+    /// Writes the review into `out` and returns its script. Progress is a word for the jobs bar.
+    @MainActor @discardableResult
     static func make(from notes: [Note], to out: URL, provider: AIProvider, mode: AIMode,
-                     progress: @escaping (String) -> Void) async throws {
+                     progress: @escaping (String) -> Void) async throws -> String {
         let text = notes.map { "\($0.title)\n\($0.body)" }.joined(separator: "\n\n")
         progress("writing the script")
         let script = try await provider.completePlain(system: system, messages: [
@@ -309,6 +309,7 @@ enum AudioReview {
         guard clean.count > 200 else { throw AIError.badResponse }
         progress("reading it aloud")
         try await Converter.speak(clean, to: out)
+        return clean
     }
 }
 
@@ -972,6 +973,27 @@ enum StudyRun {
             for c in cards { print("Q: \(c.front)\nA: \(c.back)\n") }
             if cards.isEmpty { print(raw) }
             return cards.isEmpty ? 1 : 0
+        case "live":
+            // The running summary as a recording would get it: the text in stretches of ~1,500 characters.
+            let text = units.map(\.text).joined(separator: " ")
+            var earlier: [String] = []
+            for (n, stretch) in LectureNotes.chunks(text, maxChars: 1_500).prefix(4).enumerated() {
+                let points = await LiveSummary.points(stretch, earlier: Array(earlier.suffix(6)), provider: provider)
+                print("--- stretch \(n + 1) ---\n" + points.map { "- " + $0 }.joined(separator: "\n"))
+                earlier += points
+            }
+            print("--- \(took()) ---")
+            return earlier.isEmpty ? 1 : 0
+        case "audio":
+            let out = URL(fileURLWithPath: args.firstIndex(of: "--out").map { args[$0 + 1] } ?? NSTemporaryDirectory() + "review.m4a")
+            do {
+                let script = try await AudioReview.make(from: [Note(title: url.deletingPathExtension().lastPathComponent,
+                                                                    body: units.map(\.text).joined(separator: "\n\n"))],
+                                                        to: out, provider: provider, mode: mode) { _ in }
+                let seconds = (try? AVAudioFile(forReading: out)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+                print("--- \(took()) · \(script.split(separator: " ").count) words · \(Int(seconds)) s of audio at \(out.path) ---\n\(script)")
+                return 0
+            } catch { print("FAILED: \(error.localizedDescription)"); return 1 }
         case "guide-raw":
             let g = StudyMaterial.groups(passages, maxChars: LectureNotes.chunkChars(for: mode) * 2 / 3).first ?? []
             let out = try? await provider.streamPlain(system: StudyGuide.system,
