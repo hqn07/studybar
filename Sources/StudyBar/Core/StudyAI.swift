@@ -1,4 +1,5 @@
 import AVFoundation
+import PDFKit
 
 // MARK: - Practice questions
 
@@ -795,6 +796,34 @@ enum StudySelfTest {
             (DownloadWatch.folder, DownloadWatch.offer) = (folder, offer)
             state.data.courses.removeAll { $0.id == lecture.id || $0.id == lab.id }
             try? FileManager.default.removeItem(at: dl)
+        }
+
+        // Reading a book's PDF in StudyBar: a selection becomes a highlight on its page, and a
+        // highlight is drawn where its text is.
+        if let scratch = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] {
+            let pdf = URL(fileURLWithPath: scratch).appendingPathComponent("book-\(UUID().uuidString.prefix(6)).pdf")
+            var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+            if let ctx = CGContext(pdf as CFURL, mediaBox: &box, nil) {
+                for t in ["Chapter 24. Electric flux through a surface.", "Gauss's law relates the net flux to the enclosed charge.", "Conductors in equilibrium."] {
+                    ctx.beginPDFPage(nil)
+                    NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                    NSAttributedString(string: t, attributes: [.font: NSFont.systemFont(ofSize: 16)]).draw(in: CGRect(x: 72, y: 600, width: 468, height: 100))
+                    NSGraphicsContext.restoreGraphicsState(); ctx.endPDFPage()
+                }
+                ctx.closePDF()
+            }
+            let reader = ReaderModel(), view = PDFView()
+            view.document = PDFDocument(url: pdf); reader.view = view
+            if let doc = view.document, let found = doc.findString("net flux to the enclosed charge", withOptions: []).first {
+                view.setCurrentSelection(found, animate: false)
+                let h = reader.takeSelection()
+                check("reader: a selection becomes a highlight on its page", h?.page == 2 && h?.text == "net flux to the enclosed charge" && view.currentSelection == nil)
+                if let h { reader.draw(h) }
+                reader.draw(Highlight(page: 3, text: "not on this page"))
+                let drawn = (0..<doc.pageCount).map { doc.page(at: $0)?.annotations.filter { $0.type == "Highlight" }.count ?? 0 }
+                check("reader: drawn where its text is, and nowhere for text that isn't", drawn == [0, 1, 0], "\(drawn)")
+            } else { check("reader: test book", false) }
+            try? FileManager.default.removeItem(at: pdf)
         }
 
         // A quiz shared as a web page.

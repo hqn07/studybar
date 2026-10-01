@@ -307,6 +307,7 @@ struct ReadingDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let itemID: UUID
     @State private var editing = false
+    @State private var readingPDF = false
     @State private var pageField = ""
     @State private var hlPage = ""
     @State private var hlText = ""
@@ -383,6 +384,7 @@ struct ReadingDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
         .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()) }
+        .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID) }
     }
 
     private func compactHeader(_ item: ReadingItem) -> some View {
@@ -402,6 +404,11 @@ struct ReadingDetailView: View {
                     }.buttonStyle(.borderless).font(.caption)
                 }.padding(.top, 2)
                 HStack(spacing: 6) {
+                    if item.pdfPages != nil, FileManager.default.fileExists(atPath: BookText.pdfURL(item.id).path) {
+                        Button { readingPDF = true } label: { Label("Read", systemImage: "book.pages") }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            .help("Open the PDF here, at your page — select text to highlight it")
+                    }
                     if let p = item.pdfPages { metaChip("doc.text", "PDF · \(p) pp") }
                     if !item.highlights.isEmpty { metaChip("quote.opening", "\(item.highlights.count) highlights") }
                     CourseChip(course: state.course(item.courseID))

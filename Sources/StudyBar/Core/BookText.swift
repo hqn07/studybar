@@ -22,9 +22,11 @@ enum BookText {
     struct Chunk: Codable, Hashable { let page: Int; let text: String }
     struct Hit: Identifiable { let id = UUID(); let page: Int; let snippet: String; let score: Double }
 
+    /// Beside a throwaway store (STUDYBAR_DATA_DIR) in a test build, like Study's files.
     static var dir: URL {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("StudyBar/Books", isDirectory: true)
+        let base = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("StudyBar")
+        let d = base.appendingPathComponent("Books", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
