@@ -679,6 +679,8 @@ private struct QuizPane: View {
                         }.buttonStyle(.borderedProminent)
                     }
                     Spacer()
+                    Button("Share…") { share() }
+                        .help("Save the \(exam ? "exam" : "quiz") as one web page a classmate can open and take")
                     Button(exam ? "New exam" : "New quiz") { m.phase = .setup }
                 }
                 Divider()
@@ -689,6 +691,20 @@ private struct QuizPane: View {
                     }
                 }
             }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
+        }
+    }
+
+    private func share() {
+        let name = "\(exam ? "Practice exam" : "Quiz") — \(course.map { $0.code.isEmpty ? $0.name : $0.code } ?? "Study")"
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name + ".html"
+        panel.allowedContentTypes = [.html]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try QuizShare.html(m.questions, title: name).write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            Diagnostics.log(.data, .error, "quiz share failed: \(error.localizedDescription)")
         }
     }
 

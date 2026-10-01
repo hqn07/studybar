@@ -222,7 +222,8 @@ enum Quiz {
     /// A blank is right when the words match once case, spacing, `$` and punctuation are set
     /// aside, or when both are numbers within 1%.
     static func fillMatches(_ given: String, _ answer: String) -> Bool {
-        func norm(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." } }
+        // Compatibility forms first: an answer key's ε₀ or m² against a typed ε0 or m2.
+        func norm(_ s: String) -> String { s.precomposedStringWithCompatibilityMapping.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." } }
         let g = norm(given), a = norm(answer)
         guard !g.isEmpty else { return false }
         if g == a { return true }
@@ -270,6 +271,81 @@ enum Quiz {
             }
         }
         return name
+    }
+}
+
+// MARK: - A quiz to share
+
+/// A quiz as one web page a classmate can open in any browser and take: the questions, then
+/// Check answers marks them the way Study does and shows each answer with why. The math
+/// renders with the KaTeX the app carries, inside the file, so it works offline too.
+enum QuizShare {
+    static func html(_ qs: [QuizQuestion], title: String) -> String {
+        let items: [[String: Any]] = qs.map { q in
+            var d: [String: Any] = ["kind": q.kind.rawValue, "prompt": q.prompt, "answer": q.correctText,
+                                    "why": q.explanation, "source": q.source]
+            if q.kind == .mcq { d["choices"] = q.choices; d["index"] = q.answerIndex ?? -1 }
+            if q.kind == .tf { d["bool"] = q.answerBool ?? false }
+            return d
+        }
+        // JSONSerialization writes "/" as "\/", so no question can close the <script> it sits in.
+        let json = (try? JSONSerialization.data(withJSONObject: items)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let t = title.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+        return #"""
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>\#(t)</title>
+        \#(KatexAssets.prelude)
+        <style>
+          :root{color-scheme:light dark;}
+          body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 16px;color:#1d1d20;background:#fff;}
+          @media (prefers-color-scheme:dark){body{background:#1c1c1e;color:#eee;}.q{border-color:#3a3a3c;}}
+          h1{font-size:24px;margin:0 0 4px;} .n{color:#888;font-size:13px;} .q{border:1px solid #ddd;border-radius:10px;padding:12px 16px;margin:14px 0;}
+          label{display:block;margin:4px 0;cursor:pointer;} input[type=text],textarea{width:100%;font:inherit;padding:6px;box-sizing:border-box;}
+          .why{display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12);font-size:14px;}
+          .done .why{display:block;} .right{color:#1a7f37;font-weight:600;} .wrong{color:#c62828;font-weight:600;}
+          button{font:inherit;padding:8px 18px;border-radius:8px;border:0;background:#0a64d8;color:#fff;cursor:pointer;}
+          #score{font-size:20px;font-weight:600;}
+        </style></head><body>
+        <h1>\#(t)</h1><p class="n">\#(qs.count) questions · made with StudyBar</p>
+        <div id="qs"></div><p id="score"></p><button id="check">Check answers</button>
+        <script>
+        var Q=\#(json);
+        // As Study marks a blank: letters, digits and points only; numbers within 1%.
+        function norm(s){return s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}.]/gu,'');}
+        function num(s){return s!==''&&!isNaN(Number(s));}
+        function fillOK(g,a){g=norm(g);a=norm(a);if(!g)return false;if(g===a)return true;
+          if(num(g)&&num(a)){var x=Number(g),y=Number(a);return Math.abs(x-y)<=0.01*Math.max(Math.abs(x),Math.abs(y));}
+          return a.length>=4&&((a.indexOf(g)>=0&&g.length*2>=a.length)||g.indexOf(a)>=0);}
+        function add(p,tag,text,cls){var e=document.createElement(tag);if(text)e.textContent=text;if(cls)e.className=cls;p.appendChild(e);return e;}
+        var box=document.getElementById('qs');
+        Q.forEach(function(q,i){
+          var d=add(box,'div',null,'q'),p=add(d,'p');
+          add(p,'span',(i+1)+'. ','n');p.appendChild(document.createTextNode((q.kind==='tf'?'True or false: ':'')+q.prompt));
+          function radio(text,val){var l=add(d,'label'),r=add(l,'input');r.type='radio';r.name='q'+i;r.value=val;l.appendChild(document.createTextNode(' '+text));}
+          if(q.kind==='mcq')q.choices.forEach(function(c,j){radio(c,j);});
+          else if(q.kind==='tf'){radio('True','true');radio('False','false');}
+          else{var a=add(d,q.kind==='short'?'textarea':'input');if(q.kind!=='short')a.type='text';a.id='a'+i;}
+          add(d,'p',null).id='m'+i;
+          add(d,'div','Answer: '+q.answer+(q.why?' — '+q.why:'')+(q.source?' ['+q.source+']':''),'why');
+        });
+        renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},
+          {left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false});
+        document.getElementById('check').onclick=function(){
+          var right=0,marked=0;
+          Q.forEach(function(q,i){
+            var ok=null,c=document.querySelector('input[name=q'+i+']:checked');
+            if(q.kind==='mcq')ok=!!c&&Number(c.value)===q.index;
+            else if(q.kind==='tf')ok=!!c&&(c.value==='true')===q.bool;
+            else if(q.kind==='fill')ok=fillOK(document.getElementById('a'+i).value,q.answer);
+            var m=document.getElementById('m'+i);
+            if(ok===null){m.textContent='Compare yours with the answer below.';m.className='';}
+            else{marked++;if(ok)right++;m.textContent=ok?'✓ Right':'✗ Not quite';m.className=ok?'right':'wrong';}
+          });
+          document.body.classList.add('done');
+          document.getElementById('score').textContent=right+' of '+marked+' right'+(Q.length>marked?', and '+(Q.length-marked)+' to compare yourself':'');
+        };
+        </script></body></html>
+        """#
     }
 }
 
@@ -616,7 +692,7 @@ enum StudySelfTest {
               Quiz.answerGivenAway(QuizQuestion(kind: .fill, prompt: "E = λ/(2π ε₀ r). ___", answerText: "r"))
               && !Quiz.answerGivenAway(qs.count > 2 ? qs[2] : QuizQuestion(kind: .fill, prompt: "", answerText: "")))
         check("source unbracketed", qs.first?.source == "Serway, p. 745")
-        check("fill matching", Quiz.fillMatches("Surface.", "surface") && Quiz.fillMatches("7.2e6", "7200000")
+        check("fill matching", Quiz.fillMatches("Surface.", "surface") && Quiz.fillMatches("7.2e6", "7200000") && Quiz.fillMatches("ε0", "ε₀")
               && Quiz.fillMatches("3.14", "3.141") && !Quiz.fillMatches("volume", "surface"))
         check("json escapes kept", Quiz.latexSafeJSON(#"{"a":"x\ny \"q\" \\"}"#) == #"{"a":"x\ny \"q\" \\"}"#)
         check("latex escaped", Quiz.latexSafeJSON(#"$\theta$ \( \nabla"#) == #"$\\theta$ \\( \\nabla"#)
@@ -649,6 +725,21 @@ enum StudySelfTest {
               && Tutor.system(.check, course: nil).contains(MathCheck.studentInstruction) && !Tutor.system(.teach, course: nil).contains("CHECK"))
         check("Quiz me asks for a question", Tutor.messages(thread: [], question: "", material: "", images: [], imageText: "", mode: .quiz)
               .last?.text.hasSuffix("QUESTION: Ask me a question.") == true)
+
+        // A quiz shared as a web page.
+        let shareQs = [QuizQuestion(kind: .mcq, prompt: "The field inside a conductor in equilibrium is", choices: ["zero", "$\\sigma/\\varepsilon_0$", "infinite"],
+                                    answerIndex: 0, explanation: "Free charges move until it cancels.", topic: "Conductors", source: "Notes"),
+                       QuizQuestion(kind: .tf, prompt: "Outside charges change the net flux. </script><b>x</b>", answerBool: false),
+                       QuizQuestion(kind: .fill, prompt: "Flux through a closed surface is Q / ___", answerText: "ε₀"),
+                       QuizQuestion(kind: .fill, prompt: "k = ___ × 10^9", answerText: "8.99"),
+                       QuizQuestion(kind: .short, prompt: "Why does Gauss's law need symmetry to find $E$?", answerText: "So E is constant on the surface.")]
+        let page = QuizShare.html(shareQs, title: "Quiz — PHY2049")
+        check("shared quiz: every question in it, none can close its script", page.contains("Free charges move until it cancels.")
+              && page.contains("<\\/script>") && page.components(separatedBy: "</script>").count == page.components(separatedBy: "<script>").count
+              && page.contains("renderMathInElement"))
+        if let dir = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"], ProcessInfo.processInfo.environment["SB_KEEP"] == "1" {
+            try? page.write(toFile: dir + "/shared-quiz.html", atomically: true, encoding: .utf8)
+        }
 
         // Flashcards written in a note.
         let parsed = NoteCards.parse("""
