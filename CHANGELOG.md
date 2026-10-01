@@ -51,6 +51,8 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Slides beside the lecture** — add the lecture's slides in Voice (a PDF or PowerPoint, before or after recording) and *Make study notes* follows them: a section for each slide the lecture talked about, with what was said and what the slide shows. The note then opens with the slides beside it, turned to the slide the part you're in is about. Any note can get its slides from the share menu ▸ *Add the lecture's slides*.
 
+- **Better live transcription** — on macOS 26 and later, Voice's Apple Speech now uses Apple's newer speech engine. On a test lecture it got about a third fewer words wrong — 11% against 17% in a quiet room, 17% against 25% with background noise — and it no longer has to restart every minute. Older Macs keep the previous engine; the first time, macOS downloads the new model in the background and the recording uses the old engine meanwhile.
+
 - **Fixed: spoken audio stopped after a few sentences** — Convert's text → spoken audio cut a long text off at its first pause: 1,500 words came out as a few seconds. It now reads all of it.
 
 ## [2.4.5] — 2026-09-30
