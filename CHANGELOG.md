@@ -33,6 +33,22 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Fixed: Settings described an old rule** — Intelligence ▸ Boundaries still said StudyBar refuses to help with work you'd hand in, a rule removed in 2.4.0.
 
+- **Cheat sheets** — the PDF export window's new Layout setting turns any note, or Study's guide (it has a *Cheat sheet* button), into a one- or two-page sheet: three columns a page, the type shrunk until it all fits, for an exam that allows a page of notes. It says what size the type came out at, or that it won't fit.
+
+- **The tutor knows your weak topics** — the topics you score lowest on in Progress now go with every question to the tutor, which takes extra care with them, and with every new quiz, where about a third of the questions go to them.
+
+- **Share a quiz** — a finished quiz or practice exam has *Share…*: one web page a classmate can open in any browser, take, and have marked, with the answers and why.
+
+- **A summary while you record** — with ChatGPT, Claude or DeepSeek and Apple Speech, Voice writes a few points on what's just been said every few minutes, under *So far*, so a glance catches you up after you look away.
+
+- **Listen to your notes** — the notes list's ⋯ menu ▸ *Audio review* turns the notes on screen into about eight minutes of spoken review in an audio file, for a walk or the bus. It uses your best installed voice; a Premium or Enhanced one (System Settings ▸ Accessibility ▸ Spoken Content) sounds far more natural.
+
+- **Downloads go to their course** — turn on *Offer course files from Downloads* in Settings ▸ Integrations, and a file you download with a course code in its name, like “PHY2049 Lecture 7.pdf”, brings a notification that adds it to that course's Study sources.
+
+- **Flashcards on top** — review cards in a small panel that floats over your other apps: from a deck's ⋯ menu, or the menu-bar menu for every due card.
+
+- **Fill-in answers forgive subscripts** — ε0 now counts for ε₀, and m2 for m², in quizzes and shared quizzes.
+
 ## [2.4.5] — 2026-09-30
 
 - **Click a sentence to hear it** — a lecture recorded in StudyBar now keeps every sentence with its moment in the audio. Under the note's recording, **Transcript** lists them with their times; click one and the recording plays from just before it. It lists the recording rather than the note, so it still works after *Make study notes* has rewritten the text.
