@@ -261,6 +261,13 @@ final class VoiceService: ObservableObject {
 
     func userStop() {
         wantsRecording = false
+        if let end = liveFinish {
+            // Stop listening first, then let the model finish what it heard, then close up.
+            liveFinish = nil
+            stopInput()
+            Task { @MainActor in await end(); self.finish() }
+            return
+        }
         if whisperMode { finishWhisperAndTranscribe() }
         else if task != nil { request?.endAudio() } else { finish() }
     }
@@ -280,8 +287,71 @@ final class VoiceService: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard auth == .authorized else { self.status = .denied; return }
-                self.beginRecording()
+                // SpeechAnalyzer where this Mac has it and the language's model is installed
+                // (see LiveTranscriber for why); the older engine otherwise. `voiceUseAnalyzer`
+                // = false is the way back, should the new one ever misbehave on a Mac.
+                if #available(macOS 26.0, *), UserDefaults.standard.object(forKey: "voiceUseAnalyzer") as? Bool ?? true,
+                   let live = await LiveTranscriber.make(locale: Locale(identifier: self.localeID), vocabulary: self.vocabulary) {
+                    self.beginLiveRecording(live)
+                } else {
+                    self.beginRecording()
+                }
             }
+        }
+    }
+
+    /// How the SpeechAnalyzer recording is ended: everything heard finalized, then `finish`.
+    private var liveFinish: (() async -> Void)?
+
+    @available(macOS 26.0, *)
+    private func beginLiveRecording(_ live: LiveTranscriber) {
+        Diagnostics.info(.voice, "Live transcription: SpeechAnalyzer")
+        startInput(prepare: { [weak self] format in self?.openTake(format); return true },
+                   handle: { [weak self] buf in
+                       guard let self else { return }
+                       live.append(buf)
+                       self.writeTake(buf)
+                       if let r = Self.rms(buf) { self.pushLevel(rms: r) }
+                   }) { [weak self] ok in
+            guard let self else { return }
+            guard ok else { self.finish(); return }
+            self.status = .recording
+            self.emptyStreak = 0; self.everGotResult = false
+            self.recordingStart = Date(); self.startedAt = Date(); self.lastRecordingStart = self.recordingStart
+            self.liveFinish = { await live.finish() }
+            Task { @MainActor [weak self] in
+                do {
+                    try await live.start { [weak self] piece in self?.livePiece(piece) }
+                } catch {
+                    Diagnostics.warn(.voice, "SpeechAnalyzer didn't start: \(error.localizedDescription)")
+                    self?.status = .unavailable("Live transcription didn't start: \(error.localizedDescription)")
+                    self?.finish()
+                }
+            }
+            // The silent-mic watchdog; there's no one-minute wall to rotate before.
+            self.rotateTimer?.invalidate()
+            self.rotateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.watchdog() }
+            }
+        }
+    }
+
+    /// Text from SpeechAnalyzer: interim text replaces the last interim text; final text is
+    /// committed with its times, for the transcript list and its stars.
+    @available(macOS 26.0, *)
+    private func livePiece(_ p: LiveTranscriber.Piece) {
+        everGotResult = everGotResult || !p.text.isEmpty
+        if p.final {
+            if !p.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                timeline.add(p.text, from: p.start, to: p.end, words: p.words)
+                committed = join(committed, p.text)
+            }
+            currentPartial = ""
+            transcript = committed
+            saveDraft()
+        } else {
+            currentPartial = p.text
+            transcript = join(committed, currentPartial)
         }
     }
 
@@ -766,6 +836,7 @@ final class VoiceService: ObservableObject {
     static func clearDraft() { try? FileManager.default.removeItem(at: draftURL) }
 
     private func finish() {
+        if let end = liveFinish { liveFinish = nil; Task { await end() } }   // ended some other way (quit, a dead mic)
         rotateTimer?.invalidate(); rotateTimer = nil
         chunkTimer?.invalidate(); chunkTimer = nil
         stopInput()

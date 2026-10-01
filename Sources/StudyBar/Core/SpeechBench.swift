@@ -29,6 +29,13 @@ enum SpeechBench {
                 let b = try await analyzer(audio, locale: locale)
                 print(String(format: "SpeechAnalyzer  WER %.1f%%  %.0fs  %d words", wer(ref, b) * 100, Date().timeIntervalSince(t0), words(b).count))
                 if args.contains("--show") { print("--- Apple Speech ---\n\(a)\n--- SpeechAnalyzer ---\n\(b)") }
+                t0 = Date()
+                let (c, timeline, volatile) = try await live(audio, locale: locale)
+                let times = timeline.lines.map(\.t)
+                let duration = (try? AVAudioFile(forReading: audio)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+                print(String(format: "Live, as Voice  WER %.1f%%  %.0fs  %d words · %d interim updates · %d timed sentences, in order: %@, within the audio: %@",
+                             wer(ref, c) * 100, Date().timeIntervalSince(t0), words(c).count, volatile, times.count,
+                             times == times.sorted() ? "yes" : "no", (times.last ?? 0) <= duration ? "yes" : "no"))
             } catch { print("SpeechAnalyzer: \(error.localizedDescription)") }
         }
         return 0
@@ -70,9 +77,23 @@ enum SpeechBench {
     @available(macOS 26.0, *)
     static func analyzer(_ url: URL, locale: Locale) async throws -> String {
         let t = SpeechTranscriber(locale: locale, preset: .transcription)
-        let status = await AssetInventory.status(forModules: [t])
+        var status = await AssetInventory.status(forModules: [t])
         print("SpeechAnalyzer model: \(status)")
-        guard status == .installed else { throw CocoaError(.featureUnsupported) }
+        // `--install`: Apple's model for the language, downloaded and installed by macOS.
+        if status < .installed, CommandLine.arguments.contains("--install") {
+            let reserved = try await AssetInventory.reserve(locale: locale)
+            print("reserved \(locale.identifier): \(reserved); supported: \(await SpeechTranscriber.supportedLocales.contains { $0.identifier(.bcp47) == locale.identifier(.bcp47) })")
+        }
+        if status < .installed, CommandLine.arguments.contains("--install"),
+           let request = try await AssetInventory.assetInstallationRequest(supporting: [t]) {
+            let started = Date()
+            let watch = Task { while !Task.isCancelled { print(String(format: "  downloading %.0f%%", request.progress.fractionCompleted * 100)); try? await Task.sleep(nanoseconds: 5_000_000_000) } }
+            try await request.downloadAndInstall()
+            watch.cancel()
+            status = await AssetInventory.status(forModules: [t])
+            print("SpeechAnalyzer model: \(status), in \(Int(Date().timeIntervalSince(started)))s")
+        }
+        if status < .installed { print("not reported installed — trying anyway") }
         let file = try AVAudioFile(forReading: url)
         let collect = Task { () throws -> String in
             var s = ""
@@ -81,6 +102,29 @@ enum SpeechBench {
         }
         _ = try await SpeechAnalyzer(inputAudioFile: file, modules: [t], finishAfterFile: true)
         return try await collect.value
+    }
+
+    /// The file fed to LiveTranscriber in 1,024-frame buffers, the way the mic tap feeds it, and
+    /// the transcript and timeline assembled as Voice assembles them.
+    @available(macOS 26.0, *)
+    @MainActor
+    static func live(_ url: URL, locale: Locale) async throws -> (String, LectureTimeline, Int) {
+        let made = Date()
+        guard let lt = await LiveTranscriber.make(locale: locale, vocabulary: ["Gauss", "epsilon naught"]) else { throw CocoaError(.featureUnsupported) }
+        print(String(format: "ready to listen in %.2fs", Date().timeIntervalSince(made)))
+        var committed = "", timeline = LectureTimeline(), volatile = 0
+        try await lt.start { p in
+            if p.final { committed += (committed.isEmpty ? "" : " ") + p.text; timeline.add(p.text, from: p.start, to: p.end, words: p.words) }
+            else { volatile += 1 }
+        }
+        let f = try AVAudioFile(forReading: url)
+        while f.framePosition < f.length {
+            guard let buf = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: 1024),
+                  (try? f.read(into: buf, frameCount: 1024)) != nil, buf.frameLength > 0 else { break }
+            lt.append(buf)
+        }
+        await lt.finish()
+        return (committed, timeline, volatile)
     }
 
     static func words(_ s: String) -> [String] {
