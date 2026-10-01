@@ -16,6 +16,9 @@ struct PDFOptions: Equatable {
     var textSize: TextSize
     var header: Bool
     var pageNumbers: Bool
+    /// 0: a document. 1 or 2: a cheat sheet on that many pages (`NotePDF.sheet`). Chosen per
+    /// export, never remembered — the next note shouldn't come out as a cheat sheet.
+    var sheetPages = 0
 
     var paperSize: CGSize { paper == .letter ? CGSize(width: 612, height: 792) : CGSize(width: 595.28, height: 841.89) }
     var margin: CGFloat { switch margins { case .narrow: 36; case .normal: 54; case .wide: 72 } }
@@ -57,6 +60,7 @@ enum NotePDF {
     static let maxPages = 300
 
     static func render(body: String, meta: Meta, options: PDFOptions) async -> Data? {
+        if options.sheetPages > 0 { return await sheet(body: body, meta: meta, options: options)?.data }
         let paper = options.paperSize, m = options.margin, s = options.scale
         let cssWidth = (paper.width - 2 * m) / s
         let pageHeight = (paper.height - 2 * m) / s
@@ -95,6 +99,39 @@ enum NotePDF {
         }
         guard let pdf = compose(slices, meta: meta, options: options) else { return nil }
         return bookmarked(pdf, heads: heads, cuts: cuts, options: options) ?? pdf
+    }
+
+    /// A cheat sheet: the note in three columns a page, the type shrunk until everything fits on
+    /// `sheetPages` pages — for an exam that allows one or two sheets. The pages are laid side by
+    /// side as one wide block of columns and cut apart, since CSS columns can't flow from one box
+    /// down into the next. Returns the size the type fits at, and whether it fit at all: at the
+    /// smallest size a long note still might not.
+    static func sheet(body: String, meta: Meta, options: PDFOptions) async -> (data: Data, size: Double, fits: Bool)? {
+        let n = max(1, options.sheetPages), gap: CGFloat = 12
+        let paper = options.paperSize, m = options.margin
+        let w = paper.width - 2 * m, h = paper.height - 2 * m
+        let total = CGFloat(n) * w + CGFloat(n - 1) * gap
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: total, height: h))
+        let loader = Loader()
+        web.navigationDelegate = loader
+        web.loadHTMLString(page(body: body, meta: meta, width: total, sheet: (n, h, gap)), baseURL: nil)
+        guard await loader.finished(),
+              let r = try? await web.callAsyncJavaScript("await document.fonts.ready; return sheet(colW);",
+                                                         arguments: ["colW": Double((w - 2 * gap) / 3)], contentWorld: .page) as? [Any],
+              r.count == 2, let size = (r[0] as? NSNumber)?.doubleValue, let fits = (r[1] as? NSNumber)?.boolValue
+        else { return nil }
+        var slices: [CGPDFPage] = []
+        for i in 0..<n {
+            let cfg = WKPDFConfiguration()
+            cfg.rect = CGRect(x: CGFloat(i) * (w + gap), y: 0, width: w, height: h)
+            guard let data = try? await web.pdf(configuration: cfg),
+                  let provider = CGDataProvider(data: data as CFData),
+                  let doc = CGPDFDocument(provider), let pg = doc.page(at: 1) else { return nil }
+            slices.append(pg)
+        }
+        var flat = options
+        flat.textSize = .normal; flat.header = false; flat.pageNumbers = false
+        return compose(slices, meta: meta, options: flat).map { ($0, size, fits) }
     }
 
     /// One bookmark per heading, nested by level, each pointing at the page the heading is on
@@ -188,10 +225,21 @@ enum NotePDF {
     }
 
     /// Print styles: the reading view's rules on white, in points (a CSS px is a PDF point here).
-    static func page(body: String, meta: Meta, width: CGFloat) -> String {
+    static func page(body: String, meta: Meta, width: CGFloat, sheet: (pages: Int, height: CGFloat, gap: CGFloat)? = nil) -> String {
         func esc(_ s: String) -> String {
             s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
         }
+        // A cheat sheet sizes everything from one font size, so the fitter has one dial to turn.
+        let sheetCSS = sheet.map { s in """
+          #c{width:\(Int(width))px;height:\(Int(s.height))px;column-count:\(3 * s.pages);column-gap:\(Int(s.gap))px;
+             column-fill:auto;column-rule:0.5px solid #ddd;line-height:1.25;font-size:9px;}
+          #c h1,#c h2,#c h3{break-after:avoid;}
+          #c p,#c li,#c tr,#c img,#c blockquote,#c pre,#c .katex-display{break-inside:avoid;}
+          #c p{margin:0 0 .25em;} #c h1{font-size:1.3em;margin:.5em 0 .15em;} #c h2{font-size:1.15em;margin:.45em 0 .1em;}
+          #c h3{font-size:1.05em;margin:.4em 0 .1em;} #c .title{font-size:1.45em;margin:0 0 .1em;} #c .meta{font-size:.85em;margin:0 0 .4em;}
+          #c ul{margin:.1em 0 .25em;padding-left:1.1em;} #c li{margin:0;} #c code{font-size:.9em;}
+          #c table{margin:.25em 0;} #c th,#c td{padding:.1em .3em;} #c .katex-display{margin:.2em 0;}
+          """ } ?? ""
         let head = meta.title.isEmpty ? "" : "<h1 class=\"title\">\(esc(meta.title))</h1>"
             + (meta.subtitle.isEmpty ? "" : "<p class=\"meta\">\(esc(meta.subtitle))</p>")
         return """
@@ -214,6 +262,7 @@ enum NotePDF {
           th{background:#f0f0f2;font-weight:600;}
           h1.note{font-size:21px;margin:0 0 2px;}
           .toc{display:flex;gap:8px;margin:0 0 3px;} .toc span:first-child{flex:1;} .pg{min-width:24px;text-align:right;color:#555;}
+        \(sheetCSS)
         </style></head><body><div id="c">\(head)\(body)</div>
         <script>
           renderMathInElement(document.getElementById('c'),{delimiters:[
@@ -222,11 +271,24 @@ enum NotePDF {
 
           // Anything wider than the column (a long equation, a many-column table) is scaled to
           // fit — a slice is clipped at the column edge, so overflow would be lost ink.
-          function fit(){
-            var W=document.getElementById('c').clientWidth;
+          // On a cheat sheet the limit is a column, and this runs again at every size tried.
+          function fit(W){
+            W=W||document.getElementById('c').clientWidth;
             document.querySelectorAll('.katex-display,table,pre').forEach(function(e){
-              var w=e.scrollWidth; if(w>W+1){e.style.zoom=(W/w).toFixed(3);}
+              e.style.zoom=''; var w=e.scrollWidth; if(w>W+1){e.style.zoom=(W/w).toFixed(3);}
             });
+          }
+
+          // A cheat sheet's type: the largest size, 12 px down to 4.5, at which nothing runs past
+          // the last column. Returns [size, fits].
+          function sheet(colW){
+            var c=document.getElementById('c');
+            function fits(px){c.style.fontSize=px+'px';fit(colW);return c.scrollWidth<=c.clientWidth+1;}
+            if(fits(12))return [12,true];
+            if(!fits(4.5))return [4.5,false];
+            var lo=4.5,hi=12;
+            for(var i=0;i<10;i++){var mid=(lo+hi)/2;if(fits(mid))lo=mid;else hi=mid;}
+            fits(lo);return [lo,true];
           }
 
           // Where each page ends: the lowest point on the page that doesn't cut through a
@@ -486,14 +548,14 @@ enum NoteHTML {
 enum PDFExportWindow {
     private static var window: NSWindow?
 
-    static func show(body: String, meta: NotePDF.Meta) {
+    static func show(body: String, meta: NotePDF.Meta, sheetPages: Int = 0) {
         window?.close()
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 880),
                          styleMask: [.titled, .closable, .resizable, .miniaturizable],
                          backing: .buffered, defer: false)
         w.title = "Export — " + (meta.title.isEmpty ? "Note" : meta.title)
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: PDFExportView(body: body, meta: meta) { window?.close() })
+        w.contentView = NSHostingView(rootView: PDFExportView(body: body, meta: meta, sheetPages: sheetPages) { window?.close() })
         w.center()
         window = w
         NSApp.activate(ignoringOtherApps: true)
@@ -507,12 +569,17 @@ private struct PDFExportView: View {
     let body_: String
     let meta: NotePDF.Meta
     let close: () -> Void
-    @State private var options = PDFOptions.saved
+    @State private var options: PDFOptions
     @State private var doc: PDFDocument?
     @State private var failed = false
+    /// A cheat sheet's type size, and whether everything fit.
+    @State private var sheetFit: (size: Double, fits: Bool)?
 
-    init(body: String, meta: NotePDF.Meta, close: @escaping () -> Void) {
+    init(body: String, meta: NotePDF.Meta, sheetPages: Int, close: @escaping () -> Void) {
         self.body_ = body; self.meta = meta; self.close = close
+        var o = PDFOptions.saved
+        o.sheetPages = sheetPages
+        _options = State(initialValue: o)
     }
 
     var body: some View {
@@ -524,11 +591,19 @@ private struct PDFExportView: View {
                 Picker("Margins", selection: $options.margins) {
                     ForEach(PDFOptions.Margins.allCases, id: \.self) { Text($0.rawValue) }
                 }.fixedSize()
-                Picker("Text", selection: $options.textSize) {
-                    ForEach(PDFOptions.TextSize.allCases, id: \.self) { Text($0.rawValue) }
+                Picker("Layout", selection: $options.sheetPages) {
+                    Text("Document").tag(0)
+                    Text("Cheat sheet, 1 page").tag(1)
+                    Text("Cheat sheet, 2 pages").tag(2)
                 }.fixedSize()
-                Toggle("Header", isOn: $options.header)
-                Toggle("Page numbers", isOn: $options.pageNumbers)
+                .help("A cheat sheet sets the note in three columns and shrinks the type until it fits")
+                if options.sheetPages == 0 {
+                    Picker("Text", selection: $options.textSize) {
+                        ForEach(PDFOptions.TextSize.allCases, id: \.self) { Text($0.rawValue) }
+                    }.fixedSize()
+                    Toggle("Header", isOn: $options.header)
+                    Toggle("Page numbers", isOn: $options.pageNumbers)
+                }
                 Spacer()
             }
             .padding(10)
@@ -543,6 +618,14 @@ private struct PDFExportView: View {
             HStack {
                 Text(doc.map { "\($0.pageCount) page\($0.pageCount == 1 ? "" : "s")" } ?? " ")
                     .font(.caption).foregroundStyle(.secondary)
+                if let f = sheetFit, doc != nil {
+                    if f.fits {
+                        Text("· type at \(f.size.formatted(.number.precision(.fractionLength(1)))) pt").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Label("Doesn't fit even at the smallest type — shorten it, or allow another page", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
                 Button("Print…", action: printPDF).disabled(doc == nil)
@@ -554,7 +637,13 @@ private struct PDFExportView: View {
         .task(id: options) {
             options.save()
             failed = false
-            let data = await NotePDF.render(body: body_, meta: meta, options: options)
+            var data: Data?
+            if options.sheetPages > 0 {
+                let r = await NotePDF.sheet(body: body_, meta: meta, options: options)
+                data = r?.data; sheetFit = r.map { ($0.size, $0.fits) }
+            } else {
+                data = await NotePDF.render(body: body_, meta: meta, options: options); sheetFit = nil
+            }
             guard !Task.isCancelled else { return }
             doc = data.flatMap(PDFDocument.init(data:))
             failed = doc == nil
@@ -690,6 +779,26 @@ enum PDFSelfTest {
             check("a bookmark per note, headings under it", marks.filter { $0.label?.hasPrefix("Lecture") == true }.count == 3
                   && marks.first { $0.label == "Lecture 2" }?.child(at: 0)?.label == "Topic 2", "\(marks.compactMap(\.label))")
         } else { check("binder renders", false) }
+
+        // A cheat sheet: the same long note on one page, then two, at a bigger size; and a note far
+        // too long for one page says so.
+        var sheetOpts = opts; sheetOpts.sheetPages = 1
+        let one = await NotePDF.sheet(body: NoteHTML.body(from: plain), meta: meta, options: sheetOpts)
+        sheetOpts.sheetPages = 2
+        let two = await NotePDF.sheet(body: NoteHTML.body(from: plain), meta: meta, options: sheetOpts)
+        if let one, let two, let d1 = PDFDocument(data: one.data), let d2 = PDFDocument(data: two.data) {
+            keepFile(one.data, "sb-sheet-selftest.pdf")
+            let text = d1.string ?? ""
+            check("cheat sheet: one page, everything on it", d1.pageCount == 1 && one.fits
+                  && text.contains("Section 1 heading") && text.contains("Section 18 heading") && !text.contains("\\oint"),
+                  "(\(one.size) pt)")
+            check("cheat sheet: two pages, bigger type", d2.pageCount == 2 && two.fits && two.size > one.size, "(\(two.size) pt)")
+        } else { check("cheat sheet renders", false) }
+        sheetOpts.sheetPages = 1
+        let huge = NSAttributedString(string: String(repeating: md, count: 12), attributes: [.font: NSFont.systemFont(ofSize: 15)])
+        if let r = await NotePDF.sheet(body: NoteHTML.body(from: huge), meta: meta, options: sheetOpts) {
+            check("cheat sheet: too long says so", !r.fits && r.size == 4.5)
+        } else { check("an overfull cheat sheet renders", false) }
 
         opts.paper = .a4; opts.textSize = .large; opts.pageNumbers = false
         if let data = await NotePDF.render(body: NoteHTML.body(from: plain), meta: meta, options: opts),

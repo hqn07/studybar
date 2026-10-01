@@ -882,6 +882,9 @@ private struct GuidePane: View {
                     Button(m.saved ? "Saved" : "Save as note") { save(guide) }.disabled(m.saved).buttonStyle(.borderedProminent)
                     Button("Export PDF") { PDFExportWindow.show(body: NoteHTML.body(from: NSAttributedString(string: guide)),
                                                                   meta: .init(title: "", subtitle: course?.code ?? "")) }
+                    Button("Cheat sheet") { PDFExportWindow.show(body: NoteHTML.body(from: NSAttributedString(string: guide)),
+                                                                   meta: .init(title: "", subtitle: course?.code ?? ""), sheetPages: 1) }
+                        .help("The guide in small type and three columns, fitted to one page — or two")
                     Spacer()
                     Button("Rewrite") { generate() }
                 }.padding(10)
