@@ -60,7 +60,7 @@ struct StudyModuleView: View {
     @State private var dropTargeted = false
 
     enum Tab: String, CaseIterable, Identifiable {
-        case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide", progress = "Progress"
+        case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide", progress = "Progress", glossary = "Glossary"
         var id: String { rawValue }
     }
 
@@ -71,6 +71,11 @@ struct StudyModuleView: View {
         StudyMaterial.sources(course: course?.id, in: state.data)
     }
     private var selected: [StudySource] { sources.map(\.source).filter { !excluded.contains($0) } }
+
+    /// The ticked notes, for the glossary.
+    private func tickedNotes() -> [Note] {
+        selected.compactMap { s in if case .note(let id) = s { return state.data.notes.first { $0.id == id } }; return nil }
+    }
 
     /// The ticked material as passages, read when a tool asks for it.
     private func material() -> [StudyPassage] { selected.flatMap { StudyMaterial.passages($0, in: state.data) } }
@@ -102,6 +107,7 @@ struct StudyModuleView: View {
                                 QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
                                 GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
                                 ProgressPane(course: course, quiz: session.quiz) { tab = .quiz }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
+                                if tab == .glossary { GlossaryPane(course: course, notes: tickedNotes) }
                             }
                         }
                     }
@@ -485,6 +491,73 @@ struct TutorPane: View {
                                                   : NoteFormat.tidy(MathSupport.normalized(text))
                 m.thread[idx].checks = checks
             }
+        }
+    }
+}
+
+// MARK: - Glossary
+
+/// The course's terms, A to Z, from the ticked notes and the course's flashcards (`Glossary`).
+private struct GlossaryPane: View {
+    @EnvironmentObject var state: AppState
+    let course: Course?
+    let notes: () -> [Note]
+    @State private var search = ""
+
+    private var deckName: String { course.map { $0.code.isEmpty ? $0.name : $0.code } ?? "Glossary" }
+    /// The course's decks: linked to it, or named for it the way a study pack names one.
+    private var deckIDs: Set<UUID> {
+        Set(state.data.decks.filter { (course != nil && $0.courseID == course?.id) || $0.name.caseInsensitiveCompare(deckName) == .orderedSame }.map(\.id))
+    }
+    private var entries: [Glossary.Entry] {
+        let decks = Dictionary(uniqueKeysWithValues: state.data.decks.map { ($0.id, $0.name) })
+        let cards = state.data.flashcards.filter { deckIDs.contains($0.deckID) }.map { (front: $0.front, back: $0.back, deck: decks[$0.deckID] ?? "Flashcards") }
+        return Glossary.build(notes: notes(), cards: cards)
+    }
+
+    var body: some View {
+        let all = entries
+        let shown = search.isEmpty ? all : all.filter { $0.term.localizedCaseInsensitiveContains(search) || $0.definition.localizedCaseInsensitiveContains(search) }
+        let fronts = Set(state.data.flashcards.filter { deckIDs.contains($0.deckID) }.map { $0.front.lowercased() })
+        let missing = all.filter { !fronts.contains($0.term.lowercased()) }
+        VStack(spacing: 0) {
+            HStack {
+                SearchField(text: $search).frame(maxWidth: 280)
+                Text("\(all.count) term\(all.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Make \(missing.count) flashcard\(missing.count == 1 ? "" : "s")") { makeCards(missing) }
+                    .disabled(missing.isEmpty)
+                    .help("The terms without a card yet, into the course's deck")
+            }.padding(10)
+            Divider()
+            if all.isEmpty {
+                EmptyState(symbol: "character.book.closed", title: "No terms yet",
+                           subtitle: "Terms gather here from the ticked notes — a line written term :: definition, or a bold term with its definition, the way study notes are written — and from flashcards whose front is a term.")
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(shown) { e in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(e.term).font(.callout.weight(.semibold))
+                                if e.definition.contains("$") { SwiftMathContent(text: e.definition) }
+                                else { Text(e.definition).font(.callout) }
+                                Text(e.source).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                        }
+                    }
+                    .padding(16).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private func makeCards(_ entries: [Glossary.Entry]) {
+        state.withUndo("Made \(entries.count) flashcards from the glossary") {
+            let deck = state.data.decks.first { $0.name.caseInsensitiveCompare(deckName) == .orderedSame } ?? Deck(name: deckName, courseID: course?.id)
+            if !state.data.decks.contains(where: { $0.id == deck.id }) { state.data.decks.append(deck) }
+            state.data.flashcards += entries.map { Flashcard(deckID: deck.id, front: $0.term, back: $0.definition) }
         }
     }
 }
@@ -1011,6 +1084,8 @@ enum StudySnapshot {
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
         save(NavigationStack { StudyView(deckID: nil, onClose: {}) }, "cards-panel.png", CGSize(width: 380, height: 440))
+        state.data.notes[0].body = "## Flux\n- **Flux** — the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$\nGaussian surface :: an imaginary closed surface chosen for symmetry"
+        save(GlossaryPane(course: course, notes: { state.data.notes.filter { $0.courseID == course.id } }), "glossary.png", CGSize(width: 760, height: 420))
         // A lecture note with its slides beside it, the caret in the section on slide 2.
         let deckPDF = URL(fileURLWithPath: out).appendingPathComponent("deck.pdf")
         var box = CGRect(x: 0, y: 0, width: 720, height: 405)

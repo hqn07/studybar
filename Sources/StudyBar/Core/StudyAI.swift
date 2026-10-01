@@ -275,6 +275,50 @@ enum Quiz {
     }
 }
 
+// MARK: - Glossary
+
+/// A course's terms with their definitions, gathered from what the student already has — no AI:
+/// `term :: definition` lines, the "**Term** — definition" lines study notes and guides are
+/// written in, and flashcards whose front is a term rather than a question. One entry per term,
+/// the first definition found, in that order of trust; A to Z.
+enum Glossary {
+    struct Entry: Identifiable, Equatable {
+        var id: String { term.lowercased() }
+        let term: String, definition: String, source: String
+    }
+
+    /// `- **Flux** — the field through a surface`, `**Flux**: …`; at most 60 characters of term.
+    private static let bold = #"^\s*(?:[-*•]\s+)?\*\*([^*\n]{2,60})\*\*\s*(?:—|–|-|:)\s*(.+)$"#
+
+    static func build(notes: [Note], cards: [(front: String, back: String, deck: String)]) -> [Entry] {
+        var out: [String: Entry] = [:], order: [String] = []
+        func add(_ term: String, _ def: String, _ source: String) {
+            let t = term.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            let d = def.trimmingCharacters(in: .whitespaces)
+            guard t.count >= 2, t.count <= 60, !d.isEmpty, !t.hasSuffix("?") else { return }
+            let k = t.lowercased()
+            if out[k] == nil { out[k] = Entry(term: t, definition: d, source: source); order.append(k) }
+        }
+        for n in notes {
+            let title = n.title.isEmpty ? "Untitled note" : n.title
+            for c in NoteCards.parse(n.body) { add(c.front, c.back, title) }
+        }
+        for n in notes {
+            let title = n.title.isEmpty ? "Untitled note" : n.title
+            for line in n.body.components(separatedBy: .newlines) {
+                guard let m = line.range(of: bold, options: .regularExpression) else { continue }
+                let l = String(line[m])
+                guard let open = l.range(of: "**"), let close = l.range(of: "**", range: open.upperBound..<l.endIndex) else { continue }
+                let rest = l[close.upperBound...].trimmingCharacters(in: .whitespaces)
+                    .replacingOccurrences(of: #"^(?:—|–|-|:)\s*"#, with: "", options: .regularExpression)
+                add(String(l[open.upperBound..<close.lowerBound]), rest, title)
+            }
+        }
+        for c in cards where !c.front.contains("{{") && c.front.split(separator: " ").count <= 6 { add(c.front, c.back, c.deck) }
+        return order.compactMap { out[$0] }.sorted { $0.term.localizedCaseInsensitiveCompare($1.term) == .orderedAscending }
+    }
+}
+
 // MARK: - Audio review
 
 /// Notes as something to listen to on a walk or a commute: the AI writes a spoken review of
@@ -825,6 +869,17 @@ enum StudySelfTest {
             } else { check("reader: test book", false) }
             try? FileManager.default.removeItem(at: pdf)
         }
+
+        // The glossary: from :: lines, bold definitions and term-like flashcards; first wins.
+        let gNotes = [Note(title: "Week 3", body: "Flux :: the field through a surface\n- **Gauss's law** — net flux equals $Q/\\varepsilon_0$\n**Flux**: a later, different definition\nWhat is **this**? not a definition"),
+                      Note(title: "Week 4", body: "## Potential\n- **Electric potential** — energy per unit charge")]
+        let g = Glossary.build(notes: gNotes, cards: [(front: "Capacitance", back: "Q/V", deck: "PHY2049"),
+                                                      (front: "What is a conductor?", back: "…", deck: "PHY2049"),
+                                                      (front: "{{c1::Gauss}} said flux", back: "", deck: "PHY2049")])
+        check("glossary: three sources, one entry per term, the first definition, A to Z",
+              g.map(\.term) == ["Capacitance", "Electric potential", "Flux", "Gauss's law"]
+              && g.first { $0.term == "Flux" }?.definition == "the field through a surface"
+              && g.first { $0.term == "Gauss's law" }?.source == "Week 3", "\(g.map(\.term))")
 
         // A quiz shared as a web page.
         let shareQs = [QuizQuestion(kind: .mcq, prompt: "The field inside a conductor in equilibrium is", choices: ["zero", "$\\sigma/\\varepsilon_0$", "infinite"],
