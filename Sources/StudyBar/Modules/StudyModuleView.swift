@@ -458,17 +458,9 @@ struct TutorPane: View {
         let query = [q, imageText].filter { !$0.isEmpty }.joined(separator: " ")
         // As many of the best passages as the engine can take: a quarter of what a quiz reads on
         // a hosted engine (~30k characters), the five that always fit on a local one.
-        let chars = max(7_500, LectureNotes.readChars(for: engine) / 4)
-        let pool = material()
-        var found = query.isEmpty ? [] : StudyIndex.fitting(query, in: pool, chars: chars)
         let open = openItem()
-        if turnMode == .quiz {
-            // What the last question was about, to mark the answer by; then a random stretch of
-            // the material for the next one — so the questions roam the course, not one page.
-            let graded = q.isEmpty ? [] : StudyIndex.fitting((prior.last?.answer ?? "") + " " + q, in: pool, chars: chars / 3)
-            let next = open?.text.isEmpty == false ? [] : StudyMaterial.groups(pool, maxChars: chars * 2 / 3).randomElement() ?? []
-            found = graded + next.filter { !graded.contains($0) }
-        }
+        let found = Tutor.material(for: query, mode: turnMode, lastAnswer: prior.last?.answer ?? "", in: material(),
+                                   hasOpen: open?.text.isEmpty == false, engine: engine)
         let code = course.map { $0.code.isEmpty ? $0.name : $0.code }
         // Dropped files ride along as material, ahead of what the search found.
         let budget = LectureNotes.chunkChars(for: engine) / 3

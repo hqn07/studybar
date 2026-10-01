@@ -433,6 +433,20 @@ enum Tutor {
         }
     }
 
+    /// The passages a question goes with: as many of the best matches as the engine can take —
+    /// a quarter of what a quiz reads on a hosted engine (~30k characters), the five that always
+    /// fit on a local one. Quiz me takes what the last question was about, to mark the answer
+    /// by, then a random stretch of the material for the next — so the questions roam the
+    /// course, not one page — unless something is open beside the chat, which it quizzes on.
+    static func material(for query: String, mode: Mode, lastAnswer: String, in pool: [StudyPassage],
+                         hasOpen: Bool, engine: AIMode) -> [StudyPassage] {
+        let chars = max(7_500, LectureNotes.readChars(for: engine) / 4)
+        guard mode == .quiz else { return query.isEmpty ? [] : StudyIndex.fitting(query, in: pool, chars: chars) }
+        let graded = query.isEmpty ? [] : StudyIndex.fitting(lastAnswer + " " + query, in: pool, chars: chars / 3)
+        let next = hasOpen ? [] : StudyMaterial.groups(pool, maxChars: chars * 2 / 3).randomElement() ?? []
+        return graded + next.filter { !graded.contains($0) }
+    }
+
     /// The last few turns for context; the course material and the images go on the new one only.
     static func messages(thread: [Turn], question: String, material: String, images: [Data], imageText: String,
                          mode: Mode = .explain, open: (title: String, text: String)? = nil) -> [AIMessage] {
@@ -799,17 +813,23 @@ enum StudyRun {
             print("--- \(took()) ---\n\(g ?? "FAILED")")
             return g == nil ? 1 : 0
         case "tutor":
-            let q = i + 3 < args.count && !args[i + 3].hasPrefix("--") ? args[i + 3] : "Explain the main idea."
+            // `--thread <file.json>` carries a conversation between runs, one turn per run —
+            // how Quiz me is tried: ask, read the question, answer it in the next run.
+            let q = i + 3 < args.count && !args[i + 3].hasPrefix("--") ? args[i + 3] : ""
             let tutorMode = Tutor.Mode(rawValue: args.firstIndex(of: "--mode").map { args[$0 + 1] } ?? "") ?? .full
-            let found = StudyIndex.search(q, in: passages, k: 5)
+            let threadURL = args.firstIndex(of: "--thread").map { URL(fileURLWithPath: args[$0 + 1]) }
+            let saved = threadURL.flatMap { try? JSONDecoder().decode([[String]].self, from: Data(contentsOf: $0)) } ?? []
+            let thread = saved.map { Tutor.Turn(question: $0[0], mode: Tutor.Mode(rawValue: $0[2]) ?? tutorMode, answer: $0[1]) }
+            let found = Tutor.material(for: q, mode: tutorMode, lastAnswer: thread.last?.answer ?? "", in: passages, hasOpen: false, engine: mode)
             print("retrieved: \(found.map(\.cite))")
             let out = try? await provider.streamPlain(system: Tutor.system(tutorMode, course: nil),
-                                                      messages: Tutor.messages(thread: [], question: q, material: StudyMaterial.block(found),
+                                                      messages: Tutor.messages(thread: thread, question: q, material: StudyMaterial.block(found),
                                                                                images: [], imageText: "", mode: tutorMode),
                                                       temperature: 0.3, onReply: { _ in })
             let (text, checks) = MathCheck.run(out ?? "")
             print("--- \(took()) ---\n\(text)\n--- checks ---")
             for c in checks { print("\(c.ok.map { $0 ? "OK  " : "BAD " } ?? "??  ") \(c.expression) = \(c.claimed)  (calc: \(c.actual.map { MathEval.format($0) } ?? "–"))") }
+            if let threadURL, out != nil { try? JSONEncoder().encode(saved + [[q, text, tutorMode.rawValue]]).write(to: threadURL) }
             return out == nil ? 1 : 0
         default:
             return 1
