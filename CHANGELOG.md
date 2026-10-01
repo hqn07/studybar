@@ -3,6 +3,12 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Read your textbook in StudyBar** — a book with its PDF attached gets *Read*: the PDF opens in Reading at your page and keeps your place, so the chat beside it (⌘J) always knows the page you're on. Select text and *Highlight* (⇧⌘H) saves it to the book's highlights with its page — ready to become flashcards.
+
+- **A glossary of each course** — Study's new Glossary tab lists every term in the course with its definition, gathered from your notes (`term :: definition` lines, and the bold term-and-definition lines study notes are written in) and your flashcards, A to Z and searchable. *Make flashcards* adds the terms that don't have a card yet.
+
 ## [2.5.0] — 2026-10-01
 
 - **Study reads a whole course** — with ChatGPT, Claude or DeepSeek, a quiz, practice exam or study guide now reads up to 120,000 characters of the course at once — every note, where a 10-question quiz on a large course used to be written from about a quarter of it. The tutor sends as many of the best-matching passages as fit, instead of five. The local model reads what it always did.
