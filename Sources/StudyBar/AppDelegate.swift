@@ -125,8 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard let text = try? String(contentsOfFile: args[i + 1], encoding: .utf8),
                       let provider = AIService.makeProvider(mode: mode) else { print("no input or engine"); exit(1) }
                 let t0 = Date()
+                // `--slides <deck.pdf|pptx>`: the deck the lecture was given from.
+                let slides = args.firstIndex(of: "--slides").map { StudyMaterial.extract(URL(fileURLWithPath: args[$0 + 1])) }?
+                    .compactMap { u in Int(u.locator.filter(\.isNumber)).map { (number: $0, text: u.text) } } ?? []
                 let out = await LectureNotes.run(text, job: args.contains("--complete") ? .complete : .lecture,
-                                                 provider: provider, mode: mode) { _, part, total in
+                                                 provider: provider, mode: mode, slides: slides) { _, part, total in
                     FileHandle.standardError.write("\rpart \(part)/\(total)".data(using: .utf8)!)
                 }
                 print("\n--- \(Int(Date().timeIntervalSince(t0)))s ---\n" + (out ?? "FAILED"))
