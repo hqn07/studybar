@@ -485,21 +485,27 @@ enum Converter {
             ?? AVSpeechSynthesisVoice(language: lang)
     }
 
+    /// When the synthesizer is really done. An empty buffer used to be read as the end, and on a
+    /// long text one comes every few sentences: ten minutes of review came out as twelve seconds.
+    private final class SpeechEnd: NSObject, AVSpeechSynthesizerDelegate {
+        var done: (() -> Void)?
+        func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { done?(); done = nil }
+        func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { done?(); done = nil }
+    }
+
     /// Text read aloud into an audio file, with the system voice — notes to listen to.
     static func speak(_ text: String, to out: URL) async throws {
         let synth = AVSpeechSynthesizer()
+        let end = SpeechEnd()
+        synth.delegate = end
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = bestVoice()
         var file: AVAudioFile?
         var failed: Error?
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            var finished = false
+            end.done = { done.resume() }
             synth.write(utterance) { buffer in
-                guard let pcm = buffer as? AVAudioPCMBuffer else { return }
-                if pcm.frameLength == 0 {                 // the end
-                    if !finished { finished = true; done.resume() }
-                    return
-                }
+                guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else { return }
                 do {
                     if file == nil {
                         file = try AVAudioFile(forWriting: out, settings: [AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -512,6 +518,7 @@ enum Converter {
             }
         }
         file = nil
+        synth.delegate = nil
         if let failed { throw failed }
         guard FileManager.default.fileExists(atPath: out.path) else { throw Failure.nothingFound }
     }
@@ -691,9 +698,12 @@ enum ConvertSelfTest {
         // An audio review: what the voice would read as symbols goes, then it's read into a file.
         check("audio review: marks, math signs and citations aren't read aloud",
               AudioReview.spoken("## Flux\n- **Flux** is $\\Phi$ [Notes, p. 3]\n1. Then `Gauss`") == "Flux\nFlux is Phi \nThen Gauss")
+        // Paragraphs, several sentences each: the synthesizer pauses between stretches of a long
+        // text, and stopping at the first pause made 12 s of a 10-minute review.
         struct Script: AIProvider {
             func complete(system: String, messages: [AIMessage]) async throws -> String {
-                "## Review\n" + String(repeating: "Electric flux is the field passing through a surface, and Gauss's law ties it to the charge inside. ", count: 4)
+                "## Review\n" + Array(repeating: String(repeating: "Electric flux is the field passing through a surface, and Gauss's law ties it to the charge inside. ", count: 4),
+                                       count: 5).joined(separator: "\n\n")
             }
         }
         let review = dir.appendingPathComponent("Review.m4a")
@@ -702,7 +712,7 @@ enum ConvertSelfTest {
             try await AudioReview.make(from: [Note(title: "Week 3", body: "Flux and Gauss's law")], to: review,
                                        provider: Script(), mode: .openai) { steps.append($0) }
             let seconds = (try? AVAudioFile(forReading: review)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
-            check("audio review: an audio file of the script", seconds > 10 && steps == ["writing the script", "reading it aloud"],
+            check("audio review: the whole script read into the file", seconds > 60 && steps == ["writing the script", "reading it aloud"],
                   "(\(Int(seconds)) s, voice: \(Converter.bestVoice()?.name ?? "none"))")
         } catch { check("audio review", false, error.localizedDescription) }
 

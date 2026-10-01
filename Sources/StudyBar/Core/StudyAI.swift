@@ -1014,7 +1014,8 @@ enum StudyRun {
             let thread = saved.map { Tutor.Turn(question: $0[0], mode: Tutor.Mode(rawValue: $0[2]) ?? tutorMode, answer: $0[1]) }
             let found = Tutor.material(for: q, mode: tutorMode, lastAnswer: thread.last?.answer ?? "", in: passages, hasOpen: false, engine: mode)
             print("retrieved: \(found.map(\.cite))")
-            let out = try? await provider.streamPlain(system: Tutor.system(tutorMode, course: nil),
+            let weak = args.firstIndex(of: "--weak").map { [args[$0 + 1]] } ?? []
+            let out = try? await provider.streamPlain(system: Tutor.system(tutorMode, course: nil, weak: weak),
                                                       messages: Tutor.messages(thread: thread, question: q, material: StudyMaterial.block(found),
                                                                                images: [], imageText: "", mode: tutorMode),
                                                       temperature: 0.3, onReply: { _ in })

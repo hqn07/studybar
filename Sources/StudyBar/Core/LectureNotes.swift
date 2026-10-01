@@ -275,8 +275,8 @@ enum LiveSummary {
     static let system = """
     You keep running notes on a lecture while it is being recorded, for a student who glances at \
     them to catch up. From what was just said — a raw speech-to-text transcript, with its errors — \
-    write 1 to 3 short bullets on the main points: what a student who looked away would need. \
-    Don't repeat the earlier points. Terse; math as LaTeX in $…$. Reply with only the bullets, or \
+    write 1 to 3 short bullets on its main points, covering the whole stretch in the order it was \
+    said — what a student who looked away would need. Don't repeat the earlier points. Terse; math as LaTeX in $…$. Reply with only the bullets, or \
     with nothing if nothing of substance was said.
     """
 
