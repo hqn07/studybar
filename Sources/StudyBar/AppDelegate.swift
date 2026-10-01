@@ -149,6 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Task { @MainActor in exit(await ConvertSelfTest.run()) }
             return
         }
+        if CommandLine.arguments.contains("--stt-bench") {
+            Task { @MainActor in exit(await SpeechBench.run(CommandLine.arguments)) }
+            return
+        }
         if CommandLine.arguments.contains("--study-run") {
             Task { @MainActor in exit(await StudyRun.run(CommandLine.arguments)) }
             return
