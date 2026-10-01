@@ -222,6 +222,24 @@ struct VoiceBody: View {
                 LevelMeter(meter: voice.meter).frame(height: 42).padding(.horizontal, 36)
                 Text("Aim the mic at the speaker — the bars move when it's picking up their voice.")
                     .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                if voice.soFar.isEmpty, voice.lastEngine == "Apple Speech", LiveSummary.hosted(AIConfig.engine(for: .transcript)) {
+                    Text("A few points on what's been said appear here every few minutes.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+
+            if !voice.soFar.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("So far", systemImage: "text.badge.checkmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(voice.soFar) { s in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.minutes).font(.caption2).foregroundStyle(.tertiary)
+                            RichText(text: s.points.map { "- " + $0 }.joined(separator: "\n"))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
             }
 
             if !voice.transcript.isEmpty {

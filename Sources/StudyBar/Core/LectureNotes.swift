@@ -257,10 +257,59 @@ enum LectureNotes {
 
 // MARK: - Self-test (StudyBar --lecture-selftest)
 
+/// The running notes Voice keeps while a lecture records (`VoiceService.soFar`).
+enum LiveSummary {
+    struct Stretch: Identifiable, Equatable {
+        let id = UUID()
+        let minutes: String
+        let points: [String]
+    }
+
+    static func hosted(_ mode: AIMode) -> Bool { mode == .claude || mode == .openai }
+
+    /// After four minutes with something said, or sooner if a lot was.
+    static func due(fresh: Int, since: TimeInterval) -> Bool {
+        fresh >= 600 && (since >= 240 || fresh >= 4_000)
+    }
+
+    static let system = """
+    You keep running notes on a lecture while it is being recorded, for a student who glances at \
+    them to catch up. From what was just said — a raw speech-to-text transcript, with its errors — \
+    write 1 to 3 short bullets on the main points: what a student who looked away would need. \
+    Don't repeat the earlier points. Terse; math as LaTeX in $…$. Reply with only the bullets, or \
+    with nothing if nothing of substance was said.
+    """
+
+    static func points(_ text: String, earlier: [String], provider: AIProvider) async -> [String] {
+        let user = (earlier.isEmpty ? "" : "EARLIER POINTS:\n" + earlier.map { "- \($0)" }.joined(separator: "\n") + "\n\n")
+            + "JUST SAID:\n\"\"\"\n\(text.suffix(12_000))\n\"\"\""
+        guard let raw = try? await provider.completePlain(system: system, messages: [AIMessage(role: .user, text: user)]) else { return [] }
+        return parse(raw)
+    }
+
+    /// The bullets, at most three; lines without a marker if the model wrote no bullets.
+    static func parse(_ raw: String) -> [String] {
+        let lines = raw.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let marked = lines.filter { $0.range(of: #"^(?:[-*•]|\d+[.)])\s+"#, options: .regularExpression) != nil }
+        return (marked.isEmpty ? lines : marked)
+            .map { $0.replacingOccurrences(of: #"^(?:[-*•]|\d+[.)])\s+"#, with: "", options: .regularExpression) }
+            .prefix(3).map { $0 }
+    }
+}
+
 enum LectureNotesSelfTest {
     static func run() -> Int32 {
         var fail = 0
         func check(_ n: String, _ ok: Bool, _ d: String = "") { print("  \(ok ? "ok  " : "FAIL") \(n) \(d)"); if !ok { fail += 1 } }
+
+        // The running summary while recording.
+        check("live summary: due after four minutes, or sooner after a lot",
+              !LiveSummary.due(fresh: 500, since: 600) && !LiveSummary.due(fresh: 2_000, since: 120)
+              && LiveSummary.due(fresh: 2_000, since: 250) && LiveSummary.due(fresh: 5_000, since: 60))
+        check("live summary: bullets read, at most three, unmarked lines when there are none",
+              LiveSummary.parse("Here:\n- Flux is $\\Phi$\n* Gauss\n2. Symmetry\n- Fourth") == ["Flux is $\\Phi$", "Gauss", "Symmetry"]
+              && LiveSummary.parse("Flux through a surface\n\nGauss's law") == ["Flux through a surface", "Gauss's law"]
+              && LiveSummary.parse("").isEmpty)
 
         // A live transcript: one line, ~30k characters.
         let sentence = "The flux through a closed surface equals the enclosed charge over epsilon naught. "

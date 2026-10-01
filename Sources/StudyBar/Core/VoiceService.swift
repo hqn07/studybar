@@ -36,7 +36,12 @@ final class VoiceMeter: ObservableObject {
 @MainActor
 final class VoiceService: ObservableObject {
     enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
-    @Published var status: Status = .idle { didSet { holdAwake(status == .recording || status == .transcribing) } }
+    @Published var status: Status = .idle {
+        didSet { holdAwake(status == .recording || status == .transcribing); summarizeAsItGoes(status == .recording) }
+    }
+    /// "So far": a few points on each stretch of the lecture, written while it records.
+    @Published private(set) var soFar: [LiveSummary.Stretch] = []
+    private var soFarTask: Task<Void, Never>?
     @Published var transcript = ""
     /// "Make study notes" in progress, and the transcript it replaced (so it can be reverted).
     /// Here rather than in the view so that leaving Voice mid-job doesn't drop either.
@@ -223,6 +228,32 @@ final class VoiceService: ObservableObject {
     /// granting is enough.
     func clearDenied() {
         if status == .denied { status = .idle }
+    }
+
+    /// Every minute, whether enough has been said since the last summary to write the next one.
+    /// Hosted engines only — a local model would compete with the recording for the Mac — and
+    /// only with a live transcript, which Whisper doesn't make until the end.
+    private func summarizeAsItGoes(_ on: Bool) {
+        guard on else { soFarTask?.cancel(); soFarTask = nil; return }
+        guard soFarTask == nil else { return }
+        soFar = []
+        soFarTask = Task { [weak self] in
+            var done = 0, doneAt: TimeInterval = 0          // characters and seconds already summarized
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard let self, !Task.isCancelled, self.isRecording, let started = self.startedAt,
+                      LiveSummary.hosted(AIConfig.engine(for: .transcript)) else { continue }
+                let text = self.transcript, now = Date().timeIntervalSince(started)
+                let fresh = String(text.dropFirst(done))
+                guard LiveSummary.due(fresh: fresh.count, since: now - doneAt),
+                      let provider = AIService.makeProvider(for: .transcript) else { continue }
+                let stretch = "\(Int(doneAt / 60))–\(Int(now / 60)) min"
+                let points = await LiveSummary.points(fresh, earlier: self.soFar.suffix(3).flatMap(\.points), provider: provider)
+                guard !Task.isCancelled else { return }
+                done = text.count; doneAt = now
+                if !points.isEmpty { self.soFar.append(.init(minutes: stretch, points: points)) }
+            }
+        }
     }
 
     func userStop() {
