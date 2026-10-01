@@ -47,6 +47,7 @@ struct SettingsView: View {
     @State private var aiOpenAIHost = AIConfig.openaiHost
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
     @AppStorage("settingsShowAdvanced") private var showAdvanced = false
+    @AppStorage("watchDownloads") private var watchDownloads = false
     @State private var autocompleteStatus = ""
     /// Which engine the credentials section is editing. Defaults to the main engine, but the
     /// ask engine can be selected without changing what the app runs on — gating this on the
@@ -510,6 +511,10 @@ struct SettingsView: View {
             }
             if !remindersStatus.isEmpty { Text(remindersStatus).font(.caption).foregroundStyle(.secondary) }
             Text("Also: Shortcuts.app actions, the Services menu (select text ▸ Add to StudyBar), and the studybar:// URL scheme.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("Offer course files from Downloads", isOn: $watchDownloads)
+                .onChange(of: watchDownloads) { _, _ in DownloadWatch.sync() }
+            Text("A PDF, slides or a document you download with a course code in its name — “PHY2049 Lecture 7.pdf” — is offered for that course's Study sources. macOS asks once to let StudyBar see Downloads.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

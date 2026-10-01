@@ -229,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Diagnostics.info(.app, "Launched StudyBar \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         Notifier.requestAuthorization()
         Notifier.rescheduleAll(state.data)   // class + assignment reminders from current data
+        DownloadWatch.sync()
 
         popover.behavior = .transient
         popover.animates = true

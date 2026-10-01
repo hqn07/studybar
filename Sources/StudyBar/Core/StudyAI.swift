@@ -764,6 +764,38 @@ enum StudySelfTest {
         check("Quiz me asks for a question", Tutor.messages(thread: [], question: "", material: "", images: [], imageText: "", mode: .quiz)
               .last?.text.hasSuffix("QUESTION: Ask me a question.") == true)
 
+        // A course's file arriving in Downloads.
+        let lecture = Course(name: "Physics 2", code: "PHY2049"), lab = Course(name: "Physics 2 lab", code: "PHY2049L")
+        check("downloads: a code in the name, spaced or not; the longest code wins",
+              DownloadWatch.course(for: "phy 2049 - lecture 7.pdf", in: [lecture, lab])?.id == lecture.id
+              && DownloadWatch.course(for: "PHY2049L_lab1.pdf", in: [lecture, lab])?.id == lab.id
+              && DownloadWatch.course(for: "syllabus.pdf", in: [lecture, lab]) == nil
+              && DownloadWatch.course(for: "x.pdf", in: [Course(name: "X", code: "")]) == nil)
+        if let state = AppState.current, let scratch = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] {
+            let dl = URL(fileURLWithPath: scratch).appendingPathComponent("Downloads-\(UUID().uuidString.prefix(6))")
+            try? FileManager.default.createDirectory(at: dl, withIntermediateDirectories: true)
+            try? Data("old".utf8).write(to: dl.appendingPathComponent("PHY2049 old.pdf"))
+            let (folder, offer) = (DownloadWatch.folder, DownloadWatch.offer)
+            var offered: [String] = []
+            DownloadWatch.folder = dl
+            DownloadWatch.offer = { url, c in offered.append("\(url.lastPathComponent) → \(c.code)") }
+            state.data.courses += [lecture, lab]
+            DownloadWatch.start()
+            for name in ["PHY2049L Lab 1.pdf.crdownload", "notes.pdf", "PHY2049 photo.png"] {
+                try? Data("x".utf8).write(to: dl.appendingPathComponent(name))
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            try? FileManager.default.moveItem(at: dl.appendingPathComponent("PHY2049L Lab 1.pdf.crdownload"),
+                                              to: dl.appendingPathComponent("PHY2049L Lab 1.pdf"))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            check("downloads: only a finished, new course document is offered, to its course",
+                  offered == ["PHY2049L Lab 1.pdf → PHY2049L"], "\(offered)")
+            DownloadWatch.stop()
+            (DownloadWatch.folder, DownloadWatch.offer) = (folder, offer)
+            state.data.courses.removeAll { $0.id == lecture.id || $0.id == lab.id }
+            try? FileManager.default.removeItem(at: dl)
+        }
+
         // A quiz shared as a web page.
         let shareQs = [QuizQuestion(kind: .mcq, prompt: "The field inside a conductor in equilibrium is", choices: ["zero", "$\\sigma/\\varepsilon_0$", "infinite"],
                                     answerIndex: 0, explanation: "Free charges move until it cancels.", topic: "Conductors", source: "Notes"),

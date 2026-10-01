@@ -17,7 +17,9 @@ enum Notifier {
         let snooze = UNNotificationAction(identifier: "SNOOZE", title: "Snooze 1 day", options: [])
         let cat = UNNotificationCategory(identifier: assignmentCategory,
                                          actions: [complete, snooze], intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([cat])
+        let add = UNNotificationAction(identifier: "ADD", title: "Add to Study", options: [])
+        let download = UNNotificationCategory(identifier: DownloadWatch.category, actions: [add], intentIdentifiers: [], options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([cat, download])
     }
 
     /// `module`: clicking the notification opens it.
@@ -132,6 +134,12 @@ final class NotifDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        // A download offered for a course: Add, or a click on the notification, files it.
+        if let path = info["downloadFile"] as? String, let c = (info["course"] as? String).flatMap(UUID.init),
+           response.actionIdentifier != UNNotificationDismissActionIdentifier {
+            await MainActor.run { DownloadWatch.add(path, course: c) }
+            return
+        }
         if let module = info["module"] as? String {
             await MainActor.run { AppActions.open(module: module) }
             return
