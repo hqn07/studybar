@@ -1700,8 +1700,9 @@ struct NoteEditor: View {
                     Button { exportPDF() } label: { Label("Print…", systemImage: "printer") }
                     Divider()
                     Button { exportPDF() } label: { Label("Export as PDF", systemImage: "arrow.down.doc.fill") }
-                    Button { exportNote(markdown: true) } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
-                    Button { exportNote(markdown: false) } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
+                    Button { exportNote(as: "docx") } label: { Label("Export as Word", systemImage: "arrow.down.doc") }
+                    Button { exportNote(as: "md") } label: { Label("Export as Markdown", systemImage: "arrow.down.doc") }
+                    Button { exportNote(as: "rtf") } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
                     Button { exportSlides() } label: { Label("Export as Slides (.pptx)", systemImage: "rectangle.on.rectangle") }
                     Divider()
                     // Out of the footer row: a permanent red target beside Share is a mis-click
@@ -1992,17 +1993,20 @@ struct NoteEditor: View {
                                                .foregroundColor: NSColor.labelColor])
     }
 
-    private func exportNote(markdown: Bool) {
+    /// `md`, `rtf` or `docx`. Word gets the note's pictures and equations too (`DOCX`).
+    private func exportNote(as ext: String) {
         persist()
         let panel = NSSavePanel()
         let name = draft.title.isEmpty ? "Note" : draft.title
-        panel.nameFieldStringValue = name + (markdown ? ".md" : ".rtf")
-        panel.allowedContentTypes = markdown ? [.plainText] : [.rtf]
+        panel.nameFieldStringValue = name + "." + ext
+        panel.allowedContentTypes = [ext == "md" ? .plainText : UTType(filenameExtension: ext) ?? .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            if markdown {
+            if ext == "md" {
                 let text = markdownExport(exportAttributed().string)
                 try Data(text.utf8).write(to: url)
+            } else if ext == "docx" {
+                try DOCX.write(exportAttributed(), to: url)
             } else {
                 let attr = exportAttributed()
                 let data = try attr.data(from: NSRange(location: 0, length: attr.length),
@@ -2012,7 +2016,7 @@ struct NoteEditor: View {
         } catch {
             // Was `try?` on both the encode and the write, so a failure left the file the
             // save panel had already created — empty, with no word of it anywhere.
-            Diagnostics.log(.data, .error, "note export failed (\(markdown ? "md" : "rtf")): \(error.localizedDescription)")
+            Diagnostics.log(.data, .error, "note export failed (\(ext)): \(error.localizedDescription)")
         }
     }
 

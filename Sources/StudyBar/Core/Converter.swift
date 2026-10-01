@@ -226,6 +226,8 @@ enum Converter {
             try NoteHTML.markdown(from: a).write(to: out, atomically: true, encoding: .utf8)
         case .txt:
             try a.string.write(to: out, atomically: true, encoding: .utf8)
+        case .docx:
+            try DOCX.write(a, to: out)
         default:
             let type: NSAttributedString.DocumentType = t == .docx ? .officeOpenXML : t == .odt ? .openDocument : t == .html ? .html : .rtf
             try a.data(from: full, documentAttributes: [.documentType: type]).write(to: out)
@@ -651,6 +653,23 @@ enum ConvertSelfTest {
             if let u = await tryConvert(docx, t) { check("docx → \(t.ext)", ((try? Converter.readDocument(u).string) ?? "").contains("outside charges")) }
             else { check("docx → \(t.ext)", false) }
         }
+        // A note to Word keeps its picture and its equation (NSAttributedString alone drops both).
+        let pic = NSImage(size: NSSize(width: 60, height: 30), flipped: false) { r in NSColor.systemBlue.setFill(); r.fill(); return true }
+        let withPics = NSMutableAttributedString(string: "Field: $E = \\frac{kq}{r^2}$ and a figure ", attributes: [.font: NSFont.systemFont(ofSize: 12)])
+        let picAtt = NSTextAttachment(); picAtt.image = pic
+        withPics.append(NSAttributedString(attachment: picAtt))
+        withPics.append(NSAttributedString(string: " after it.\n", attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+        let wordOut = dir.appendingPathComponent("Pictures.docx")
+        do {
+            try DOCX.write(withPics, to: wordOut)
+            let listing = shell("/usr/bin/unzip", ["-l", wordOut.path])
+            let xml = shell("/usr/bin/unzip", ["-p", wordOut.path, "word/document.xml"])
+            check("word: the equation and the picture are in the file", listing.contains("word/media/sb0.png") && listing.contains("word/media/sb1.png"))
+            check("word: both drawn inline, no marker left", xml.components(separatedBy: "<w:drawing>").count == 3 && !xml.contains("\u{E000}"))
+            check("word: document.xml is well-formed", (try? XMLDocument(xmlString: xml)) != nil)
+            check("word: the text reads back", ((try? Converter.readDocument(wordOut).string) ?? "").contains("after it"))
+        } catch { check("word with pictures", false, error.localizedDescription) }
+
         let mdIn = dir.appendingPathComponent("Notes.md")
         try? "# Week 3\n\n- **Flux** — field through a surface\n\n| A | B |\n|---|---|\n| 1 | 2 |\n".write(to: mdIn, atomically: true, encoding: .utf8)
         if let u = await tryConvert(mdIn, .docx) {
