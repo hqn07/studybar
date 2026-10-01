@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Lecture transcripts and typed notes, turned into notes a student can study from: everything
 /// that was said, organized, plus what the lecture left out — each addition on its own line
@@ -37,7 +37,24 @@ enum LectureNotes {
         }
     }
 
-    static func system(_ job: Job, part: Int, of total: Int) -> String {
+    /// A deck, written out for the prompt: each slide under its number, the whole at most
+    /// `maxChars` — a lecture's 40 slides are about 12,000 characters.
+    static func outline(_ slides: [(number: Int, text: String)], maxChars: Int = 12_000) -> String {
+        var out = ""
+        for s in slides {
+            let piece = "[Slide \(s.number)]\n\(s.text.prefix(600))\n\n"
+            guard out.count + piece.count <= maxChars else { break }
+            out += piece
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The slide a heading names — "Slide 7 — Gauss's law" → 7 — for the deck beside the note.
+    static func slideNumber(inHeading h: String) -> Int? {
+        h.firstMatch(of: /^\s*#*\s*[Ss]lides?\s+(\d+)/).flatMap { Int($0.output.1) }
+    }
+
+    static func system(_ job: Job, part: Int, of total: Int, slides: Bool = false) -> String {
         let fillIn = """
         Fill in what a student needs to learn it: define terms that are used without a definition, \
         finish explanations that stop short, add a short worked example where a method is named but \
@@ -65,6 +82,8 @@ enum LectureNotes {
             }
             let keep = job == .slides
                 ? "Slides are terse: turn each slide's points into full explanations, under a `##` heading per slide or topic, in slide order. Keep every definition, fact, number, formula and example on them."
+                : slides
+                ? "The lecture follows the SLIDES given with it. Organize the notes by slide, in order: a `## Slide N — <short title>` heading for each slide \(total > 1 ? "this part of the lecture talks about" : "the lecture talks about"), holding what was said about it together with what the slide shows. Keep everything that was said, with **bold** key terms and bullet points — every definition, fact, number, date and example. Where the transcription clearly misheard a term, the slide usually has it right."
                 : "Keep everything that was said. Organize it under `##` headings in lecture order, with **bold** key terms, bullet points, and a table when things are compared. Keep every definition, fact, number, date and example — the detail is the point, don't compress it away. Where the transcription clearly misheard a term, write the right one."
             return """
             You turn \(job == .slides ? "the text of a student's lecture slides" : "a student's lecture transcript") into complete study notes they can learn from.
@@ -101,7 +120,7 @@ enum LectureNotes {
     /// The user turn repeats the one instruction that matters. Small local models weight the
     /// last user message far above the system prompt: on qwen2.5:7b, with it only in the
     /// system prompt, a full lecture came back with no additions at all.
-    static func user(_ job: Job, _ text: String, material: String = "") -> String {
+    static func user(_ job: Job, _ text: String, material: String = "", slides: String = "") -> String {
         // The course's own pages, when there are any, so an addition comes from the textbook
         // the exam is set from rather than from general knowledge — and says which page.
         let course = material.isEmpty ? "" : "COURSE MATERIAL — the student's own textbook, slides and notes. "
@@ -109,7 +128,8 @@ enum LectureNotes {
             + "e.g. [Serway, p. 12]:\n\"\"\"\n\(material)\n\"\"\"\n\n"
         switch job {
         case .lecture:
-            return course + "Write the study notes for this lecture transcript, keeping every detail, and fill in "
+            return course + (slides.isEmpty ? "" : "SLIDES — the deck this lecture was given from:\n\"\"\"\n\(slides)\n\"\"\"\n\n")
+                + "Write the study notes for this lecture transcript, keeping every detail\(slides.isEmpty ? "" : ", under a `## Slide N — …` heading per slide"), and fill in "
                 + "what it leaves out on lines starting with `\(addedPrefix)`.\n\nTRANSCRIPT:\n\"\"\"\n\(text)\n\"\"\""
         case .slides:
             return course + "Write the study notes these lecture slides outline, keeping every point on them, and fill in "
@@ -173,19 +193,21 @@ enum LectureNotes {
     /// A quarter of each request goes to course material when there is some; the part shrinks to make room.
     static func materialChars(for mode: AIMode) -> Int { chunkChars(for: mode) / 4 }
 
+    /// `slides`: the deck the lecture was given from, which the notes are then organized by.
     static func run(_ text: String, job: Job, provider: AIProvider, mode: AIMode,
-                    material: [StudyPassage] = [],
+                    material: [StudyPassage] = [], slides: [(number: Int, text: String)] = [],
                     progress: @escaping @MainActor (_ notes: String, _ part: Int, _ total: Int) -> Void) async -> String? {
         let limit = chunkChars(for: mode)
         let budget = material.isEmpty ? 0 : materialChars(for: mode)
-        let parts = chunks(text, maxChars: limit - budget)
+        let deck = job == .lecture ? outline(slides, maxChars: limit / 4) : ""
+        let parts = chunks(text, maxChars: limit - budget - deck.count)
         var done: [String] = []
         for (i, part) in parts.enumerated() {
             guard !Task.isCancelled else { return nil }
             let prior = done
             let out = try? await provider.streamPlain(
-                system: system(job, part: i + 1, of: parts.count),
-                messages: [AIMessage(role: .user, text: user(job, part, material: relevant(material, to: part, budget: budget)))],
+                system: system(job, part: i + 1, of: parts.count, slides: !deck.isEmpty),
+                messages: [AIMessage(role: .user, text: user(job, part, material: relevant(material, to: part, budget: budget), slides: deck))],
                 temperature: 0.3) { partial in
                     progress(stitch(prior + [partial]), i + 1, parts.count)
                 }
@@ -301,6 +323,43 @@ enum LectureNotesSelfTest {
     static func run() -> Int32 {
         var fail = 0
         func check(_ n: String, _ ok: Bool, _ d: String = "") { print("  \(ok ? "ok  " : "FAIL") \(n) \(d)"); if !ok { fail += 1 } }
+
+        // Slides: the headings the deck follows, the outline the prompt gets, and a PDF deck read
+        // in by slide number.
+        check("slide headings: numbered, any way they're written; not prose about slides",
+              LectureNotes.slideNumber(inHeading: "## Slide 7 — Gauss's law") == 7 && LectureNotes.slideNumber(inHeading: "Slide 12: Capacitors") == 12
+              && LectureNotes.slideNumber(inHeading: "### Slides 3–4") == 3 && LectureNotes.slideNumber(inHeading: "Slideshow notes") == nil
+              && LectureNotes.slideNumber(inHeading: "Notes on slide 3") == nil)
+        let deck = (1...60).map { (number: $0, text: "Slide \($0) text " + String(repeating: "x", count: 300)) }
+        let o = LectureNotes.outline(deck)
+        check("slide outline: numbered, and capped", o.hasPrefix("[Slide 1]") && o.count <= 12_000 && o.contains("[Slide 30]") && !o.contains("[Slide 60]"))
+        check("notes from a lecture with slides are organized by slide",
+              LectureNotes.system(.lecture, part: 1, of: 1, slides: true).contains("## Slide N")
+              && LectureNotes.user(.lecture, "transcript", slides: "[Slide 1]\nFlux").contains("SLIDES — the deck")
+              && !LectureNotes.system(.lecture, part: 1, of: 1).contains("## Slide N"))
+        if let scratch = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] {
+            let pdf = URL(fileURLWithPath: scratch).appendingPathComponent("deck-\(UUID().uuidString.prefix(6)).pdf")
+            var box = CGRect(x: 0, y: 0, width: 720, height: 405)
+            if let ctx = CGContext(pdf as CFURL, mediaBox: &box, nil) {
+                for (n, title) in ["Electric flux", "Gauss's law", "Conductors"].enumerated() {
+                    ctx.beginPDFPage(nil)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                    NSAttributedString(string: "\(title)\nPoints on slide \(n + 1) of the deck", attributes: [.font: NSFont.systemFont(ofSize: 28)])
+                        .draw(in: CGRect(x: 40, y: 200, width: 640, height: 160))
+                    NSGraphicsContext.restoreGraphicsState()
+                    ctx.endPDFPage()
+                }
+                ctx.closePDF()
+            }
+            if let file = StudyMaterial.attach(pdf, courseID: nil) {
+                let slides = StudyMaterial.slideOutline(file)
+                check("a PDF deck is read in slide by slide", slides.map(\.number) == [1, 2, 3] && slides[1].text.contains("Gauss"), "\(slides.map(\.number))")
+                check("…into the throwaway store, not the student's", StudyMaterial.fileURL(file).path.hasPrefix(scratch))
+                StudyMaterial.remove(file)
+            } else { check("a PDF deck is read in", false) }
+            try? FileManager.default.removeItem(at: pdf)
+        }
 
         // The running summary while recording.
         check("live summary: due after four minutes, or sooner after a lot",

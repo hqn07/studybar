@@ -1011,6 +1011,30 @@ enum StudySnapshot {
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
         save(NavigationStack { StudyView(deckID: nil, onClose: {}) }, "cards-panel.png", CGSize(width: 380, height: 440))
+        // A lecture note with its slides beside it, the caret in the section on slide 2.
+        let deckPDF = URL(fileURLWithPath: out).appendingPathComponent("deck.pdf")
+        var box = CGRect(x: 0, y: 0, width: 720, height: 405)
+        if let ctx = CGContext(deckPDF as CFURL, mediaBox: &box, nil) {
+            for (n, t) in ["Electric flux\n\nΦ = E A cos θ", "Gauss's law\n\nΦ = Q_enc / ε₀", "Conductors\n\nE = 0 inside"].enumerated() {
+                ctx.beginPDFPage(nil)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                NSColor(calibratedRed: 0.12, green: 0.2, blue: 0.4, alpha: 1).setFill(); box.fill()
+                NSAttributedString(string: "\(n + 1). " + t, attributes: [.font: NSFont.boldSystemFont(ofSize: 34), .foregroundColor: NSColor.white])
+                    .draw(in: CGRect(x: 48, y: 80, width: 620, height: 260))
+                NSGraphicsContext.restoreGraphicsState()
+                ctx.endPDFPage()
+            }
+            ctx.closePDF()
+        }
+        if let deckFile = StudyMaterial.attach(deckPDF, courseID: course.id) {
+            state.data.studyFiles = [deckFile]
+            var lecture = Note(title: "Week 3 — Gauss's Law", body: "## Slide 1 — Electric flux\nFlux is the field through a surface.\n\n## Slide 2 — Gauss's law\nThe net flux through a closed surface is the charge inside over ε₀.\n\n## Slide 3 — Conductors\nNo field inside.", courseID: course.id)
+            lecture.slidesID = deckFile.id
+            state.data.notes.append(lecture)
+            save(SlidesPane(file: deckFile, page: .constant(2)), "slides-pane.png", CGSize(width: 380, height: 300))
+            save(NoteEditor(note: lecture, embedded: true), "note-with-slides.png", CGSize(width: 1100, height: 560))
+        }
         let cardNote = Note(title: "Week 3 — Gauss's Law", body: "Flux :: the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$", courseID: course.id)
         state.data.notes.append(cardNote)
         NoteCards.sync(cardNote, state: state)

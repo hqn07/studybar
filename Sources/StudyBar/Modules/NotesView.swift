@@ -554,6 +554,9 @@ struct NoteEditor: View {
     /// same flag, and it has to survive switching from one note to the next.
     private var focusMode: Bool { state.focusMode }
     @State private var outlineHeadings: [(title: String, location: Int)] = []
+    /// The lecture's slides beside the note, and the one showing.
+    @State private var showSlides = false
+    @State private var slidePage = 1
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
     @State private var aiAction: NoteAI?
@@ -687,6 +690,8 @@ struct NoteEditor: View {
             editor.onEdit = { scheduleAutosave(); refreshLive(); liveWords = countWords(editor.plainText) }
             editor.onOpenLink = { openLink($0) }
             editor.onExplain = { picked in openAsk(); ask("Explain this part of the note, in the context of the rest: “\(picked)”") }
+            editor.onCaret = { loc in if showSlides, let n = slideAt(loc) { slidePage = n } }
+            showSlides = deck != nil
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
@@ -758,6 +763,14 @@ struct NoteEditor: View {
                     if hovering { outlineHeadings = editor.headings() }   // refresh as you reach for it
                     setHint("Outline — jump to a heading", hovering)
                 }
+            if deck != nil {
+                Button { showSlides.toggle() } label: {
+                    Image(systemName: showSlides ? "rectangle.lefthalf.inset.filled" : "rectangle.on.rectangle")
+                }
+                .buttonStyle(.borderless).foregroundStyle(showSlides ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .help(showSlides ? "Hide the slides" : "Show the lecture's slides beside the note")
+                .accessibilityLabel(showSlides ? "Hide the slides" : "Show the slides")
+            }
             Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
                 Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
             }
@@ -982,8 +995,14 @@ struct NoteEditor: View {
                         NoteRecordingBar(url: VoiceService.recordingsDir.appendingPathComponent(name)).id(name)   // a new player and transcript per recording
                         Divider()
                     }
-                    editorOrPreview
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack(spacing: 0) {
+                        editorOrPreview
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if showSlides, let deck {
+                            Divider()
+                            SlidesPane(file: deck, page: $slidePage).frame(width: min(420, geo.size.width * 0.42))
+                        }
+                    }
                     if asking && !side {
                         HeightDivider(height: Binding(get: { CGFloat(askHeight) }, set: { askHeight = Double($0) }),
                                       range: 180...dockCap, resetTo: 300)
@@ -1758,6 +1777,10 @@ struct NoteEditor: View {
                     Button { exportNote(as: "rtf") } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
                     Button { exportSlides() } label: { Label("Export as Slides (.pptx)", systemImage: "rectangle.on.rectangle") }
                     Divider()
+                    Button { attachSlides() } label: {
+                        Label(deck == nil ? "Add the lecture's slides…" : "Change the slides…", systemImage: "rectangle.on.rectangle")
+                    }
+                    Divider()
                     // Out of the footer row: a permanent red target beside Share is a mis-click
                     // waiting to happen. Undo covers the delete itself.
                     Button(role: .destructive) { delete() } label: { Label("Delete Note", systemImage: "trash") }
@@ -2017,6 +2040,35 @@ struct NoteEditor: View {
         saveTask?.cancel()
         state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == draft.id } }
         embedded ? onClose() : dismiss()
+    }
+
+    // MARK: Slides beside the note
+
+    /// The deck this note was taken from, while it's still among the course's files.
+    private var deck: StudyFile? { draft.slidesID.flatMap { id in state.data.studyFiles?.first { $0.id == id } } }
+
+    /// The slide the section at the caret is about: the nearest "Slide N" heading above it.
+    private func slideAt(_ loc: Int) -> Int? {
+        let text = editor.plainText as NSString
+        let above = text.substring(to: min(max(0, loc), text.length))
+        for line in above.components(separatedBy: "\n").reversed() {
+            if let n = LectureNotes.slideNumber(inHeading: line) { return n }
+        }
+        return nil
+    }
+
+    private func attachSlides() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ["pdf", "pptx"].compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let course = draft.courseID
+        Task {
+            guard let file = await Task.detached(operation: { StudyMaterial.attach(url, courseID: course) }).value else { return }
+            state.data.studyFiles = (state.data.studyFiles ?? []) + [file]
+            draft.slidesID = file.id
+            slidePage = 1; showSlides = true
+            scheduleAutosave()
+        }
     }
 
     // MARK: Duplicate / export / print

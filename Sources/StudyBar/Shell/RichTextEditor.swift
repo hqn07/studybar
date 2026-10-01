@@ -46,6 +46,8 @@ final class RichTextController: ObservableObject {
     var onOpenLink: (String) -> Void = { _ in }
     /// "Explain" on the right-click menu of a selection; nil hides the item.
     var onExplain: ((String) -> Void)?
+    /// The caret moved — to this character.
+    var onCaret: ((Int) -> Void)?
 
     // MARK: Slash commands — `/` opens a block-insert menu
     @Published var slashQuery: String?
@@ -847,6 +849,7 @@ struct RichTextEditor: NSViewRepresentable {
 
         /// When the caret leaves a math expression it was editing, re-render it in place.
         func textViewDidChangeSelection(_ notification: Notification) {
+            if let tv = notification.object as? NSTextView { controller.onCaret?(tv.selectedRange().location) }
             controller.detectLinkContext()
             controller.detectSlashContext()
             (notification.object as? FoldingTextView)?.dismissGhost()

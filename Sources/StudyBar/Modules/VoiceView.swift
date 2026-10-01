@@ -25,6 +25,7 @@ struct VoiceBody: View {
     @AppStorage("voiceWhisperLang") private var voiceWhisperLang = "auto"
     /// True while the model is being asked which course this belongs to.
     @State private var naming = false
+    @State private var addingSlides = false
     @State private var draftAvailable = false
 
     private var idle: Bool { voice.status == .idle }
@@ -228,6 +229,8 @@ struct VoiceBody: View {
                 }
             }
 
+            slidesRow
+
             if !voice.soFar.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("So far", systemImage: "text.badge.checkmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -300,7 +303,7 @@ struct VoiceBody: View {
                                 .buttonStyle(.bordered)
                                 .help("Organize the lecture into detailed notes, with definitions, examples and a review filled in and marked as added — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = ""; voice.discardTake(); voice.rawBeforeOrganize = nil; voice.organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
+                        Button("Discard") { voice.transcript = ""; voice.discardTake(); voice.slides = nil; voice.rawBeforeOrganize = nil; voice.organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -325,6 +328,41 @@ struct VoiceBody: View {
         }
     }
 
+    /// The deck the lecture is given from: the notes follow it, and it sits beside the note.
+    @ViewBuilder private var slidesRow: some View {
+        if let deck = voice.slides {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.on.rectangle")
+                Text("Slides: \(deck.name)").lineLimit(1).truncationMode(.middle)
+                Button { voice.slides = nil } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                    .accessibilityLabel("Remove the slides")
+            }
+            .font(.caption).padding(.horizontal, 10).padding(.vertical, 4)
+            .background(.sbSurface, in: Capsule())
+        } else if addingSlides {
+            ProgressView().controlSize(.small)
+        } else {
+            Button { pickSlides() } label: { Label("Add the lecture's slides…", systemImage: "rectangle.on.rectangle") }
+                .buttonStyle(.borderless).font(.caption)
+                .help("A PDF or PowerPoint of the slides: study notes then follow them slide by slide, and the note keeps them beside it")
+        }
+    }
+
+    private func pickSlides() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ["pdf", "pptx"].compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let course = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
+        addingSlides = true
+        Task {
+            let file = await Task.detached { StudyMaterial.attach(url, courseID: course) }.value
+            addingSlides = false
+            guard let file else { return }
+            state.data.studyFiles = (state.data.studyFiles ?? []) + [file]
+            voice.slides = file
+        }
+    }
+
     private func organize() {
         let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider(for: .transcript) else { return }
@@ -337,7 +375,8 @@ struct VoiceBody: View {
             let course = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
             let text = await LectureNotes.run(voice.timeline.marking(raw), job: .lecture, provider: provider,
                                               mode: AIConfig.engine(for: .transcript),
-                                              material: StudyMaterial.coursePassages(course, in: state.data)) { notes, part, total in
+                                              material: StudyMaterial.coursePassages(course, in: state.data),
+                                              slides: voice.slides.map(StudyMaterial.slideOutline) ?? []) { notes, part, total in
                 voice.organizeStream = notes; voice.organizePart = (part, total)
                 if total > 1 { Jobs.shared.update(job, "part \(part) of \(total)") }
             }
@@ -435,6 +474,14 @@ struct VoiceBody: View {
                                               termStart: state.data.termStart)
         var note = Note(title: title, body: text, courseID: course)
         note.audioPath = voice.claimTake(for: note.id)
+        if let deck = voice.slides {
+            note.slidesID = deck.id
+            // Added before the class was known: it belongs to the note's course.
+            if let i = state.data.studyFiles?.firstIndex(where: { $0.id == deck.id }), state.data.studyFiles?[i].courseID == nil {
+                state.data.studyFiles?[i].courseID = course
+            }
+            voice.slides = nil
+        }
         note.updatedAt = .now
         state.data.notes.append(note)
         voice.transcript = ""

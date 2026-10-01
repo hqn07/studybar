@@ -36,9 +36,12 @@ enum StudySource: Hashable, Identifiable {
 }
 
 enum StudyMaterial {
+    /// Beside the store when a build runs on a throwaway one (STUDYBAR_DATA_DIR), as history and
+    /// recordings are — a test that adds a file must not leave it among the student's.
     static var dir: URL {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("StudyBar/StudyFiles", isDirectory: true)
+        let base = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("StudyBar")
+        let d = base.appendingPathComponent("StudyFiles", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -167,6 +170,14 @@ enum StudyMaterial {
             out.append((.note(n.id), n.title.isEmpty ? "Untitled note" : n.title, n.createdAt.formatted(date: .abbreviated, time: .omitted)))
         }
         return out
+    }
+
+    /// A deck's slides by number, from what was read in when it was added: a PDF's pages
+    /// ("p. 3") or a PowerPoint's slides ("slide 3").
+    static func slideOutline(_ file: StudyFile) -> [(number: Int, text: String)] {
+        guard let raw = try? Data(contentsOf: unitsURL(file.id)),
+              let units = try? JSONDecoder().decode([Unit].self, from: raw) else { return [] }
+        return units.compactMap { u in Int(u.locator.filter(\.isNumber)).map { ($0, u.text) } }
     }
 
     /// Passages of about 1,500 characters — small enough to pick the relevant few, large enough

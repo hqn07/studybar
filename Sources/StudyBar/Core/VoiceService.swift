@@ -39,6 +39,9 @@ final class VoiceService: ObservableObject {
     @Published var status: Status = .idle {
         didSet { holdAwake(status == .recording || status == .transcribing); summarizeAsItGoes(status == .recording) }
     }
+    /// The deck the lecture is given from, until the note is saved: study notes follow it slide by
+    /// slide, and the note keeps it beside it. Survives a new take — it's added before recording.
+    @Published var slides: StudyFile?
     /// "So far": a few points on each stretch of the lecture, written while it records.
     @Published private(set) var soFar: [LiveSummary.Stretch] = []
     private var soFarTask: Task<Void, Never>?
