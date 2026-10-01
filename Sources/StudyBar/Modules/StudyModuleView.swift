@@ -345,19 +345,21 @@ struct TutorPane: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                // Seven modes don't fit beside another module (⌘J): a menu there.
+                // Help with a problem, and testing yourself: side by side where they fit, one
+                // above the other where they don't, a menu beside another module (⌘J).
                 ViewThatFits(in: .horizontal) {
-                    Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
-                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    HStack { modes(Tutor.Mode.help); modes(Tutor.Mode.practice) }
+                    VStack(alignment: .leading) { modes(Tutor.Mode.help); modes(Tutor.Mode.practice) }
                     Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
                         .pickerStyle(.menu).labelsHidden().fixedSize()
                 }
+                .layoutPriority(1)
                 Spacer()
                 if !m.thread.isEmpty {
                     Button { m.task?.cancel(); m.busy = false; m.thread = [] } label: {
                         Label("New chat", systemImage: "square.and.pencil")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderless).fixedSize()
                     .help("Clear this conversation and start over")
                 }
             }
@@ -403,6 +405,12 @@ struct TutorPane: View {
             }
         }
         .padding(10)
+    }
+
+    /// One group of modes; a mode from the other group leaves this one with nothing picked.
+    private func modes(_ group: [Tutor.Mode]) -> some View {
+        Picker("", selection: $mode) { ForEach(group) { Text($0.rawValue).tag($0) } }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
     }
 
     private var placeholder: String {
@@ -988,6 +996,23 @@ enum StudySnapshot {
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
+        AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
+        AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)
+        AIUsage.add(model: "my-custom-model", input: 3_000, output: 800)
+        save(Form { AIUsageSection() }.formStyle(.grouped), "usage.png", CGSize(width: 620, height: 250))
+        let tutor = TutorModel()
+        let checked = MathCheck.run("""
+        Your setup is right: $v = v_0 + at$ with $v_0 = 3$ m/s.
+
+        **First wrong step:** $3 + 9.8 \\cdot 2 = 25.6$. $9.8 \\cdot 2 = 19.6$, so $v = 22.6$ m/s. Carry on from there.
+        CHECK: 3 + 9.8 * 2 = 25.6
+        """)
+        tutor.thread = [Tutor.Turn(question: "v = v0 + at = 3 + 9.8·2 = 25.6 m/s, so the ball hits at 25.6 m/s", mode: .check,
+                                   answer: checked.text, checks: checked.results),
+                        Tutor.Turn(question: "", mode: .quiz, answer: "What does Gauss's law say the flux through a closed surface depends on?")]
+        save(TutorPane(course: course, material: { [] }, m: tutor), "tutor-wide.png", CGSize(width: 900, height: 460))
+        save(TutorPane(course: course, material: { [] }, m: tutor), "tutor-narrow.png", CGSize(width: 440, height: 460))
+        save(TutorPane(course: course, material: { [] }, m: tutor), "tutor-study.png", CGSize(width: 750, height: 200))
         CalculatorModel.shared.input = "sqrt(2*(3+4"
         save(CalculatorSurface(model: .shared, compact: true), "calc.png", CGSize(width: 380, height: 440))
         if let files = ProcessInfo.processInfo.environment["SB_CONVERT_FILES"] {

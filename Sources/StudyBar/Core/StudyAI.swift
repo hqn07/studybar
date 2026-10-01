@@ -364,6 +364,8 @@ enum Tutor {
         case hint = "Hint", step = "Next step", full = "Full solution", explain = "Explain"
         case check = "Check my work", teach = "Explain it back", quiz = "Quiz me"
         var id: String { rawValue }
+        static let help: [Mode] = [.hint, .step, .full, .explain]
+        static let practice: [Mode] = [.check, .teach, .quiz]
         var directive: String {
             switch self {
             case .hint: return "Give ONE hint that gets the student unstuck — the idea or the first move — without working the problem or giving the answer."

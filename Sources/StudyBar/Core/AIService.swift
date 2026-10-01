@@ -396,6 +396,7 @@ struct AnthropicProvider: AIProvider {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else { throw AIError.http(code, errorText(data)) }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        AIUsage.record(model: model, usage: obj?["usage"])
         if obj?["stop_reason"] as? String == "refusal" {
             throw AIError.unavailable("\(model) declined this request. Rephrase it, or try another model in Settings ▸ Intelligence.")
         }
@@ -442,6 +443,7 @@ struct OpenAIProvider: AIProvider {
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 else { throw AIError.http(code, errorText(data)) }
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            AIUsage.record(model: model, usage: obj?["usage"])
             let choices = obj?["choices"] as? [[String: Any]] ?? []
             let text = (choices.first?["message"] as? [String: Any])?["content"] as? String ?? ""
             guard !text.isEmpty else { throw AIError.badResponse }
@@ -482,6 +484,9 @@ extension OpenAIProvider {
         var reasoningOff = ReasoningOff.thinking
         /// The host's output ceiling, once it has named one (DeepSeek: 8192).
         var maxTokensCap: Int? = nil
+        /// `stream_options.include_usage`, for the usage meter. A host that refuses it streams
+        /// without, and its streamed replies go uncounted.
+        var sendsStreamUsage = true
     }
 
     /// Versioned: a learned shape records what *this* ladder could negotiate, so widening the
@@ -497,13 +502,15 @@ extension OpenAIProvider {
         if let t = d["sendsTemperature"] as? Bool { shape.sendsTemperature = t }
         if let r = d["reasoningOff"] as? String, let v = ReasoningOff(rawValue: r) { shape.reasoningOff = v }
         shape.maxTokensCap = d["maxTokensCap"] as? Int
+        if let u = d["streamUsage"] as? Bool { shape.sendsStreamUsage = u }
         return shape
     }
 
     static func remember(_ shape: BodyShape, host: String, model: String) {
         var d: [String: Any] = ["maxTokensKey": shape.maxTokensKey,
                                 "sendsTemperature": shape.sendsTemperature,
-                                "reasoningOff": shape.reasoningOff.rawValue]
+                                "reasoningOff": shape.reasoningOff.rawValue,
+                                "streamUsage": shape.sendsStreamUsage]
         d["maxTokensCap"] = shape.maxTokensCap
         UserDefaults.standard.set(d, forKey: shapeKey(host, model))
     }
@@ -514,6 +521,10 @@ extension OpenAIProvider {
     static func adapt(_ shape: BodyShape, to message: String) -> BodyShape? {
         let m = message.lowercased()
         var s = shape
+        if m.contains("stream_options") || m.contains("include_usage"), s.sendsStreamUsage {
+            s.sendsStreamUsage = false
+            return s
+        }
         // "the valid range of max_tokens is [1, 8192]" / "supports at most 16384 completion
         // tokens, whereas you provided 32768": the ceiling is the smallest real limit named.
         if m.contains("token"), ["range", "at most", "too large", "less than or equal", "maximum"].contains(where: m.contains),
@@ -615,17 +626,14 @@ struct BudgetedProvider: AIProvider {
     var ledger = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("StudyBar/test-ai-spend.json")
 
-    /// Published list prices, per million tokens (checked 2026-09-30).
-    static let prices: [String: (input: Double, output: Double)] = [
-        "gpt-5.6-luna": (0.20, 1.20),
-    ]
-    /// Anything else: dearer than any model StudyBar is set up with, so the limit holds.
+    /// A model not in `AIUsage.prices`: dearer than any model StudyBar is set up with, so the
+    /// limit holds.
     static let unknown: (input: Double, output: Double) = (15, 75)
 
     static func guarding(_ p: AIProvider, model: String) -> AIProvider {
         let env = ProcessInfo.processInfo.environment
         guard env["STUDYBAR_DATA_DIR"] != nil, env["SB_REAL_AI"] == "1" else { return p }
-        return BudgetedProvider(base: p, rate: prices[model] ?? unknown)
+        return BudgetedProvider(base: p, rate: AIUsage.price(model) ?? unknown)
     }
 
     struct Spend: Codable { var dollars: Double }
@@ -693,6 +701,79 @@ struct BudgetedProvider: AIProvider {
         try await metered(system, messages) {
             try await base.streamPlain(system: system, messages: messages, numCtx: numCtx, temperature: temperature, onReply: onReply)
         }
+    }
+}
+
+// MARK: - Usage
+
+/// What the hosted engines have been asked to do, by month and model, from the token counts
+/// each reply reports — Settings ▸ Intelligence turns it into an estimated bill. Kept on this
+/// Mac beside the store (a test build's beside its throwaway one). Local engines are free and
+/// aren't counted.
+enum AIUsage {
+    struct Tally: Codable, Equatable { var input = 0, output = 0, requests = 0 }
+
+    /// List prices per million tokens, input and output, checked 2026-09-30: OpenRouter's
+    /// catalogue, and DeepSeek's own page at its peak rate.
+    // ponytail: a fixed table — a model not in it shows its tokens without a price; add it here.
+    static let prices: [String: (input: Double, output: Double)] = [
+        "gpt-5.6-luna": (0.20, 1.20), "gpt-5.6-terra": (2, 12), "gpt-5.6-sol": (2, 10), "gpt-5.5": (5, 30),
+        "claude-haiku-4-5": (1, 5), "claude-sonnet-5": (2, 10), "claude-sonnet-5-5": (2, 10),
+        "claude-opus-5": (5, 25), "claude-opus-5-5": (4, 20), "claude-fable-5": (10, 50), "claude-fable-5-1": (10, 50),
+        "deepseek-flash": (0.30, 1.20), "deepseek-v4-pro": (1.32, 3.96),
+    ]
+
+    /// A model's price under the names it goes by: `openai/gpt-5.6-luna` on OpenRouter,
+    /// `claude-haiku-4-5-20251001` with its date, `claude-sonnet-5.5` with a dot.
+    static func price(_ model: String) -> (input: Double, output: Double)? {
+        var m = model.lowercased().trimmingCharacters(in: .whitespaces)
+        if let slash = m.lastIndex(of: "/") { m = String(m[m.index(after: slash)...]) }
+        m = m.replacingOccurrences(of: #"-\d{8}$"#, with: "", options: .regularExpression)
+        return prices[m] ?? prices[m.replacingOccurrences(of: ".", with: "-")]
+    }
+
+    /// Cached input is priced as fresh input, so the estimate errs high.
+    static func cost(_ model: String, _ t: Tally) -> Double? {
+        price(model).map { (Double(t.input) * $0.input + Double(t.output) * $0.output) / 1_000_000 }
+    }
+
+    static var url: URL {
+        let base = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("StudyBar")
+        return base.appendingPathComponent("ai-usage.json")
+    }
+
+    /// "2026-09", in the Mac's own calendar.
+    static func month(_ d: Date = Date()) -> String {
+        let c = Calendar.current.dateComponents([.year, .month], from: d)
+        return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+    }
+
+    /// Month → model → tally.
+    static func load() -> [String: [String: Tally]] {
+        (try? JSONDecoder().decode([String: [String: Tally]].self, from: Data(contentsOf: url))) ?? [:]
+    }
+
+    private static let lock = NSLock()
+
+    static func add(model: String, input: Int, output: Int, on date: Date = Date()) {
+        guard input + output > 0 else { return }
+        lock.lock(); defer { lock.unlock() }
+        var all = load()
+        var t = all[month(date)]?[model] ?? Tally()
+        t.input += input; t.output += output; t.requests += 1
+        all[month(date), default: [:]][model] = t
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(all).write(to: url, options: .atomic)
+    }
+
+    /// A reply's `usage`, in either dialect. Anthropic counts cache reads and writes apart from
+    /// `input_tokens`; OpenAI's `completion_tokens` already includes the hidden reasoning.
+    static func record(model: String, usage: Any?) {
+        guard let u = usage as? [String: Any] else { return }
+        func n(_ k: String) -> Int { (u[k] as? NSNumber)?.intValue ?? 0 }
+        add(model: model, input: n("prompt_tokens") + n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens"),
+            output: n("completion_tokens") + n("output_tokens"))
     }
 }
 
@@ -2094,6 +2175,7 @@ extension AnthropicProvider {
             throw AIError.http(code, msg ?? (String(data: data, encoding: .utf8) ?? ""))
         }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        AIUsage.record(model: model, usage: obj?["usage"])
         return AnthropicProvider.parseContent(obj?["content"] as? [[String: Any]] ?? [])
     }
 
@@ -2147,6 +2229,7 @@ extension OpenAIProvider {
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 else { throw AIError.http(code, errorText(data)) }
             let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            AIUsage.record(model: model, usage: o?["usage"])
             let choice = (o?["choices"] as? [[String: Any]])?.first
             return ((choice?["message"] as? [String: Any])?["content"] as? String) ?? ""
         }
@@ -2177,7 +2260,8 @@ extension OpenAIProvider {
             var req = base
             req.httpBody = try JSONSerialization.data(withJSONObject:
                 chatBody(shape, system: system, messages: asDicts(messages),
-                         maxTokens: AIConfig.maxOutputTokens, temperature: temperature, extra: ["stream": true]))
+                         maxTokens: AIConfig.maxOutputTokens, temperature: temperature,
+                         extra: shape.sendsStreamUsage ? ["stream": true, "stream_options": ["include_usage": true]] : ["stream": true]))
             return try await stream(req, onReply: onReply)
         }
     }
@@ -2205,8 +2289,10 @@ extension OpenAIProvider {
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             if payload == "[DONE]" { break }
             guard let data = payload.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choice = (obj["choices"] as? [[String: Any]])?.first,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            // The last event carries the counts (`include_usage`), with no choices.
+            AIUsage.record(model: model, usage: obj["usage"])
+            guard let choice = (obj["choices"] as? [[String: Any]])?.first,
                   let delta = choice["delta"] as? [String: Any],
                   let piece = delta["content"] as? String, !piece.isEmpty
             else { continue }        // reasoning_content deltas land here and are dropped
@@ -2241,6 +2327,7 @@ extension OpenAIProvider {
             return data
         }
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        AIUsage.record(model: model, usage: obj?["usage"])
         let msg = ((obj?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any]) ?? [:]
         let text = msg["content"] as? String ?? ""
         var uses: [ToolUse] = []
@@ -2433,6 +2520,26 @@ enum AIToolSelfTest {
         check("reasoning off not requested → absent",
               plain["thinking"] == nil && plain["reasoning_effort"] == nil)
         check("no system → no system message", (plain["messages"] as? [[String: Any]])?.count == 1)
+        check("a host that refuses stream_options streams without it",
+              adapt(Shape(), "Unrecognized request argument supplied: stream_options")?.sendsStreamUsage == false
+              && adapt(Shape(sendsStreamUsage: false), "Unrecognized request argument supplied: stream_options") == nil)
+
+        // The usage meter: prices under every name a model goes by, and both dialects of `usage`.
+        check("price: exact, OpenRouter, dated, dotted",
+              AIUsage.price("gpt-5.6-luna")?.input == 0.20 && AIUsage.price("openai/gpt-5.6-luna")?.output == 1.20
+              && AIUsage.price("claude-haiku-4-5-20251001")?.input == 1 && AIUsage.price("anthropic/claude-sonnet-5.5")?.output == 10)
+        check("price: a pro model is not priced as its base", AIUsage.price("gpt-5.5-pro") == nil)
+        // The ledger is a real file: only on a throwaway store.
+        if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
+        let tallyBefore = AIUsage.load()[AIUsage.month()]?["selftest-model"] ?? .init()
+        AIUsage.record(model: "selftest-model", usage: ["prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200])
+        AIUsage.record(model: "selftest-model", usage: ["input_tokens": 10, "cache_read_input_tokens": 90, "output_tokens": 5])
+        AIUsage.record(model: "selftest-model", usage: NSNull())
+        let tally = AIUsage.load()[AIUsage.month()]?["selftest-model"] ?? .init()
+        check("usage: both dialects counted, a null one ignored",
+              tally.input - tallyBefore.input == 1100 && tally.output - tallyBefore.output == 205 && tally.requests - tallyBefore.requests == 2)
+        }
+        check("usage: cost at list price", abs((AIUsage.cost("gpt-5.6-luna", .init(input: 1_000_000, output: 500_000, requests: 1)) ?? 0) - 0.80) < 1e-9)
 
         // 1. Catalog covers exactly the read + write tools the app understands.
         let names = Set(AIToolCatalog.all.map { $0.name })
@@ -2519,7 +2626,7 @@ enum AIToolSelfTest {
             let ledger = FileManager.default.temporaryDirectory.appendingPathComponent("budget-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: ledger) }
             // Room for two requests' reservations (input + the largest reply) at Luna's price.
-            let luna = BudgetedProvider.prices["gpt-5.6-luna"]!
+            let luna = AIUsage.price("gpt-5.6-luna")!
             let one = (Double(BudgetedProvider.estimate("", [AIMessage(role: .user, text: String(repeating: "q", count: 600))])) * luna.input
                        + Double(AIConfig.maxOutputTokens) * luna.output) / 1_000_000
             let p = BudgetedProvider(base: Echo(), rate: luna, limit: one * 2.5, ledger: ledger)
@@ -2555,7 +2662,7 @@ enum AIToolSelfTest {
             while done2.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
             check("a request the budget can't cover is refused and never sent", blocked && calls.n == 0 && tight.spent() == 0)
             check("a model with no known price is charged as an expensive one",
-                  BudgetedProvider.unknown.output >= (BudgetedProvider.prices.values.map(\.output).max() ?? 0))
+                  BudgetedProvider.unknown.output >= (AIUsage.prices.values.map(\.output).max() ?? 0) && BudgetedProvider.unknown.input >= (AIUsage.prices.values.map(\.input).max() ?? 0))
         }
 
         print(fail == 0 ? "AI TOOL SELFTEST: ALL PASS" : "AI TOOL SELFTEST: \(fail) FAILURE(S)")

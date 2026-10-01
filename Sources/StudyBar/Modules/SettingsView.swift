@@ -708,6 +708,8 @@ struct SettingsView: View {
             }
         }
 
+        AIUsageSection()
+
         Section("Smart typing") {
             Toggle("Autocomplete in Notes", isOn: $notesAutocomplete)
             if notesAutocomplete {
@@ -1094,5 +1096,43 @@ struct JSONFile: FileDocument {
     }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+/// What the hosted engines cost this month and last, from the counts their replies report.
+struct AIUsageSection: View {
+    var body: some View {
+        let all = AIUsage.load()
+        let now = all[AIUsage.month()] ?? [:]
+        let last = all[AIUsage.month(Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date())] ?? [:]
+        if !now.isEmpty || !last.isEmpty {
+            Section("Usage this month") {
+                ForEach(now.sorted { $0.key < $1.key }, id: \.key) { model, t in
+                    HStack {
+                        Text(model).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Text("\(t.requests) request\(t.requests == 1 ? "" : "s") · \((t.input + t.output).formatted(.number.notation(.compactName))) tokens")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(Self.dollars(AIUsage.cost(model, t))).font(.callout.monospacedDigit())
+                            .frame(minWidth: 64, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if now.isEmpty { Text("Nothing yet this month.").font(.callout).foregroundStyle(.secondary) }
+                Text(Self.usageSummary(now: now, last: last)).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private static func dollars(_ d: Double?) -> String {
+        guard let d else { return "price unknown" }
+        return d < 0.01 ? "< $0.01" : d.formatted(.currency(code: "USD"))
+    }
+
+    private static func usageSummary(now: [String: AIUsage.Tally], last: [String: AIUsage.Tally]) -> String {
+        func total(_ m: [String: AIUsage.Tally]) -> Double { m.compactMap { AIUsage.cost($0.key, $0.value) }.reduce(0, +) }
+        var s = now.count > 1 ? "About \(dollars(total(now))) in all. " : ""
+        if !last.isEmpty { s += "Last month: about \(dollars(total(last))). " }
+        return s + "Estimated from the tokens each reply reports, at list price — your provider's bill is the real figure."
     }
 }
