@@ -195,9 +195,16 @@ struct NotesView: View {
                         Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
                     }
                 }
-                if notes.count > 1 {
+                if !notes.isEmpty {
                     Section("Export") {
-                        Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
+                        if notes.count > 1 {
+                            Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
+                        }
+                        if AIConfig.isReady(for: .ask) {
+                            Button { audioReview() } label: {
+                                Label(notes.count == 1 ? "Audio review of this note…" : "Audio review of these \(notes.count) notes…", systemImage: "headphones")
+                            }
+                        }
                     }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
@@ -215,6 +222,30 @@ struct NotesView: View {
         if case .course(let id) = scope, let c = state.course(id) { title = (c.code.isEmpty ? c.name : c.code) + " notes" }
         let span = (first.createdAt..<last.createdAt).formatted(.interval.month(.abbreviated).day().year())
         PDFExportWindow.show(body: NoteHTML.binder(list), meta: .init(title: title, subtitle: "\(list.count) notes, \(span)"))
+    }
+
+    /// The notes the list shows, as about eight minutes of spoken review in an audio file. Where
+    /// to save is asked first, so the wait comes after the last question.
+    private func audioReview() {
+        let list = notes.sorted { $0.createdAt < $1.createdAt }
+        guard let provider = AIService.makeProvider(for: .ask) else { return }
+        var name = "Audio review"
+        if case .course(let id) = scope, let c = state.course(id) { name += " — " + (c.code.isEmpty ? c.name : c.code) }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name + ".m4a"
+        panel.allowedContentTypes = [.mpeg4Audio]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let job = Jobs.shared.begin(name, module: "notes")
+        Task {
+            do {
+                try await AudioReview.make(from: list, to: url, provider: provider, mode: AIConfig.engine(for: .ask)) { Jobs.shared.update(job, $0) }
+                Jobs.shared.end(job, done: "\(name) saved")
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                Jobs.shared.end(job, done: "Couldn't make the audio review")
+                Diagnostics.log(.ai, .error, "audio review failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: Narrow / popover — list that pushes one note

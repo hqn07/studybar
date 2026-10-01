@@ -467,11 +467,29 @@ enum Converter {
         }
     }
 
+    /// The best installed voice in the Mac's language: a Premium or Enhanced one when the student
+    /// has downloaded it (System Settings ▸ Accessibility ▸ Spoken Content), which sound far less
+    /// robotic over ten minutes than the default compact voice.
+    static func bestVoice() -> AVSpeechSynthesisVoice? {
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        let rank: [AVSpeechSynthesisVoiceQuality: Int] = [.premium: 3, .enhanced: 2, .default: 1]
+        // Quality first; among equals, the voice the Mac uses for its language, then the Mac's own
+        // variety of it (en-US over en-GB) — not "Grandpa", which is also a standard voice.
+        let mine = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())?.identifier
+        func score(_ v: AVSpeechSynthesisVoice) -> Int {
+            (rank[v.quality] ?? 0) * 4 + (v.identifier == mine ? 2 : 0) + (v.language == AVSpeechSynthesisVoice.currentLanguageCode() ? 1 : 0)
+        }
+        return AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix(lang) && !$0.voiceTraits.contains(.isNoveltyVoice) }
+            .max { score($0) < score($1) }
+            ?? AVSpeechSynthesisVoice(language: lang)
+    }
+
     /// Text read aloud into an audio file, with the system voice — notes to listen to.
     static func speak(_ text: String, to out: URL) async throws {
         let synth = AVSpeechSynthesizer()
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.language.languageCode?.identifier ?? "en")
+        utterance.voice = bestVoice()
         var file: AVAudioFile?
         var failed: Error?
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -669,6 +687,24 @@ enum ConvertSelfTest {
             check("word: document.xml is well-formed", (try? XMLDocument(xmlString: xml)) != nil)
             check("word: the text reads back", ((try? Converter.readDocument(wordOut).string) ?? "").contains("after it"))
         } catch { check("word with pictures", false, error.localizedDescription) }
+
+        // An audio review: what the voice would read as symbols goes, then it's read into a file.
+        check("audio review: marks, math signs and citations aren't read aloud",
+              AudioReview.spoken("## Flux\n- **Flux** is $\\Phi$ [Notes, p. 3]\n1. Then `Gauss`") == "Flux\nFlux is Phi \nThen Gauss")
+        struct Script: AIProvider {
+            func complete(system: String, messages: [AIMessage]) async throws -> String {
+                "## Review\n" + String(repeating: "Electric flux is the field passing through a surface, and Gauss's law ties it to the charge inside. ", count: 4)
+            }
+        }
+        let review = dir.appendingPathComponent("Review.m4a")
+        do {
+            var steps: [String] = []
+            try await AudioReview.make(from: [Note(title: "Week 3", body: "Flux and Gauss's law")], to: review,
+                                       provider: Script(), mode: .openai) { steps.append($0) }
+            let seconds = (try? AVAudioFile(forReading: review)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+            check("audio review: an audio file of the script", seconds > 10 && steps == ["writing the script", "reading it aloud"],
+                  "(\(Int(seconds)) s, voice: \(Converter.bestVoice()?.name ?? "none"))")
+        } catch { check("audio review", false, error.localizedDescription) }
 
         let mdIn = dir.appendingPathComponent("Notes.md")
         try? "# Week 3\n\n- **Flux** — field through a surface\n\n| A | B |\n|---|---|\n| 1 | 2 |\n".write(to: mdIn, atomically: true, encoding: .utf8)

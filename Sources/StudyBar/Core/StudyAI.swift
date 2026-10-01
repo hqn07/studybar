@@ -274,6 +274,44 @@ enum Quiz {
     }
 }
 
+// MARK: - Audio review
+
+/// Notes as something to listen to on a walk or a commute: the AI writes a spoken review of
+/// them, and the Mac's best voice reads it into an audio file.
+enum AudioReview {
+    static let system = """
+    You write a spoken review of a student's notes, to be read aloud by a text-to-speech voice \
+    while they walk or commute: about 8 minutes, roughly 1,100 words. Go through the main ideas \
+    in a sensible order — what each is, why it matters, any formula said in words ("E equals k q \
+    over r squared"), and a quick example where the notes have one. End with three questions to \
+    think over. Write only plain spoken sentences: no Markdown, no lists, no headings, no LaTeX \
+    or symbols, no stage directions.
+    """
+
+    /// What a voice would read aloud wrongly or as punctuation, gone: Markdown marks, `$`, LaTeX
+    /// backslashes, and the brackets of a citation.
+    static func spoken(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: #"\[[^\]\n]{1,80}\]"#, with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(?m)^\s*(?:#+|[-*•]|\d+[.)])\s+"#, with: "", options: .regularExpression)
+        for mark in ["**", "__", "`", "$", "\\"] { t = t.replacingOccurrences(of: mark, with: "") }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Writes the review into `out`. Progress is a word for the jobs bar.
+    @MainActor
+    static func make(from notes: [Note], to out: URL, provider: AIProvider, mode: AIMode,
+                     progress: @escaping (String) -> Void) async throws {
+        let text = notes.map { "\($0.title)\n\($0.body)" }.joined(separator: "\n\n")
+        progress("writing the script")
+        let script = try await provider.completePlain(system: system, messages: [
+            AIMessage(role: .user, text: "NOTES:\n\"\"\"\n\(text.prefix(LectureNotes.readChars(for: mode)))\n\"\"\"\n\nWrite the spoken review.")])
+        let clean = spoken(script)
+        guard clean.count > 200 else { throw AIError.badResponse }
+        progress("reading it aloud")
+        try await Converter.speak(clean, to: out)
+    }
+}
+
 // MARK: - A quiz to share
 
 /// A quiz as one web page a classmate can open in any browser and take: the questions, then
