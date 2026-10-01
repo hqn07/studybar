@@ -195,10 +195,26 @@ struct NotesView: View {
                         Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
                     }
                 }
+                if notes.count > 1 {
+                    Section("Export") {
+                        Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
+                    }
+                }
             } label: { Image(systemName: "ellipsis.circle") }
             Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil") }
                 .keyboardShortcut("n", modifiers: .command).help("New note")
         }
+    }
+
+    /// The notes the list shows — this course, this search — as one PDF in the order they were
+    /// taken, with a contents page: a binder to revise from or print before an exam.
+    private func exportBinder() {
+        let list = notes.sorted { $0.createdAt < $1.createdAt }
+        guard let first = list.first, let last = list.last else { return }
+        var title = "Notes"
+        if case .course(let id) = scope, let c = state.course(id) { title = (c.code.isEmpty ? c.name : c.code) + " notes" }
+        let span = (first.createdAt..<last.createdAt).formatted(.interval.month(.abbreviated).day().year())
+        PDFExportWindow.show(body: NoteHTML.binder(list), meta: .init(title: title, subtitle: "\(list.count) notes, \(span)"))
     }
 
     // MARK: Narrow / popover — list that pushes one note
@@ -1985,12 +2001,7 @@ struct NoteEditor: View {
     private func exportAttributed() -> NSAttributedString {
         let live = editor.attributedString
         if live.length > 0 { return live.expandingMath().expandingFolds() }
-        if let data = draft.rich, let stored = NSAttributedString.fromRTFD(data), stored.length > 0 {
-            return stored          // persist() already expanded math/folds before storing it
-        }
-        return NSAttributedString(string: draft.body,
-                                  attributes: [.font: NSFont.systemFont(ofSize: 13),
-                                               .foregroundColor: NSColor.labelColor])
+        return NoteHTML.attributed(draft)
     }
 
     /// `md`, `rtf` or `docx`. Word gets the note's pictures and equations too (`DOCX`).

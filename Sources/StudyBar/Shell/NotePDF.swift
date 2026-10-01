@@ -79,7 +79,7 @@ enum NotePDF {
         let heads = (try? await web.callAsyncJavaScript("""
             var c=document.getElementById('c'),t=c.getBoundingClientRect().top;
             return Array.from(c.querySelectorAll('h1:not(.title),h2,h3')).map(function(e){
-              return [+e.tagName[1], e.textContent.trim(), e.getBoundingClientRect().top-t];});
+              return [e.classList.contains('note')?0:+e.tagName[1], e.textContent.trim(), e.getBoundingClientRect().top-t];});
             """, arguments: [:], contentWorld: .page) as? [[Any]]) ?? []
 
         // The whole document inside the view's bounds, so every slice is a region of the view.
@@ -108,7 +108,7 @@ enum NotePDF {
             if let page = composed.page(at: i)?.copy() as? PDFPage { doc.insert(page, at: i) }
         }
         let root = PDFOutline()
-        var open: [(level: Int, item: PDFOutline)] = [(0, root)]
+        var open: [(level: Int, item: PDFOutline)] = [(-1, root)]
         for h in heads {
             guard h.count == 3, let level = (h[0] as? NSNumber)?.intValue, let label = h[1] as? String, !label.isEmpty,
                   let y = (h[2] as? NSNumber).map({ CGFloat($0.doubleValue) }) else { continue }
@@ -212,6 +212,8 @@ enum NotePDF {
           table{border-collapse:collapse;margin:6px 0;}
           th,td{border:1px solid #bbb;padding:3px 6px;text-align:left;vertical-align:top;}
           th{background:#f0f0f2;font-weight:600;}
+          h1.note{font-size:21px;margin:0 0 2px;}
+          .toc{display:flex;gap:8px;margin:0 0 3px;} .toc span:first-child{flex:1;} .pg{min-width:24px;text-align:right;color:#555;}
         </style></head><body><div id="c">\(head)\(body)</div>
         <script>
           renderMathInElement(document.getElementById('c'),{delimiters:[
@@ -247,19 +249,39 @@ enum NotePDF {
             function safe(y){return atoms.every(function(a){return y<=a[0]+0.5||y>=a[1]-0.5;});}
             var cand=[];atoms.forEach(function(a){cand.push(a[0],a[1]);});
             cand.sort(function(a,b){return a-b;});
-            var out=[0],start=0;
-            while(total-start>pageH){
+            // A page break (.pb) always starts a new page: each note of a binder.
+            var forced=[];c.querySelectorAll('.pb').forEach(function(e){var y=box(e)[0];if(y>0.5)forced.push(y);});
+            var out=[0],start=0,lines=null;
+            while(total-start>pageH||forced.some(function(f){return f>start+0.5;})){
               var limit=start+pageH,best=-1;
-              for(var i=0;i<cand.length;i++){var y=cand[i];if(y>limit)break;if(y>start+pageH*0.25&&safe(y))best=y;}
+              var f=forced.find(function(f){return f>start+0.5&&f<=limit+0.5;});
+              if(f!==undefined)best=f;
+              else for(var i=0;i<cand.length;i++){var y=cand[i];if(y>limit)break;if(y>start+pageH*0.25&&safe(y))best=y;}
               if(best<0){
-                // One block taller than a page: cut it, but between two lines of text.
+                // One block taller than a page: cut it between two lines of text, midway
+                // through the gap. The text's own line boxes, measured once: the caret lookup
+                // this used before sees only the first page, so every later cut went through a
+                // line and left the top of it at the foot of the page.
                 best=limit;
-                var r=document.caretRangeFromPoint(c.getBoundingClientRect().left+2,top+limit);
-                if(r){var cr=r.getBoundingClientRect();if(cr.height>0&&cr.top-top>start+pageH*0.25&&cr.top-top<limit)best=cr.top-top;}
+                // Text nodes only: a range over the column would also return each element's own
+                // box, and the paragraph's box straddles every line in it.
+                if(!lines){lines=[];var w=document.createTreeWalker(c,NodeFilter.SHOW_TEXT),n,rg=document.createRange();
+                  while((n=w.nextNode())){rg.selectNodeContents(n);
+                    Array.from(rg.getClientRects()).forEach(function(q){if(q.height>2)lines.push([q.top-top,q.bottom-top]);});}}
+                var end=-1;
+                lines.forEach(function(q){var y=q[1];if(y<=limit&&y>start+pageH*0.25&&y>end&&lines.every(function(o){return y<=o[0]+0.5||y>=o[1]-0.5;}))end=y;});
+                if(end>0){var next=limit;lines.forEach(function(q){if(q[0]>=end-0.5&&q[0]<next)next=q[0];});best=Math.min(limit,(end+next)/2);}
               }
               out.push(best);start=best;
             }
             out.push(Math.max(total,start+1));
+            // A contents line's page number: the page its target starts on. The slot is
+            // reserved, so filling it moves nothing.
+            c.querySelectorAll('[data-page-of]').forEach(function(e){
+              var t=document.getElementById(e.dataset.pageOf);if(!t)return;
+              var y=box(t)[0],p=0;for(var i=0;i<out.length-1;i++){if(y>=out[i]-0.5)p=i;}
+              e.textContent=p+1;
+            });
             return out;
           }
         </script></body></html>
@@ -277,6 +299,27 @@ enum NotePDF {
 /// The PDF used to guess instead — "does the plain text contain `**` or a `- ` line?" — and a
 /// styled note that matched was printed from its plain text, dropping its colors and images.
 enum NoteHTML {
+    /// A saved note's text with its formatting: the stored rich text, else the plain body.
+    static func attributed(_ n: Note) -> NSAttributedString {
+        if let d = n.rich, let a = NSAttributedString.fromRTFD(d), a.length > 0 { return a }   // math/folds stored expanded
+        return NSAttributedString(string: n.body, attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+    }
+
+    /// Several notes as one document — an exam binder: a contents list whose page numbers the
+    /// layout fills in, then each note from the top of a new page, under its title and date.
+    static func binder(_ notes: [Note]) -> String {
+        func esc(_ s: String) -> String { s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;") }
+        func title(_ n: Note) -> String { esc(n.title.isEmpty ? "Untitled note" : n.title) }
+        let toc = notes.indices.map { i in
+            "<p class=\"toc\"><span>\(title(notes[i]))</span><span class=\"pg\" data-page-of=\"n\(i)\"></span></p>"
+        }.joined()
+        let parts = notes.indices.map { i in
+            "<div class=\"pb\"></div><h1 class=\"note\" id=\"n\(i)\">\(title(notes[i]))</h1>"
+                + "<p class=\"meta\">\(notes[i].createdAt.formatted(date: .long, time: .omitted))</p>" + body(from: attributed(notes[i]))
+        }.joined()
+        return "<h2>Contents</h2>" + toc + parts
+    }
+
     static func body(from attr: NSAttributedString) -> String {
         let (md, raw) = serialize(attr, asMarkdown: false)
         return MathMarkdown.bodyHTML(md, raw: raw)
@@ -619,6 +662,34 @@ enum PDFSelfTest {
             check("a bookmark per heading", marks.count == 19 && marks.first?.label == "Introduction", "(\(marks.count))")
             check("bookmarks land on their page", last != nil && last == lastPage, "(\(String(describing: last)) vs \(String(describing: lastPage)))")
         } else { check("PDF is readable", false) }
+
+        // A binder: every note from the top of a page, the contents numbered to match, and a
+        // bookmark per note with its own headings under it.
+        let course = UUID()
+        let binderNotes = (1...3).map { i in
+            Note(title: "Lecture \(i)", body: "## Topic \(i)\n" + String(repeating: "Lecture \(i) text about flux and fields. ", count: i == 2 ? 160 : 12),
+                 courseID: course)
+        }
+        if let data = await NotePDF.render(body: NoteHTML.binder(binderNotes), meta: .init(title: "PHY2049 notes", subtitle: "3 notes"), options: opts),
+           let doc = PDFDocument(data: data) {
+            keepFile(data, "sb-binder-selftest.pdf")
+            func firstLine(_ i: Int) -> String {
+                (doc.page(at: i)?.string ?? "").components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+                    .first { !$0.isEmpty && !$0.contains("PHY2049 notes") } ?? ""
+            }
+            let starts = (1...3).compactMap { n in (0..<doc.pageCount).first { firstLine($0) == "Lecture \(n)" } }
+            check("each note starts a page", starts.count == 3 && starts == starts.sorted() && starts.first == 1,
+                  "(\(starts), \(doc.pageCount) pages)")
+            let contents = doc.page(at: 0)?.string ?? ""
+            check("contents numbered to match", starts.count == 3 && (1...3).allSatisfy { contents.contains("Lecture \($0)\(starts[$0 - 1] + 1)") || contents.contains("Lecture \($0) \(starts[$0 - 1] + 1)") },
+                  contents.replacingOccurrences(of: "\n", with: "⏎"))
+            // A line a cut goes through is printed on both pages: one "fields" per sentence, 184 in all.
+            let fields = (0..<doc.pageCount).map { (doc.page(at: $0)?.string ?? "").components(separatedBy: "fields").count - 1 }.reduce(0, +)
+            check("a paragraph longer than a page is cut between lines", fields == 184, "(\(fields))")
+            let marks = (0..<(doc.outlineRoot?.numberOfChildren ?? 0)).compactMap { doc.outlineRoot?.child(at: $0) }
+            check("a bookmark per note, headings under it", marks.filter { $0.label?.hasPrefix("Lecture") == true }.count == 3
+                  && marks.first { $0.label == "Lecture 2" }?.child(at: 0)?.label == "Topic 2", "\(marks.compactMap(\.label))")
+        } else { check("binder renders", false) }
 
         opts.paper = .a4; opts.textSize = .large; opts.pageNumbers = false
         if let data = await NotePDF.render(body: NoteHTML.body(from: plain), meta: meta, options: opts),
