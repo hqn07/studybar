@@ -371,6 +371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             add("Star This Moment  \(HotKeyStore.display(HotKeyStore.binding(.star)))", #selector(starMoment))
         }
         add(state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro", #selector(togglePomodoro))
+        let due = state.data.flashcards.filter(\.isDue).count
+        if due > 0 { add("Review \(due) Due Card\(due == 1 ? "" : "s")…", #selector(reviewCards)) }
         m.addItem(.separator())
         add("Open StudyBar", #selector(openMain))
         add(ShelfPanel.shared?.isVisible == true ? "Hide Shelf" : "Show Shelf", #selector(toggleShelf))
@@ -514,6 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func newTask() { QuickCapture.shared.show(.task) }
     @objc private func newNote() { QuickCapture.shared.show(.note) }
     @objc private func captureScreen() { ScreenGrab.start() }
+    @objc private func reviewCards() { CardsPanel.shared.show(deckID: nil) }
     @objc private func starMoment() { state.voice.star() }
     @objc private func togglePomodoro() { AppActions.togglePomodoro() }
     @objc private func openMain() { showWindow() }

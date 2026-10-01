@@ -182,6 +182,7 @@ struct DeckView: View {
                     Button { generating = true } label: { Label("Generate with AI…", systemImage: "sparkles") }
                     Divider()
                 }
+                Button { CardsPanel.shared.show(deckID: deck.id) } label: { Label("Review on top of other apps", systemImage: "pip") }
                 Button { importing = true } label: { Label("Import from Anki / CSV…", systemImage: "square.and.arrow.down") }
                 Button { exportFile() } label: { Label("Export for Anki…", systemImage: "square.and.arrow.up") }
                 Button { exportCSV() } label: { Label("Copy deck as CSV", systemImage: "doc.on.doc") }
@@ -880,8 +881,11 @@ struct GenerateCardsView: View {
 struct StudyView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
-    let deckID: UUID
+    /// nil: every deck's due cards (the floating panel).
+    let deckID: UUID?
     var practiceAll = false
+    /// Set in the floating panel, where there's nothing to go back to.
+    var onClose: (() -> Void)? = nil
     @State private var queue: [UUID] = []
     @State private var revealed = false
     @State private var done = 0
@@ -898,7 +902,8 @@ struct StudyView: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack {
-                Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+                Button { close() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+                    .accessibilityLabel("End review")
                 if initialCount > 0 {
                     ProgressView(value: Double(done), total: Double(initialCount)).frame(maxWidth: 160)
                 }
@@ -949,7 +954,7 @@ struct StudyView: View {
                 Spacer()
                 EmptyState(symbol: "checkmark.seal.fill", title: "Session complete",
                            subtitle: summary)
-                Button("Done") { dismiss() }.buttonStyle(.borderedProminent).padding(.bottom, 20)
+                Button("Done") { close() }.buttonStyle(.borderedProminent).padding(.bottom, 20)
                 Spacer()
             }
         }
@@ -959,12 +964,14 @@ struct StudyView: View {
         .onAppear {
             if queue.isEmpty {
                 queue = state.data.flashcards
-                    .filter { $0.deckID == deckID && (practiceAll || $0.isDue) }
+                    .filter { (deckID == nil || $0.deckID == deckID) && (practiceAll || $0.isDue) }
                     .map(\.id).shuffled()
                 initialCount = queue.count
             }
         }
     }
+
+    private func close() { if let onClose { onClose() } else { dismiss() } }
 
     /// Render a card face: math (LaTeX) via RichText, otherwise a centered Text.
     @ViewBuilder private func faceText(_ text: String, font: Font, color: Color = .primary) -> some View {

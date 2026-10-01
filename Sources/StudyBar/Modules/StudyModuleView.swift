@@ -1010,6 +1010,7 @@ enum StudySnapshot {
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
+        save(NavigationStack { StudyView(deckID: nil, onClose: {}) }, "cards-panel.png", CGSize(width: 380, height: 440))
         let cardNote = Note(title: "Week 3 — Gauss's Law", body: "Flux :: the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$", courseID: course.id)
         state.data.notes.append(cardNote)
         NoteCards.sync(cardNote, state: state)
