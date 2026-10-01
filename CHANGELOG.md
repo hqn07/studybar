@@ -49,6 +49,8 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Fill-in answers forgive subscripts** — ε0 now counts for ε₀, and m2 for m², in quizzes and shared quizzes.
 
+- **Slides beside the lecture** — add the lecture's slides in Voice (a PDF or PowerPoint, before or after recording) and *Make study notes* follows them: a section for each slide the lecture talked about, with what was said and what the slide shows. The note then opens with the slides beside it, turned to the slide the part you're in is about. Any note can get its slides from the share menu ▸ *Add the lecture's slides*.
+
 - **Fixed: spoken audio stopped after a few sentences** — Convert's text → spoken audio cut a long text off at its first pause: 1,500 words came out as a few seconds. It now reads all of it.
 
 ## [2.4.5] — 2026-09-30
