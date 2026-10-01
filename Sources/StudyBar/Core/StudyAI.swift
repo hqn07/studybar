@@ -36,15 +36,16 @@ struct QuizResponse: Hashable {
 }
 
 enum Quiz {
-    static func system(count: Int, exam: Bool) -> String {
-        """
+    static func system(count: Int, exam: Bool, weak: [String] = []) -> String {
+        let lean = weak.isEmpty ? "" : " The student is weakest on \(weak.joined(separator: ", ")): where this material covers those, make about a third of the questions about them."
+        return """
         You write practice questions for a student from their own course material.
 
         Write exactly \(count) questions that test understanding of the material: the ideas, \
         definitions, results and how to apply them — not trivia about where something appears. Mix \
         the types: multiple choice (4 options, exactly one correct, the wrong ones plausible), \
         true/false, fill in the blank (a short phrase or number, the blank written ___), and short \
-        answer (1–3 sentences).\(exam ? " Make them exam-level: include calculation and application questions wherever the material has them." : "") \
+        answer (1–3 sentences).\(exam ? " Make them exam-level: include calculation and application questions wherever the material has them." : "")\(lean) \
         Use only what the material says or directly implies. Write math as LaTeX in $…$.
 
         Reply with ONLY a JSON object:
@@ -63,7 +64,7 @@ enum Quiz {
 
     /// Questions from the whole of the material: it is packed into request-sized groups and a
     /// share of the questions is asked of groups spread across it. nil if every request failed.
-    static func generate(from passages: [StudyPassage], count: Int, exam: Bool, provider: AIProvider, mode: AIMode,
+    static func generate(from passages: [StudyPassage], count: Int, exam: Bool, weak: [String] = [], provider: AIProvider, mode: AIMode,
                          progress: @escaping @MainActor (_ part: Int, _ total: Int) -> Void) async -> [QuizQuestion]? {
         let local = mode == .ollama || mode == .onDevice
         let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.readChars(for: mode))
@@ -77,7 +78,7 @@ enum Quiz {
             guard !Task.isCancelled else { return nil }
             await progress(i + 1, picked.count)
             let block = StudyMaterial.block(g)
-            guard let raw = try? await provider.complete(system: system(count: ask, exam: exam),
+            guard let raw = try? await provider.complete(system: system(count: ask, exam: exam, weak: weak),
                                                          messages: [AIMessage(role: .user, text: user(block, count: ask))])
             else { continue }
             anyOK = true
@@ -379,14 +380,16 @@ enum Tutor {
         }
     }
 
-    static func system(_ mode: Mode, course: String?) -> String {
-        """
+    static func system(_ mode: Mode, course: String?, weak: [String] = []) -> String {
+        let lean = weak.isEmpty ? "" : "\n\nFrom their quizzes, the student is weakest on \(weak.joined(separator: ", ")). " + (mode == .quiz
+            ? "Ask about these more often." : "Where a question touches them, take extra care with those parts.")
+        return """
         You are a tutor for a student\(course.map { " in \($0)" } ?? ""). Use the COURSE MATERIAL when it \
         is relevant, citing it in [brackets]; otherwise answer from what you know. When a question \
         comes with an image, the problem is in the image. When something is OPEN beside you, it is \
         what the student is looking at: "this", "this step" and "here" mean it.
 
-        \(mode.directive)
+        \(mode.directive)\(lean)
 
         Write math as LaTeX in $…$ (display math in $$…$$). Use Markdown.\(mode == .full ? "\n\n" + MathCheck.instruction : mode == .check ? "\n\n" + MathCheck.studentInstruction : "")
 
@@ -712,6 +715,12 @@ enum StudySelfTest {
             check("topics merge across spelling, weakest first",
                   scores.map(\.topic) == ["Gauss's law", "Conductors"] && scores.first?.right == 1 && scores.first?.total == 3,
                   "\(scores)")
+            let weak = TopicScores.weak(course: c, in: rs)
+            check("weak topics: three answers or more, under 70%", weak == ["Gauss's law (1 of 3 right)"], "\(weak)")
+            check("weak topics reach the tutor and a quiz, not when there are none",
+                  Tutor.system(.explain, course: nil, weak: weak).contains("weakest on Gauss's law (1 of 3 right)")
+                  && Quiz.system(count: 5, exam: false, weak: weak).contains("about a third")
+                  && !Tutor.system(.explain, course: nil).contains("weakest"))
             rs = (0..<25).map { r("Flux", $0 >= 5, Double($0)) }
             scores = TopicScores.of(course: c, in: rs)
             check("old mistakes age out of a topic", scores.first?.right == 20 && scores.first?.total == 20, "\(scores)")
@@ -935,6 +944,13 @@ enum TopicScores {
             return Score(topic: rs[0].topic.trimmingCharacters(in: .whitespaces), right: recent.filter(\.correct).count, total: recent.count)
         }
         .sorted { ($0.ratio, -$0.total, $0.topic) < ($1.ratio, -$1.total, $1.topic) }
+    }
+
+    /// What the AI should know about the student: up to three topics with at least three marked
+    /// answers and under 70% of them right, weakest first — what the tutor and new quizzes lean on.
+    static func weak(course: UUID?, in results: [TopicResult]) -> [String] {
+        of(course: course, in: results).filter { $0.total >= 3 && $0.ratio < 0.7 }.prefix(3)
+            .map { "\($0.topic) (\($0.right) of \($0.total) right)" }
     }
 
     /// The marked answers of a finished quiz, for the record. Short answers not yet marked are left out.

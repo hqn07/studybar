@@ -462,6 +462,7 @@ struct TutorPane: View {
         let found = Tutor.material(for: query, mode: turnMode, lastAnswer: prior.last?.answer ?? "", in: material(),
                                    hasOpen: open?.text.isEmpty == false, engine: engine)
         let code = course.map { $0.code.isEmpty ? $0.name : $0.code }
+        let weak = TopicScores.weak(course: course?.id, in: state.data.topicResults ?? [])
         // Dropped files ride along as material, ahead of what the search found.
         let budget = LectureNotes.chunkChars(for: engine) / 3
         let files = attached.map { "[\($0.name)]\n\($0.text.prefix(budget / max(1, attached.count)))" }.joined(separator: "\n\n")
@@ -472,7 +473,7 @@ struct TutorPane: View {
         m.task = Task {
             let msgs = Tutor.messages(thread: prior, question: q, material: [files, StudyMaterial.block(found)].filter { !$0.isEmpty }.joined(separator: "\n\n"),
                                       images: sees ? imgs : [], imageText: imageText, mode: turnMode, open: open)
-            let out = try? await provider.streamPlain(system: Tutor.system(turnMode, course: code), messages: msgs,
+            let out = try? await provider.streamPlain(system: Tutor.system(turnMode, course: code, weak: weak), messages: msgs,
                                                       temperature: 0.3) { partial in
                 if m.thread.indices.contains(idx) { m.thread[idx].answer = MathCheck.run(partial).text }
             }
@@ -555,6 +556,8 @@ private struct QuizPane: View {
 
     private func start() {
         var passages = material()
+        // A quiz leans on the weak topics; one already aimed at them, or an exam, doesn't.
+        let weak = exam || !m.focus.isEmpty ? [] : TopicScores.weak(course: course?.id, in: state.data.topicResults ?? [])
         if !m.focus.isEmpty {
             // The material behind the weak topics; all of it if the search finds none.
             let found = StudyIndex.search(m.focus.joined(separator: " "), in: passages, k: 10)
@@ -569,7 +572,7 @@ private struct QuizPane: View {
                                     module: "study")
         m.job = job
         m.task = Task {
-            let qs = await Quiz.generate(from: passages, count: n, exam: isExam, provider: provider,
+            let qs = await Quiz.generate(from: passages, count: n, exam: isExam, weak: weak, provider: provider,
                                          mode: AIConfig.engine(for: .ask)) { p, t in
                 m.progress = (p, t)
                 if t > 1 { Jobs.shared.update(job, "part \(p) of \(t)") }
