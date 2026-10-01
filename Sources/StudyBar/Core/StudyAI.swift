@@ -362,6 +362,7 @@ enum StudyGuide {
 enum Tutor {
     enum Mode: String, CaseIterable, Identifiable {
         case hint = "Hint", step = "Next step", full = "Full solution", explain = "Explain"
+        case check = "Check my work", teach = "Explain it back", quiz = "Quiz me"
         var id: String { rawValue }
         var directive: String {
             switch self {
@@ -369,6 +370,9 @@ enum Tutor {
             case .step: return "Show only the next step of the solution from where the student is (the first step if they haven't started), with its working. Then stop, and ask them to try the step after it."
             case .full: return "Solve it completely, step by step: name the principle that applies, show each step with its working, and state the final answer plainly."
             case .explain: return "Explain the concept: the intuition first, then the precise statement, then a short example."
+            case .check: return "The student shows their own work on a problem — typed, or in the image. Solve it yourself first, without showing that. Then go through their steps in order and stop at the FIRST step that is wrong: quote it, say what is wrong and why, and show that one step done correctly. Don't go on to the answer — they finish it. If every step is right, say so and confirm the answer."
+            case .teach: return "The student explains a concept in their own words, to find out what they really understand. Judge it against the material and what is true: first, in a line, what they got right; then each thing missing, vague or wrong, most important first, with a one-line correction; then a score out of 10. End with one question that probes the biggest gap. Don't rewrite the explanation for them."
+            case .quiz: return "Quiz the student, one question at a time, on what is OPEN if something is, otherwise on the COURSE MATERIAL. If their message answers your last question, mark it first — **Right** or **Not quite**, then the correct answer and one sentence of why — and then ask the next question. Otherwise just ask the first. Mix recall, understanding and application, never repeat a question, and don't give the answer away in it. Ask only the question: no preamble."
             }
         }
     }
@@ -382,7 +386,7 @@ enum Tutor {
 
         \(mode.directive)
 
-        Write math as LaTeX in $…$ (display math in $$…$$). Use Markdown.\(mode == .full ? "\n\n" + MathCheck.instruction : "")
+        Write math as LaTeX in $…$ (display math in $$…$$). Use Markdown.\(mode == .full ? "\n\n" + MathCheck.instruction : mode == .check ? "\n\n" + MathCheck.studentInstruction : "")
 
         \(NoteFormat.listRules)
         """
@@ -438,10 +442,12 @@ enum Tutor {
         var text = material.isEmpty ? "" : "COURSE MATERIAL:\n\"\"\"\n\(material)\n\"\"\"\n\n"
         if let open, !open.text.isEmpty { text += "OPEN — \(open.title):\n\"\"\"\n\(open.text)\n\"\"\"\n\n" }
         if !imageText.isEmpty { text += "TEXT READ FROM THE ATTACHED IMAGE:\n\"\"\"\n\(imageText)\n\"\"\"\n\n" }
-        text += "QUESTION: \(question.isEmpty ? "Help me with the problem in the image." : question)"
+        let empty = mode == .quiz ? "Ask me a question." : mode == .check ? "Check my work in the image." : "Help me with the problem in the image."
+        text += "QUESTION: \(question.isEmpty ? empty : question)"
         // Repeated here for the same reason as LectureNotes.user: in the system prompt alone,
         // qwen2.5:7b wrote a "### CHECK" heading over "7.18e6 = 7.18e6" — nothing to verify.
         if mode == .full { text += "\n\n" + MathCheck.reminder }
+        if mode == .check { text += "\n\n" + MathCheck.studentReminder }
         msgs.append(AIMessage(role: .user, text: text, images: images))
         return msgs
     }
@@ -470,6 +476,20 @@ enum MathCheck {
     static let reminder = """
     End with one line per numeric result in exactly this form, with the arithmetic written out \
     (not the answer repeated): CHECK: 2e-6 / (4 * pi * 8.85e-12 * 0.05^2) = 7.19e6
+    """
+
+    /// Checking the student's work: their arithmetic is recomputed too, so a slip the model
+    /// reads past is still caught.
+    static let studentInstruction = """
+    After your reply, for each numeric step in the STUDENT's work add a line `CHECK: <the \
+    arithmetic the student did> = <the value the student wrote>`, using only numbers, + - * / ^, \
+    parentheses, sqrt, sin, cos, tan, ln, log and pi — no variables, no units. Software recomputes \
+    these lines, so copy the student's own numbers, not corrected ones.
+    """
+
+    static let studentReminder = """
+    End with one line per numeric step of the student's work, in exactly this form, with their \
+    arithmetic and the value they wrote: CHECK: 2e-6 / (4 * pi * 8.85e-12 * 0.05^2) = 7.19e6
     """
 
     /// The answer without its CHECK lines, and what each one found.
@@ -602,6 +622,14 @@ enum StudySelfTest {
         check("a × 10^n groups as one number", latex.count > 1 && latex[1].ok == true, "\(latex.count > 1 ? latex[1].actual.map(MathEval.format) ?? "unread" : "")")
         check("\\frac and a bullet", latex.count > 2 && latex[2].ok == true)
         check("a bare CHECK heading is not a check", latex.count == 3)
+
+        // The tutor's practice modes: the student's own arithmetic goes to the calculator, and
+        // Quiz me starts from an empty message.
+        let checkMsg = Tutor.messages(thread: [], question: "", material: "", images: [Data([0xFF])], imageText: "", mode: .check).last?.text ?? ""
+        check("Check my work asks for the student's CHECK lines", checkMsg.contains(MathCheck.studentReminder)
+              && Tutor.system(.check, course: nil).contains(MathCheck.studentInstruction) && !Tutor.system(.teach, course: nil).contains("CHECK"))
+        check("Quiz me asks for a question", Tutor.messages(thread: [], question: "", material: "", images: [], imageText: "", mode: .quiz)
+              .last?.text.hasSuffix("QUESTION: Ask me a question.") == true)
 
         // Study guide merge.
         let merged = StudyGuide.merge(["## Definitions\n- **Flux** — field through a surface [A]\n## Formulas\n- $E=kq/r^2$ [A]",

@@ -275,7 +275,7 @@ struct TutorPane: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if m.thread.isEmpty {
-                            Text("Ask about the material, or attach a photo or screenshot of a problem. Hint and Next step help you work it yourself; Full solution works it through and checks the arithmetic.")
+                            Text("Ask about the material, or attach a photo or screenshot of a problem. Hint and Next step help you work it yourself; Full solution works it through and checks the arithmetic. Check my work finds the first wrong step in yours, Explain it back grades your own explanation of an idea, and Quiz me asks one question at a time.")
                                 .font(.callout).foregroundStyle(.secondary).padding(.top, 24)
                         }
                         ForEach(m.thread) { turn in turnView(turn).id(turn.id) }
@@ -314,7 +314,7 @@ struct TutorPane: View {
             HStack(alignment: .top, spacing: 8) {
                 Text(t.mode.rawValue).font(.caption2.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 2)
                     .background(.tint.opacity(0.12), in: Capsule())
-                Text(t.question.isEmpty ? "(the problem in the image)" : t.question).font(.callout.weight(.medium))
+                Text(t.question.isEmpty ? (t.mode == .quiz ? "Next question" : t.images.isEmpty ? "(attached files)" : "(the problem in the image)") : t.question).font(.callout.weight(.medium))
             }
             if !t.images.isEmpty {
                 HStack { ForEach(t.images, id: \.self) { d in NSImage(data: d).map { Image(nsImage: $0).resizable().scaledToFit().frame(height: 90) } } }
@@ -345,8 +345,13 @@ struct TutorPane: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                // Seven modes don't fit beside another module (⌘J): a menu there.
+                ViewThatFits(in: .horizontal) {
+                    Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    Picker("", selection: $mode) { ForEach(Tutor.Mode.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                }
                 Spacer()
                 if !m.thread.isEmpty {
                     Button { m.task?.cancel(); m.busy = false; m.thread = [] } label: {
@@ -386,18 +391,27 @@ struct TutorPane: View {
                     .accessibilityLabel("Attach an image")
                 Button { pasteImage() } label: { Image(systemName: "doc.on.clipboard") }.help("Paste an image from the clipboard")
                     .accessibilityLabel("Paste an image")
-                TextField("Ask, or describe what you're stuck on…", text: $input, axis: .vertical)
+                TextField(placeholder, text: $input, axis: .vertical)
                     .lineLimit(1...6).textFieldStyle(.roundedBorder)
                     .onSubmit { send() }
                 if m.busy {
                     Button("Stop") { m.task?.cancel(); m.busy = false }
                 } else {
                     Button("Send") { send() }.buttonStyle(.borderedProminent)
-                        .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && m.images.isEmpty && attached.isEmpty)
+                        .disabled(mode != .quiz && input.trimmingCharacters(in: .whitespaces).isEmpty && m.images.isEmpty && attached.isEmpty)
                 }
             }
         }
         .padding(10)
+    }
+
+    private var placeholder: String {
+        switch mode {
+        case .check: return "Type or paste your working, or attach a photo of it…"
+        case .teach: return "Explain the idea in your own words…"
+        case .quiz:  return m.thread.last?.mode == .quiz ? "Your answer — or Send for the next question" : "Send to get the first question"
+        default:     return "Ask, or describe what you're stuck on…"
+        }
     }
 
     private func attach() {
@@ -426,7 +440,7 @@ struct TutorPane: View {
 
     private func send() {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !m.busy, !q.isEmpty || !m.images.isEmpty || !attached.isEmpty, let provider = AIService.makeProvider(for: .ask) else { return }
+        guard !m.busy, !q.isEmpty || !m.images.isEmpty || !attached.isEmpty || mode == .quiz, let provider = AIService.makeProvider(for: .ask) else { return }
         let engine = AIConfig.engine(for: .ask)
         let sees = AIConfig.canSee(engine)
         let imgs = m.images, turnMode = mode, prior = m.thread
@@ -436,12 +450,21 @@ struct TutorPane: View {
         let query = [q, imageText].filter { !$0.isEmpty }.joined(separator: " ")
         // As many of the best passages as the engine can take: a quarter of what a quiz reads on
         // a hosted engine (~30k characters), the five that always fit on a local one.
-        let found = query.isEmpty ? [] : StudyIndex.fitting(query, in: material(), chars: max(7_500, LectureNotes.readChars(for: engine) / 4))
+        let chars = max(7_500, LectureNotes.readChars(for: engine) / 4)
+        let pool = material()
+        var found = query.isEmpty ? [] : StudyIndex.fitting(query, in: pool, chars: chars)
+        let open = openItem()
+        if turnMode == .quiz {
+            // What the last question was about, to mark the answer by; then a random stretch of
+            // the material for the next one — so the questions roam the course, not one page.
+            let graded = q.isEmpty ? [] : StudyIndex.fitting((prior.last?.answer ?? "") + " " + q, in: pool, chars: chars / 3)
+            let next = open?.text.isEmpty == false ? [] : StudyMaterial.groups(pool, maxChars: chars * 2 / 3).randomElement() ?? []
+            found = graded + next.filter { !graded.contains($0) }
+        }
         let code = course.map { $0.code.isEmpty ? $0.name : $0.code }
         // Dropped files ride along as material, ahead of what the search found.
         let budget = LectureNotes.chunkChars(for: engine) / 3
         let files = attached.map { "[\($0.name)]\n\($0.text.prefix(budget / max(1, attached.count)))" }.joined(separator: "\n\n")
-        let open = openItem()
 
         m.thread.append(Tutor.Turn(question: q, mode: turnMode, images: imgs))
         let idx = m.thread.count - 1
