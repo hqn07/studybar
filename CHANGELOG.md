@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.5.0] — 2026-10-01
 
 - **Study reads a whole course** — with ChatGPT, Claude or DeepSeek, a quiz, practice exam or study guide now reads up to 120,000 characters of the course at once — every note, where a 10-question quiz on a large course used to be written from about a quarter of it. The tutor sends as many of the best-matching passages as fit, instead of five. The local model reads what it always did.
 
