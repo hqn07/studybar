@@ -15,6 +15,24 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Fixed: a slow first launch** — on a Mac with thousands of old backup copies, StudyBar moved them to the Trash before appearing, which took about a minute. It now does that in the background.
 
+- **Check my work** — a new tutor mode: type your working, or attach a photo of it, and the tutor finds the first step that's wrong, says why, and shows that one step done right — then leaves the rest to you. StudyBar's calculator rechecks your arithmetic too, so a slip is flagged even if the AI reads past it.
+
+- **Explain it back** — explain an idea in your own words and the tutor tells you what you got right, what's missing or wrong, scores it out of 10, and asks about the biggest gap.
+
+- **Quiz me** — the tutor asks one question at a time, on the note open beside it (⌘J) or anywhere in the material you've ticked in Study, and marks each answer before the next. Send with nothing typed to skip to the next question. The tutor's modes now sit in two groups — help with a problem, and test yourself.
+
+- **Flashcards inside your notes** — write a line as `term :: definition` and it becomes a flashcard in the course's deck. Change the definition and the card follows, keeping its review schedule; delete the line and the card goes. The note's footer counts its cards.
+
+- **Exam binder** — the notes list's ⋯ menu ▸ *These notes as one PDF* puts every note the list shows (a course, or a search) into one PDF in the order you took them: a contents page with page numbers, each note starting on a new page, and bookmarks for every note and heading.
+
+- **Export a note to Word** — Export as Word keeps the note's pictures and equations, which Rich Text export drops. Convert's Word output now keeps them too.
+
+- **What the AI costs you** — Settings ▸ Intelligence shows this month's requests, tokens and an estimated cost for each ChatGPT, Claude or DeepSeek model you've used, plus last month's total.
+
+- **Fixed: a line cut in half between PDF pages** — when a paragraph ran longer than a page, from the second page on the page break went through a line of text: the top of it showed at the foot of the page and the line was printed again on the next.
+
+- **Fixed: Settings described an old rule** — Intelligence ▸ Boundaries still said StudyBar refuses to help with work you'd hand in, a rule removed in 2.4.0.
+
 ## [2.4.5] — 2026-09-30
 
 - **Click a sentence to hear it** — a lecture recorded in StudyBar now keeps every sentence with its moment in the audio. Under the note's recording, **Transcript** lists them with their times; click one and the recording plays from just before it. It lists the recording rather than the note, so it still works after *Make study notes* has rewritten the text.
