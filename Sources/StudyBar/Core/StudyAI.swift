@@ -633,6 +633,37 @@ enum StudySelfTest {
         check("Quiz me asks for a question", Tutor.messages(thread: [], question: "", material: "", images: [], imageText: "", mode: .quiz)
               .last?.text.hasSuffix("QUESTION: Ask me a question.") == true)
 
+        // Flashcards written in a note.
+        let parsed = NoteCards.parse("""
+        - Flux :: the field through a surface
+        1. Gauss's law :: $\\oint \\vec E \\cdot d\\vec A = Q/\\varepsilon_0$
+        std::vector<int> v;
+        {{c1::cloze}} stays text
+        flux :: a second line for the same term is ignored
+        Empty back ::
+        """)
+        check("note cards: terms, list markers dropped, code and cloze left alone",
+              parsed.map(\.front) == ["Flux", "Gauss's law"] && parsed.first?.back == "the field through a surface")
+        if let state = AppState.current {
+            let course = Course(name: "Selftest physics", code: "ST101")
+            var note = Note(title: "Cards", body: "Flux :: the field through a surface\nCharge :: what makes a field", courseID: course.id)
+            state.data.courses.append(course); state.data.notes.append(note)
+            NoteCards.sync(note, state: state)
+            var cards = state.data.flashcards.filter { $0.noteID == note.id }
+            let deck = state.data.decks.first { $0.name == "ST101" }
+            check("note cards: made in the course's deck", cards.count == 2 && cards.allSatisfy { $0.deckID == deck?.id })
+            let flux = cards.first { $0.front == "Flux" }
+            if let i = state.data.flashcards.firstIndex(where: { $0.id == flux?.id }) { state.data.flashcards[i].reps = 4 }
+            note.body = "Flux :: field lines through a surface"
+            NoteCards.sync(note, state: state)
+            cards = state.data.flashcards.filter { $0.noteID == note.id }
+            check("note cards: an edited definition updates the card and keeps its schedule, a deleted line deletes it",
+                  cards.count == 1 && cards.first?.id == flux?.id && cards.first?.reps == 4 && cards.first?.back == "field lines through a surface")
+            state.data.flashcards.removeAll { $0.noteID == note.id }
+            state.data.decks.removeAll { $0.id == deck?.id }
+            state.data.notes.removeAll { $0.id == note.id }; state.data.courses.removeAll { $0.id == course.id }
+        }
+
         // Study guide merge.
         let merged = StudyGuide.merge(["## Definitions\n- **Flux** — field through a surface [A]\n## Formulas\n- $E=kq/r^2$ [A]",
                                        "## Definitions\n- **Flux** — field through a surface [A]\n- **Gaussian surface** — imaginary [B]"],

@@ -1698,6 +1698,12 @@ struct NoteEditor: View {
                 Text("\(liveWords) word\(liveWords == 1 ? "" : "s")")
                 Text("·")
                 Text("edited \(draft.updatedAt.relativeShort)")
+                let cards = state.data.flashcards.lazy.filter { $0.noteID == draft.id }.count
+                if cards > 0 {
+                    Text("·")
+                    Label("\(cards) flashcard\(cards == 1 ? "" : "s")", systemImage: "rectangle.on.rectangle.angled")
+                        .help("Each line written term :: definition is a flashcard in the course's deck, kept in step with this note")
+                }
                 Spacer()
             }.font(.caption2).foregroundStyle(.tertiary)
             HStack(spacing: 10) {
@@ -1973,6 +1979,7 @@ struct NoteEditor: View {
         } else {
             state.data.notes.append(draft)
         }
+        if !empty { NoteCards.sync(draft, state: state) }
     }
     private func delete() {
         deleted = true

@@ -996,6 +996,12 @@ enum StudySnapshot {
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
+        let cardNote = Note(title: "Week 3 — Gauss's Law", body: "Flux :: the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$", courseID: course.id)
+        state.data.notes.append(cardNote)
+        NoteCards.sync(cardNote, state: state)
+        if let card = state.data.flashcards.first(where: { $0.noteID == cardNote.id }) {
+            save(CardEditor(card: card), "card-editor.png", CGSize(width: 560, height: 420))
+        }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)
         AIUsage.add(model: "my-custom-model", input: 3_000, output: 800)

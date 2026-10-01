@@ -526,18 +526,43 @@ struct CardEditor: View {
     private var allTags: [String] {
         Array(Set(state.data.flashcards.flatMap { $0.tags })).sorted { $0.localizedCompare($1) == .orderedAscending }
     }
+    /// The note this card is written in, while that note exists.
+    private var sourceNote: Note? { draft.noteID.flatMap { id in state.data.notes.first { $0.id == id } } }
 
     var body: some View {
         VStack(spacing: 0) {
             SubHeader("Card") {
-                Button("Delete", role: .destructive) {
-                    state.withUndo("Deleted card") { state.data.flashcards.removeAll { $0.id == draft.id } }; dismiss()
+                // A note's card goes when its line does; deleted here, the note would bring it back.
+                if sourceNote == nil {
+                    Button("Delete", role: .destructive) {
+                        state.withUndo("Deleted card") { state.data.flashcards.removeAll { $0.id == draft.id } }; dismiss()
+                    }
                 }
             }
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    FlipCardComposer(frontPlain: $frontPlain, back: $draft.back, blanks: $blanks, flipped: $flipped)
+                    if let note = sourceNote {
+                        // Written in a note as `term :: definition`: the note owns the text.
+                        VStack(alignment: .leading, spacing: 8) {
+                            RichText(text: draft.front).font(.title3.weight(.semibold))
+                            RichText(text: draft.back)
+                            HStack {
+                                Label("Written in “\(note.title.isEmpty ? "Untitled note" : note.title)” — change it there.", systemImage: "note.text")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Open note") {
+                                    dismiss()
+                                    state.pendingOpenNote = note.id
+                                    state.selectedModuleID = "notes"
+                                }
+                            }
+                        }
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        FlipCardComposer(frontPlain: $frontPlain, back: $draft.back, blanks: $blanks, flipped: $flipped)
+                    }
                     labeled("Tags") { TagChips(suggestions: allTags, selected: $selectedTags) }
                     labeled("Deck") {
                         Picker("", selection: $draft.deckID) {
@@ -561,7 +586,10 @@ struct CardEditor: View {
     }
     private func save() {
         draft.tags = selectedTags.sorted()
-        draft.front = Cloze.build(plain: frontPlain.trimmingCharacters(in: .whitespaces), blanks: blanks)
+        if sourceNote == nil {
+            draft.noteID = nil      // its note is gone: the card is the student's own now
+            draft.front = Cloze.build(plain: frontPlain.trimmingCharacters(in: .whitespaces), blanks: blanks)
+        }
         if draft.front.trimmingCharacters(in: .whitespaces).isEmpty {
             state.data.flashcards.removeAll { $0.id == draft.id }
         } else if let i = state.data.flashcards.firstIndex(where: { $0.id == draft.id }) {

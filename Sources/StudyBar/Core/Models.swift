@@ -388,6 +388,9 @@ struct Flashcard: Identifiable, Codable, Hashable {
     var stability: Double = 0
     var difficulty: Double = 0
     var lastReview: Date? = nil
+    /// The note it's written in as `term :: definition` (`NoteCards`), which owns its text.
+    /// Optional, so older stores decode.
+    var noteID: UUID? = nil
 
     var isDue: Bool { due <= .now }
     /// A card whose front uses Anki-style {{cloze}} syntax.
