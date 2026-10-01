@@ -5,8 +5,7 @@ The visual system lives in [`DESIGN.md`](DESIGN.md); this is the layer above it 
 *why* that the look serves.
 
 > **North star.** A calm, private, honest study desk you own. It helps a student see
-> and act on their week in seconds, without leaving their work — and never does the
-> work for them.
+> and act on their week in seconds and learn the material, without leaving their work.
 
 ---
 
@@ -18,8 +17,9 @@ Six principles, in priority order. When two conflict, the higher one wins.
    Destructive actions are undoable; persistence is conflict-safe (3-way merge, never
    clobber); backups are automatic. If a change risks a byte of the user's work, it
    doesn't ship.
-2. **Local-first, always.** Your file, your Mac. No account, no paywall, no cloud
-   required — ever. This is the identity, not a default to be talked out of.
+2. **Your data stays yours.** Your file, your Mac. No account, no paywall, no StudyBar
+   server — ever. An AI engine sees what a request needs, never the data file. This is
+   the identity, not a default to be talked out of.
 3. **A study assistant, not a gatekeeper.** AI explains, quizzes and works problems with
    you (see below). How you use it is yours to decide.
 4. **Calm by default.** Minimalist, distraction-free, compact. Ship small; let it grow
@@ -32,16 +32,23 @@ Six principles, in priority order. When two conflict, the higher one wins.
 
 ---
 
-## Local-first > AI quality
+## Local data, your choice of engine
 
-The best AI answer today needs the cloud. We take the worse-but-private one by default.
+The data is local; the AI engine is the student's choice — and hosted engines are a
+first-class one, not an escape hatch. (Changed 2026-09-30: in practice the students using
+StudyBar run it on ChatGPT, DeepSeek or Claude, and the jobs that matter most need them.)
 
-- **Local is the default and the identity.** On-device / Ollama runs with zero network,
-  zero account. Ship quality that stands on its own with no cloud attached.
-- **Cloud is a labeled escape hatch, never the default.** A user may bring their own key
-  for a stronger model. It is opt-in, clearly marked, and nothing core depends on it.
-- The bar: *a student who never touches the cloud gets a complete, useful app.* If a
-  feature only works with cloud AI, it's a bonus tier — not the feature.
+- **Hosted engines are what the AI is built and tuned for.** With their own key, a student
+  gets an engine that reads a whole course for a quiz, a 75-minute lecture in one go, a
+  photographed problem. Prompts, context sizes and limits are set for them first.
+- **Local engines stay.** On-device and Ollama run with zero network and zero account, for
+  privacy, for offline, and for a student without a key. They do the lighter jobs well;
+  where a job is too big for them, StudyBar does less rather than pretend.
+- **Scoped and visible.** A request sends what it needs — the note, the passages, the
+  question — never the data file. Keys live in the Keychain. Settings ▸ Intelligence shows
+  which engine answers what, and what it has cost this month.
+- The bar: *a student without a key still gets a complete app* — notes, flashcards, the
+  planner, the converter. The AI is where a hosted engine earns its cost.
 
 ---
 
@@ -66,8 +73,7 @@ working problems.**
 
 ## AI is a material, not a place
 
-StudyBar's AI **meets you on the object and proposes** — you stay in flow, in control,
-on-device. It is never a chatbot you visit and copy-paste out of. Chat is the fallback,
+StudyBar's AI **meets you on the object and proposes** — you stay in flow and in control. It is never a chatbot you visit and copy-paste out of. Chat is the fallback,
 not the home. (Apple's Writing Tools work because they appear *on the thing*, propose,
 and let you accept — zero navigation, zero copy-paste, reversible.)
 
@@ -90,8 +96,8 @@ and let you accept — zero navigation, zero copy-paste, reversible.)
 
 - **AI never mutates the store directly.** Inline → review card. Cross-object → confirm-
   cards. You commit. Always undoable. (Same spine as *never lose user data*.)
-- **Local-first.** Apple on-device model is the default when available (free, private,
-  fast enough for these bounded tasks); Ollama / cloud are user-chosen upgrades.
+- **Your engine.** A hosted engine with your own key for the heavy jobs, a local one when
+  nothing should leave the Mac — one setting, or split by kind of job.
 
 **The test for any AI feature:** *can the user do it without leaving what they're looking
 at, and is the result a proposal they accept?* If no → redesign or don't ship. We do **not**

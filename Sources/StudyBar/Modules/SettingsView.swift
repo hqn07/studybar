@@ -736,10 +736,10 @@ struct SettingsView: View {
         }
 
         Section("Boundaries") {
-            Label("Organizes your own material, and answers questions about a note — including ones the note doesn't cover.",
+            Label("Organizes your material, explains it and works problems with you — a hint, the next step or the whole solution, as you choose.",
                   systemImage: "checkmark.shield")
                 .font(.caption).foregroundStyle(.secondary)
-            Label("Never writes what you'd submit — StudyBar stops those requests itself, before the model sees them, and offers to walk you through the method instead.",
+            Label("Changes to your data are proposals you accept, and what the AI adds to a note is marked as added.",
                   systemImage: "hand.raised")
                 .font(.caption).foregroundStyle(.secondary)
             let cloudModes = [AIConfig.mode, AIConfig.askMode ?? AIConfig.mode].filter { $0 == .claude || $0 == .openai }

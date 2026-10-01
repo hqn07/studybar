@@ -7,7 +7,7 @@
 Your whole study life one click away — assignments, notes, flashcards, focus timers,
 schedule, and citations. Attach a PDF and **ask questions about your textbook**, or
 summarize and rewrite right inside a note. AI that organizes your material, explains it,
-and works problems with you. Local-first: no account, no paywall, no cloud required.
+and works problems with you. Your data stays on your Mac: no account, no paywall, no StudyBar server.
 
 Native SwiftUI · macOS 14+ · single `.app` · MIT licensed
 
@@ -101,7 +101,7 @@ material, explains it, and works problems step by step.**
 - **Command bar (⌘K)** — cross-note jobs proposed as confirm-cards.
 - **Break into steps**, **flashcards from a note**, **AI-organize a transcript** — structured actions, always propose-then-accept.
 
-Runs on **Apple's on-device model** (macOS 26, free & private), **Ollama** (free local models — `qwen2.5:7b` recommended), or your own **Claude / ChatGPT** key (stored in the Keychain). On-device and Ollama send nothing off your Mac.
+Built for **ChatGPT, Claude or DeepSeek** with your own key (kept in the Keychain): they read a whole course or a 75-minute lecture at once, and Settings ▸ Intelligence shows what they've cost you this month. **Apple's on-device model** (macOS 26) and **Ollama** work too — free, offline, and they send nothing off your Mac — for the lighter jobs.
 
 ### System integration
 
@@ -119,7 +119,8 @@ Local-first by design. Your data is a single JSON file on your Mac
 No telemetry, no analytics, no account.
 
 Network is used **only** for features you opt into: Canvas sync, the Lookup/News feeds,
-auto-fetching book covers and link titles, and cloud AI **if** you choose Claude/ChatGPT.
+auto-fetching book covers and link titles, and a hosted AI engine **if** you choose one
+(ChatGPT, Claude, DeepSeek) — it receives what a request needs, never your data file.
 The on-device and Ollama AI engines send nothing off your Mac.
 
 ---
