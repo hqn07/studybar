@@ -18,6 +18,7 @@ struct Course: Identifiable, Codable, Hashable {
     var canvasID: Int? = nil        // Canvas course id (for sync dedup)
     var term: String = ""           // e.g. "Fall 2026"; empty = current term (decode-safe)
     var syllabus: SyllabusItem? = nil   // attached syllabus + AI-extracted details (decode-safe)
+    var announcements: [CanvasAnnouncement]? = nil   // the latest few from Canvas sync; decode-safe
     var createdAt: Date = .now
 
     var color: Color { Color(hex: colorHex) ?? .accentColor }
@@ -602,6 +603,15 @@ struct SyllabusItem: Codable, Hashable {
     var textbooks: [String] = []
     var keyDates: [SyllabusDate] = []
     var objectives: [SyllabusObjective]? = nil   // what the course says you'll learn (`Coverage`); decode-safe
+}
+
+/// A course announcement pulled from Canvas, as plain text.
+struct CanvasAnnouncement: Identifiable, Codable, Hashable {
+    var id: Int
+    var title: String
+    var message: String
+    var postedAt: Date?
+    var url: String
 }
 
 /// A learning objective — or, where a syllabus states none, a topic from its schedule — with the

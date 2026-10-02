@@ -14,6 +14,7 @@ struct StudyFile: Identifiable, Codable, Hashable {
     var name: String
     var addedAt: Date = .now
     var units: Int = 0                    // pages or slides that had text
+    var canvasID: Int? = nil              // brought in by Canvas sync, so it's never fetched twice
 }
 
 /// A passage of course material and where it came from.

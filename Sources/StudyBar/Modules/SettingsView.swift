@@ -49,6 +49,7 @@ struct SettingsView: View {
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
     @AppStorage("settingsShowAdvanced") private var showAdvanced = false
     @AppStorage("watchDownloads") private var watchDownloads = false
+    @AppStorage("canvasFiles") private var canvasFiles = true
     @AppStorage("aiAnswerLength") private var answerLength = ""
     @AppStorage("aiAnswerLevel") private var answerLevel = ""
     @AppStorage("aiAnswerLanguage") private var answerLanguage = ""
@@ -521,7 +522,9 @@ struct SettingsView: View {
                 }
             }
             if !canvasStatus.isEmpty { Text(canvasStatus).font(.caption).foregroundStyle(.secondary) }
-            Text("Get a token in Canvas: Account ▸ Settings ▸ + New Access Token. Stored in your macOS Keychain, never in the data file. Sync pulls active courses + upcoming assignments.")
+            Toggle("Bring course files into Study", isOn: $canvasFiles)
+                .help("Each course's PDFs, slides and documents become sources the tutor, quizzes and study guides read — up to \(CanvasService.filesPerSync) a sync")
+            Text("Get a token in Canvas: Account ▸ Settings ▸ + New Access Token. Stored in your macOS Keychain, never in the data file. Sync pulls active courses, upcoming assignments and grades, the last month's announcements, and — when on — course files.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         Section("Apple & Automation") {

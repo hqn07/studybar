@@ -401,6 +401,7 @@ struct CourseDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         headerCard(c)
+                        if let news = c.announcements, !news.isEmpty { announcements(news) }
                         effortCard(c)
                         gradeCard()
                         syllabusCard(c)
@@ -611,6 +612,25 @@ struct CourseDetailView: View {
     }
 
     // MARK: - Syllabus
+
+    /// The latest from Canvas, newest first.
+    private func announcements(_ news: [CanvasAnnouncement]) -> some View {
+        section("ANNOUNCEMENTS") {
+            ForEach(news.prefix(3)) { a in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(a.title).font(.callout.weight(.medium)).lineLimit(2)
+                        Spacer()
+                        if let d = a.postedAt { Text(d.dayMonth).font(.caption2).foregroundStyle(.secondary) }
+                    }
+                    if !a.message.isEmpty { Text(a.message).font(.caption).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled) }
+                    if let u = URL(string: a.url), !a.url.isEmpty { Link("Open in Canvas", destination: u).font(.caption) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            }
+        }
+    }
 
     @ViewBuilder private func syllabusCard(_ c: Course) -> some View {
         section("SYLLABUS") {
