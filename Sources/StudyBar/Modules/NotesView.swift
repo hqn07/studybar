@@ -843,6 +843,13 @@ struct NoteEditor: View {
                     Button { editor.toggleQuote() } label: { Label("Block quote", systemImage: "text.quote") }
                     Button { editor.insertDivider() } label: { Label("Divider", systemImage: "minus") }
                     Button { if editor.hasSelection { foldTitle = ""; foldPrompt = true } } label: { Label("Collapse selection", systemImage: "rectangle.compress.vertical") }
+                    if !state.data.references.isEmpty {
+                        Menu {
+                            ForEach(citable.prefix(25)) { r in
+                                Button("\(CitationFormatter.inText(r)) \(r.title.prefix(60))") { insertCitation(r) }
+                            }
+                        } label: { Label("Citation", systemImage: "quote.opening") }
+                    }
                     Divider()
                     Button { define() } label: { Label("Define selected word", systemImage: "character.book.closed") }
                 } label: { Label("Insert", systemImage: "plus") }.menuStyle(.borderlessButton).fixedSize()
@@ -885,7 +892,12 @@ struct NoteEditor: View {
             Menu {
                 if AIConfig.isReady(for: .rewrite) {
                     Section("Selection, or the whole note") {
-                        ForEach(NoteAI.allCases) { a in
+                        ForEach(NoteAI.transforms) { a in
+                            Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
+                        }
+                    }
+                    Section("Essay") {
+                        ForEach(NoteAI.essay) { a in
                             Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
                         }
                     }
@@ -1501,8 +1513,8 @@ struct NoteEditor: View {
     }
 
     private func runAI(_ action: NoteAI) {
-        // Completing adds knowledge rather than reshaping text — the engine chosen for questions.
-        let surface: AIService.Surface = action == .complete ? .ask : .rewrite
+        // Completing and essay help add thinking rather than reshape text — the engine chosen for questions.
+        let surface: AIService.Surface = action == .complete || action.isEssay ? .ask : .rewrite
         guard AIConfig.isReady(for: surface), let provider = AIService.makeProvider(for: surface) else { return }
         let scope = editor.aiScope()
         guard !scope.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -1524,7 +1536,7 @@ struct NoteEditor: View {
         }
         aiTask = Task {
             let sys = action.system()
-            let msgs = [AIMessage(role: .user, text: action.user(scope.text))]
+            let msgs = [AIMessage(role: .user, text: action.user(scope.text, sources: citable))]
             let out: String?
             out = try? await provider.streamPlain(system: sys, messages: msgs, temperature: action.temperature) { p in aiText = p }
             await MainActor.run {
@@ -1541,6 +1553,29 @@ struct NoteEditor: View {
                 if aiText.isEmpty { aiAction = nil }   // failed — close quietly; note untouched
             }
         }
+    }
+
+    /// The library a draft may cite from: this course's references first.
+    private var citable: [Reference] {
+        Array(state.data.references.sorted { ($0.courseID == draft.courseID ? 0 : 1) < ($1.courseID == draft.courseID ? 0 : 1) }.prefix(40))
+    }
+
+    /// The in-text citation at the caret, and the full reference under References at the end —
+    /// once, in the style Citations is set to.
+    private func insertCitation(_ r: Reference) {
+        let caret = editor.caretLocation, text = editor.plainText as NSString
+        let before = caret > 0 ? text.substring(with: NSRange(location: caret - 1, length: 1)) : " "
+        let cite = (before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " ") + CitationFormatter.inText(r)
+        editor.insertPlain(cite, at: caret)
+        let style = CiteStyle(rawValue: UserDefaults.standard.string(forKey: "citeStyle") ?? "") ?? .apa
+        let entry = CitationFormatter.format(r, style: style).replacingOccurrences(of: "*", with: "")
+        let now = editor.plainText
+        if !now.contains(entry) {
+            let heading = now.range(of: #"(?m)^References\s*$"#, options: .regularExpression) == nil ? "\n\nReferences\n" : "\n"
+            editor.insertPlain(heading + entry, at: (now as NSString).length)
+            editor.moveCaret(to: caret + (cite as NSString).length)   // back to where the student is writing
+        }
+        scheduleAutosave()
     }
 
     private func aiReplace() {

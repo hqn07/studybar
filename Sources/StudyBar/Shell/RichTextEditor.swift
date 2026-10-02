@@ -157,6 +157,12 @@ final class RichTextController: ObservableObject {
         return (tv.string as NSString).substring(with: tv.selectedRange())
     }
     var hasSelection: Bool { (textView?.selectedRange().length ?? 0) > 0 }
+    /// Where typing would go: the end of the selection, or the end of the note when there's no editor.
+    var caretLocation: Int { textView?.selectedRange().upperBound ?? (plainText as NSString).length }
+    func moveCaret(to loc: Int) {
+        guard let tv = textView else { return }
+        tv.setSelectedRange(NSRange(location: max(0, min(loc, (tv.string as NSString).length)), length: 0))
+    }
 
     // MARK: AI-assist scope & edits (Writing-Tools-style, all undoable)
 

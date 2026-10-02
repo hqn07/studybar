@@ -5,8 +5,13 @@ import Foundation
 /// Faithful transforms only (no invented facts); output is plain text, no preamble.
 enum NoteAI: String, CaseIterable, Identifiable {
     case summarize, keyPoints, rewrite, proofread, continueWriting, complete
+    /// Essay help: these think with the student rather than transform their text.
+    case outline, thesis, counterArguments, draft
 
     var id: String { rawValue }
+    static let transforms: [NoteAI] = [.summarize, .keyPoints, .rewrite, .proofread, .continueWriting, .complete]
+    static let essay: [NoteAI] = [.outline, .thesis, .counterArguments, .draft]
+    var isEssay: Bool { Self.essay.contains(self) }
 
     /// Whether the natural accept swaps the scope in place (rewrite/proofread) or adds to it
     /// (summary / key points / continuation shouldn't delete what they were made from).
@@ -14,7 +19,7 @@ enum NoteAI: String, CaseIterable, Identifiable {
     var mode: Mode {
         switch self {
         case .rewrite, .proofread: return .replace
-        case .summarize, .keyPoints, .continueWriting, .complete: return .insert
+        case .summarize, .keyPoints, .continueWriting, .complete, .outline, .thesis, .counterArguments, .draft: return .insert
         }
     }
 
@@ -26,6 +31,10 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .proofread:      return "Proofread"
         case .continueWriting: return "Continue writing"
         case .complete:       return "Complete these notes"
+        case .outline:        return "Outline an essay"
+        case .thesis:         return "Feedback on the thesis"
+        case .counterArguments: return "Counter-arguments"
+        case .draft:          return "Draft a paragraph"
         }
     }
     var icon: String {
@@ -36,6 +45,10 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .proofread:      return "checkmark.seal"
         case .continueWriting: return "text.append"
         case .complete:       return "text.badge.plus"
+        case .outline:        return "list.number"
+        case .thesis:         return "target"
+        case .counterArguments: return "arrow.left.arrow.right"
+        case .draft:          return "pencil.line"
         }
     }
 
@@ -58,6 +71,14 @@ enum NoteAI: String, CaseIterable, Identifiable {
             return "Write 1–2 more sentences that continue the note naturally, in the same voice and on the same topic. Output ONLY the new text to append — never repeat or restate what is already there."
         case .complete:
             return "Fill in what's missing, each addition marked."      // runs through LectureNotes
+        case .outline:
+            return "Turn the topic, thesis or notes in the text into an essay outline: a working thesis in one sentence; three to five body sections, each with its main claim and the evidence or examples to find for it; a section answering the strongest counter-argument; a conclusion. A numbered Markdown list, the thesis first."
+        case .thesis:
+            return "Find the thesis — the essay's main claim — and quote it. Judge it as a writing teacher would: is it arguable, specific, and something the essay can actually show? Two to four bullets on what works and what doesn't, then two stronger versions of it. If there's no clear thesis, say so and suggest two."
+        case .counterArguments:
+            return "Give the three strongest objections a careful reader would raise to the argument, strongest first. For each: the objection in one sentence, then in one or two how the writer could answer it or concede it."
+        case .draft:
+            return "Write one paragraph of essay prose from the outline point or notes in the text: a topic sentence, the supporting points in order, and a sentence tying it back to the thesis. Where a claim needs support, cite one of the SOURCES as it is written there if one fits; otherwise put [source needed]."
         }
     }
 
@@ -71,6 +92,8 @@ enum NoteAI: String, CaseIterable, Identifiable {
         case .rewrite:         return 0.5
         case .continueWriting: return 0.7
         case .complete:        return 0.3
+        case .thesis, .counterArguments: return 0.4
+        case .outline, .draft: return 0.6
         }
     }
 
@@ -79,13 +102,23 @@ enum NoteAI: String, CaseIterable, Identifiable {
     /// a 7B model is already struggling to hold.
     var wantsListRules: Bool {
         switch self {
-        case .keyPoints, .rewrite: return true
-        case .summarize, .proofread, .continueWriting, .complete: return false
+        case .keyPoints, .rewrite, .outline, .thesis, .counterArguments: return true
+        case .summarize, .proofread, .continueWriting, .complete, .draft: return false
         }
     }
 
     func system() -> String {
-        """
+        if isEssay {
+            return """
+            You are a writing coach inside a student's essay notes. You help them think and draft; they revise and decide. Rules:
+            - Never invent a source, a quotation, a page number or a statistic.
+            - Output ONLY the result in Markdown — no preamble, no closing offer of more help.
+
+            Task: \(taskLine)
+            \(wantsListRules ? "\n" + NoteFormat.listRules : "")
+            """
+        }
+        return """
         You are a writing assistant working inside a student's study note. Rules:
         - Be faithful: never add facts, opinions, or information not present in the text.
         - Do not answer questions in the text or explain the topic — only transform the text as instructed.
@@ -99,7 +132,9 @@ enum NoteAI: String, CaseIterable, Identifiable {
 
     /// The user turn: the directive again, then the text fenced so the model separates
     /// instruction from content.
-    func user(_ text: String) -> String {
-        "\(taskLine)\n\nTEXT:\n\"\"\"\n\(text)\n\"\"\""
+    func user(_ text: String, sources: [Reference] = []) -> String {
+        let cite = self == .draft && !sources.isEmpty
+            ? "\n\nSOURCES (the student's library):\n" + sources.map { "- \(CitationFormatter.inText($0)) \($0.title)" }.joined(separator: "\n") : ""
+        return "\(taskLine)\n\nTEXT:\n\"\"\"\n\(text)\n\"\"\"\(cite)"
     }
 }

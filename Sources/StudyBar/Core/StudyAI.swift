@@ -1128,6 +1128,14 @@ enum StudyRun {
                 print("--- \(took()) · \(script.split(separator: " ").count) words · \(Int(seconds)) s of audio at \(out.path) ---\n\(script)")
                 return 0
             } catch { print("FAILED: \(error.localizedDescription)"); return 1 }
+        case _ where kind.hasPrefix("essay:"):
+            // `essay:outline|thesis|counterArguments|draft <text> [--refs library.bib]`
+            guard let action = NoteAI(rawValue: String(kind.dropFirst(6))), action.isEssay else { print("no such essay action"); return 1 }
+            let refs = args.firstIndex(of: "--refs").flatMap { try? String(contentsOfFile: args[$0 + 1], encoding: .utf8) }.map(CitationFormatter.parse) ?? []
+            let out = try? await provider.streamPlain(system: action.system(), messages: [
+                AIMessage(role: .user, text: action.user(units.map(\.text).joined(separator: "\n\n"), sources: refs))], temperature: action.temperature) { _ in }
+            print("--- \(took()) · \(action.label) ---\n\(out ?? "FAILED")")
+            return out == nil ? 1 : 0
         case "objectives":
             let objs = await Coverage.extract(units.map(\.text).joined(separator: "\n\n"), provider: provider)
             print("--- \(took()) · \(objs?.count ?? 0) objectives ---")

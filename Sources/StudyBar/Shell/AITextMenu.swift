@@ -23,7 +23,7 @@ struct AITextMenu: View {
     var body: some View {
         Menu {
             if AIConfig.isReady(for: .rewrite) {
-                ForEach(NoteAI.allCases) { a in
+                ForEach(NoteAI.transforms) { a in
                     Button { run(a) } label: { Label(a.label, systemImage: a.icon) }
                         .disabled(empty && a != .continueWriting)
                 }

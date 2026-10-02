@@ -483,6 +483,12 @@ enum CitationSelfTest {
         check("not a format → nothing", CitationFormatter.parse("electric flux through a surface").isEmpty && CitationFormatter.parse("10.1017/9781108333511").isEmpty)
         check("a duplicate by DOI or by title and year", CitationFormatter.isDuplicate(b[1], of: back) && !CitationFormatter.isDuplicate(Reference(title: "New", year: "2024"), of: all))
 
+        // Essay help: a draft is offered the library to cite from, and told never to invent one.
+        let draft = NoteAI.draft.user("Point 2: Gauss's law makes symmetric fields easy", sources: Array(b.prefix(2)))
+        check("a draft may cite the library, as it's written there", draft.contains("SOURCES") && draft.contains("- (Gauss, 1813) Theoria")
+              && NoteAI.draft.system().contains("Never invent a source"))
+        check("other actions aren't handed the library", !NoteAI.thesis.user("x", sources: b).contains("SOURCES") && !NoteAI.summarize.system().contains("coach"))
+
         print(fail == 0 ? "CITE SELFTEST: ALL PASS" : "CITE SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }
