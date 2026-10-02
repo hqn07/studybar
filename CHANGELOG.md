@@ -9,6 +9,26 @@ this project uses [semantic versioning](https://semver.org).
 
 - **A glossary of each course** — Study's new Glossary tab lists every term in the course with its definition, gathered from your notes (`term :: definition` lines, and the bold term-and-definition lines study notes are written in) and your flashcards, A to Z and searchable. *Make flashcards* adds the terms that don't have a card yet.
 
+- **What your syllabus covers, and what you haven't** — Study ▸ Progress now opens with the course's syllabus coverage: each learning objective with the notes, flashcards and quiz answers you have on it, and the gaps marked. StudyBar reads the syllabus once for its objectives; after that the map keeps up by itself as you study. Each gap has its own *Quiz me*.
+
+- **The tutor sees the page** — with ChatGPT or Claude, the tutor now looks at the actual slides and textbook pages its answer comes from, so graphs, diagrams and typeset equations count — not only the words on them. Each answer lists the pages it was shown.
+
+- **Answers your way** — Settings ▸ Intelligence ▸ Answers: short or detailed, pitched at your level, and in the language you choose. It applies to the tutor, Ask this note and the assistant; rewriting and proofreading keep your note's own language.
+
+- **Essay help** — a note's AI menu has a new Essay section: outline an essay from your topic or thesis, get feedback on the thesis (with two stronger versions), see the strongest counter-arguments, or draft a paragraph from your notes. A draft cites only sources from your Citations library and marks the rest *[source needed]* — it never makes one up. *Insert ▸ Citation* puts (Author, Year) where you're typing and adds the full reference under References.
+
+- **Bring your library in, and take it out** — Citations imports BibTeX, RIS and CSL-JSON files from Zotero, Mendeley, EndNote or Google Scholar (or paste them into the search field), skipping ones you already have. *Copy all as* gives you BibTeX, RIS, CSL-JSON or a formatted bibliography. In-text citations now read (Smith & Jones, 2020) and (Smith et al., 2020).
+
+- **Web pages, saved clean** — Convert ▸ *Add web page* (or drop a link from Safari) keeps just the article — no menus, ads or footers, with its pictures and equations — and turns it into a PDF, Markdown or a Word file in Downloads, or *Save as note*.
+
+- **Markdown that opens anywhere** — Export as Markdown now keeps a note's pictures (in an `assets` folder beside it), its headings, lists, tables and [[links]], and its tags. Settings ▸ Data ▸ *Export notes as Markdown* writes every note at once, a folder per course — ready for Obsidian, Bear or Notion.
+
+- **More from Canvas** — sync now brings each course's slides, PDFs and documents into Study as sources the tutor, quizzes and study guides read (up to 25 a sync; it can be turned off), and shows the last month's announcements on the course page.
+
+- **Fixed: correct arithmetic marked wrong** — the tutor's arithmetic check misread numbers like 47e-6 (as 4 × 7e-6), so a right step in a full solution could be flagged *recheck this step*.
+
+- **Fixed: BibTeX names for organizations** — a reference by an organization exported as if its last word were a surname; it's now kept whole.
+
 ## [2.5.0] — 2026-10-01
 
 - **Study reads a whole course** — with ChatGPT, Claude or DeepSeek, a quiz, practice exam or study guide now reads up to 120,000 characters of the course at once — every note, where a 10-question quiz on a large course used to be written from about a quarter of it. The tutor sends as many of the best-matching passages as fit, instead of five. The local model reads what it always did.
