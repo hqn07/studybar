@@ -21,6 +21,9 @@ struct StudyPassage: Hashable {
     let title: String                     // "Week 3 — Gauss's Law", "Lecture 4.pptx"
     let locator: String                   // "p. 12", "slide 4", "" for a note
     let text: String
+    /// The PDF the page is in, so an engine that can see gets the page itself — the figure, the
+    /// graph, the equation as typeset — not only its text (`StudyMaterial.pageImages`).
+    var pdf: URL? = nil
     /// How the model is told to cite it, and how an answer names it back.
     var cite: String { locator.isEmpty ? title : "\(title), \(locator)" }
 }
@@ -184,10 +187,10 @@ enum StudyMaterial {
     /// to hold a derivation together.
     @MainActor
     static func passages(_ source: StudySource, in data: AppData) -> [StudyPassage] {
-        func split(_ title: String, _ locator: String, _ text: String) -> [StudyPassage] {
+        func split(_ title: String, _ locator: String, _ text: String, pdf: URL? = nil) -> [StudyPassage] {
             let parts = LectureNotes.chunks(text, maxChars: 1_500)
             return parts.enumerated().map { i, t in
-                StudyPassage(title: title, locator: parts.count > 1 && locator.isEmpty ? "part \(i + 1)" : locator, text: t)
+                StudyPassage(title: title, locator: parts.count > 1 && locator.isEmpty ? "part \(i + 1)" : locator, text: t, pdf: pdf)
             }
         }
         switch source {
@@ -196,7 +199,7 @@ enum StudyMaterial {
             return split(n.title.isEmpty ? "Untitled note" : n.title, "", n.body)
         case .reading(let id):
             guard let r = data.reading.first(where: { $0.id == id }) else { return [] }
-            return BookText.chunks(id).flatMap { split(r.title, "p. \($0.page)", $0.text) }
+            return BookText.chunks(id).flatMap { split(r.title, "p. \($0.page)", $0.text, pdf: BookText.pdfURL(id)) }
         case .syllabus(let courseID):
             guard let s = data.courses.first(where: { $0.id == courseID })?.syllabus else { return [] }
             return split("Syllabus", "", SyllabusStore.text(s))
@@ -204,8 +207,34 @@ enum StudyMaterial {
             guard let f = data.studyFiles?.first(where: { $0.id == id }),
                   let raw = try? Data(contentsOf: unitsURL(id)),
                   let units = try? JSONDecoder().decode([Unit].self, from: raw) else { return [] }
-            return units.flatMap { split(f.name, $0.locator, $0.text) }
+            let pdf = f.name.lowercased().hasSuffix(".pdf") ? fileURL(f) : nil
+            return units.flatMap { split(f.name, $0.locator, $0.text, pdf: pdf) }
         }
+    }
+
+    /// The pages behind the best passages, as pictures: one per page, best first, at most `max`.
+    /// Only passages read from a PDF page ("p. 12") have one.
+    static func pageImages(_ passages: [StudyPassage], max: Int) -> (images: [Data], cited: [String]) {
+        var seen: Set<String> = [], images: [Data] = [], cited: [String] = []
+        for p in passages where images.count < max {
+            guard let url = p.pdf, p.locator.hasPrefix("p. "), let n = Int(p.locator.dropFirst(3)),
+                  seen.insert("\(url.path)#\(n)").inserted,
+                  let page = PDFDocument(url: url)?.page(at: n - 1), let img = render(page), let jpg = jpeg(img) else { continue }
+            images.append(jpg); cited.append(p.cite)
+        }
+        return (images, cited)
+    }
+
+    /// At most `maxSide` px on the long side: enough to read a page, small enough to send.
+    static func jpeg(_ cg: CGImage, maxSide: CGFloat = 1600) -> Data? {
+        let scale = min(1, maxSide / CGFloat(Swift.max(cg.width, cg.height)))
+        let w = Int(CGFloat(cg.width) * scale), h = Int(CGFloat(cg.height) * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.setFillColor(.white); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))   // a page with no background isn't black
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage().flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.85]) }
     }
 
     /// Everything a course has, as passages — what lecture notes and completions fill in from.

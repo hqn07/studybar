@@ -545,8 +545,9 @@ enum Tutor {
             ? "Ask about these more often." : "Where a question touches them, take extra care with those parts.")
         return """
         You are a tutor for a student\(course.map { " in \($0)" } ?? ""). Use the COURSE MATERIAL when it \
-        is relevant, citing it in [brackets]; otherwise answer from what you know. When a question \
-        comes with an image, the problem is in the image. When something is OPEN beside you, it is \
+        is relevant, citing it in [brackets]; otherwise answer from what you know. When the student \
+        attaches an image, the problem is in it (course pages sent as pictures are material, and \
+        say so). When something is OPEN beside you, it is \
         what the student is looking at: "this", "this step" and "here" mean it.
 
         \(mode.directive)\(lean)\(AIConfig.answerStyle)
@@ -562,6 +563,8 @@ enum Tutor {
         var question: String
         var mode: Mode
         var images: [Data] = []
+        /// PDF pages sent along as pictures ("Serway, p. 745"), so the student sees what went.
+        var pages: [String] = []
         var answer = ""
         var checks: [MathCheck.Result] = []
     }
@@ -612,7 +615,7 @@ enum Tutor {
 
     /// The last few turns for context; the course material and the images go on the new one only.
     static func messages(thread: [Turn], question: String, material: String, images: [Data], imageText: String,
-                         mode: Mode = .explain, open: (title: String, text: String)? = nil) -> [AIMessage] {
+                         mode: Mode = .explain, open: (title: String, text: String)? = nil, pages: [String] = []) -> [AIMessage] {
         var msgs: [AIMessage] = []
         for t in thread.suffix(4) where !t.answer.isEmpty {
             msgs.append(AIMessage(role: .user, text: t.question))
@@ -621,6 +624,11 @@ enum Tutor {
         var text = material.isEmpty ? "" : "COURSE MATERIAL:\n\"\"\"\n\(material)\n\"\"\"\n\n"
         if let open, !open.text.isEmpty { text += "OPEN — \(open.title):\n\"\"\"\n\(open.text)\n\"\"\"\n\n" }
         if !imageText.isEmpty { text += "TEXT READ FROM THE ATTACHED IMAGE:\n\"\"\"\n\(imageText)\n\"\"\"\n\n" }
+        // Page pictures go after the student's own images; they are material, not the problem.
+        if !pages.isEmpty {
+            text += "COURSE PAGES AS PICTURES: the last \(pages.count) image\(pages.count == 1 ? " is" : "s are") [\(pages.joined(separator: "], ["))], " +
+                "as printed. Use them for the figures, graphs and equations the text above can't show.\n\n"
+        }
         let empty = mode == .quiz ? "Ask me a question." : mode == .check ? "Check my work in the image." : "Help me with the problem in the image."
         text += "QUESTION: \(question.isEmpty ? empty : question)"
         // Repeated here for the same reason as LectureNotes.user: in the system prompt alone,
@@ -1010,6 +1018,23 @@ enum StudySelfTest {
             check("a local engine reads what it always did", LectureNotes.readChars(for: .ollama) == 6_000)
         }
 
+        // Pages as pictures: one per page, in order, capped; passages without a PDF page give none.
+        do {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sb-pages-\(UUID().uuidString).pdf")
+            defer { try? FileManager.default.removeItem(at: url) }
+            var box = CGRect(x: 0, y: 0, width: 300, height: 400)
+            if let ctx = CGContext(url as CFURL, mediaBox: &box, nil) {
+                for g in [0.9, 0.6, 0.3] { ctx.beginPDFPage(nil); ctx.setFillColor(gray: g, alpha: 1); ctx.fill(box.insetBy(dx: 40, dy: 40)); ctx.endPDFPage() }
+                ctx.closePDF()
+            }
+            func p(_ loc: String, _ pdf: URL? = url) -> StudyPassage { StudyPassage(title: "Deck", locator: loc, text: "x", pdf: pdf) }
+            let got = StudyMaterial.pageImages([p("p. 2"), p("p. 2"), p("", nil), p("p. 1"), p("p. 3")], max: 2)
+            check("page pictures: one per page, best first, capped", got.cited == ["Deck, p. 2", "Deck, p. 1"] && got.images.count == 2, "\(got.cited)")
+            check("a note passage has no page picture", StudyMaterial.pageImages([p("", nil), p("p. 9")], max: 3).images.isEmpty)
+            let msg = Tutor.messages(thread: [], question: "What does the graph show?", material: "", images: got.images, imageText: "", pages: got.cited).last
+            check("page pictures are named as course material", msg?.images.count == 2 && (msg?.text.contains("[Deck, p. 2], [Deck, p. 1]") ?? false))
+        }
+
         // Answer settings: nothing by default; each choice becomes one plain instruction.
         if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
             defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }
@@ -1034,8 +1059,9 @@ enum StudyRun {
         let kind = args[i + 1], url = URL(fileURLWithPath: args[i + 2])
         let mode = args.firstIndex(of: "--engine").flatMap { $0 + 1 < args.count ? AIMode(rawValue: args[$0 + 1]) : nil } ?? .ollama
         let units = StudyMaterial.extract(url)
+        let pdf = url.pathExtension.lowercased() == "pdf" ? url : nil
         let passages = units.flatMap { u in
-            LectureNotes.chunks(u.text, maxChars: 1_500).map { StudyPassage(title: url.lastPathComponent, locator: u.locator, text: $0) }
+            LectureNotes.chunks(u.text, maxChars: 1_500).map { StudyPassage(title: url.lastPathComponent, locator: u.locator, text: $0, pdf: pdf) }
         }
         if kind == "extract" {
             for u in units { print("[\(u.locator)] \(u.text.prefix(200).replacingOccurrences(of: "\n", with: " ⏎ "))") }
@@ -1106,11 +1132,12 @@ enum StudyRun {
             let saved = threadURL.flatMap { try? JSONDecoder().decode([[String]].self, from: Data(contentsOf: $0)) } ?? []
             let thread = saved.map { Tutor.Turn(question: $0[0], mode: Tutor.Mode(rawValue: $0[2]) ?? tutorMode, answer: $0[1]) }
             let found = Tutor.material(for: q, mode: tutorMode, lastAnswer: thread.last?.answer ?? "", in: passages, hasOpen: false, engine: mode)
-            print("retrieved: \(found.map(\.cite))")
+            let pages = AIConfig.canSee(mode) ? StudyMaterial.pageImages(found, max: 3) : (images: [], cited: [])
+            print("retrieved: \(found.map(\.cite))  ·  pages as pictures: \(pages.cited)")
             let weak = args.firstIndex(of: "--weak").map { [args[$0 + 1]] } ?? []
             let out = try? await provider.streamPlain(system: Tutor.system(tutorMode, course: nil, weak: weak),
                                                       messages: Tutor.messages(thread: thread, question: q, material: StudyMaterial.block(found),
-                                                                               images: [], imageText: "", mode: tutorMode),
+                                                                               images: pages.images, imageText: "", mode: tutorMode, pages: pages.cited),
                                                       temperature: 0.3, onReply: { _ in })
             let (text, checks) = MathCheck.run(out ?? "")
             print("--- \(took()) ---\n\(text)\n--- checks ---")

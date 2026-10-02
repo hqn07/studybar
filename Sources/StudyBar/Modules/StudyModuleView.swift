@@ -273,7 +273,7 @@ struct TutorPane: View {
     /// Files dropped on the chat (from the Shelf, Finder…): their text goes with the next question.
     @State private var attached: [Attached] = []
     @State private var dropping = false
-    struct Attached: Identifiable, Hashable { let id = UUID(); let name: String; let text: String }
+    struct Attached: Identifiable, Hashable { let id = UUID(); let name: String; let text: String; var pages: [StudyPassage] = [] }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -304,10 +304,12 @@ struct TutorPane: View {
             if UTType(filenameExtension: u.pathExtension)?.conforms(to: .image) == true, let img = NSImage(contentsOf: u), let d = Self.jpeg(img) {
                 m.images.append(d)
             } else if StudyMaterial.fileTypes.contains(u.pathExtension.lowercased()) {
-                let name = u.lastPathComponent
+                let name = u.lastPathComponent, pdf = u.pathExtension.lowercased() == "pdf" ? u : nil
                 Task {
-                    let text = await Task.detached { StudyMaterial.extract(u).map(\.text).joined(separator: "\n\n") }.value
-                    if !text.isEmpty { attached.append(Attached(name: name, text: text)) }
+                    let units = await Task.detached { StudyMaterial.extract(u) }.value
+                    let text = units.map(\.text).joined(separator: "\n\n")
+                    let pages = pdf.map { f in units.map { StudyPassage(title: name, locator: $0.locator, text: $0.text, pdf: f) } } ?? []
+                    if !text.isEmpty { attached.append(Attached(name: name, text: text, pages: pages)) }
                 }
             }
         }
@@ -324,6 +326,10 @@ struct TutorPane: View {
             }
             if !t.images.isEmpty {
                 HStack { ForEach(t.images, id: \.self) { d in NSImage(data: d).map { Image(nsImage: $0).resizable().scaledToFit().frame(height: 90) } } }
+            }
+            if !t.pages.isEmpty {
+                Label("Also showed the model " + t.pages.joined(separator: "; "), systemImage: "doc.richtext")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if t.answer.isEmpty { ProgressView().controlSize(.small) }
             else { RichText(text: t.answer).textSelection(.enabled) }
@@ -440,16 +446,8 @@ struct TutorPane: View {
         if let img = NSImage(pasteboard: .general), let d = Self.jpeg(img) { m.images.append(d) }
     }
 
-    /// At most 1600 px on the long side: enough to read a problem, small enough to send.
     static func jpeg(_ img: NSImage) -> Data? {
-        guard let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let scale = min(1, 1600 / CGFloat(max(cg.width, cg.height)))
-        let w = Int(CGFloat(cg.width) * scale), h = Int(CGFloat(cg.height) * scale)
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .high
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return ctx.makeImage().flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.85]) }
+        img.cgImage(forProposedRect: nil, context: nil, hints: nil).flatMap { StudyMaterial.jpeg($0) }
     }
 
     private func send() {
@@ -472,13 +470,20 @@ struct TutorPane: View {
         // Dropped files ride along as material, ahead of what the search found.
         let budget = LectureNotes.chunkChars(for: engine) / 3
         let files = attached.map { "[\($0.name)]\n\($0.text.prefix(budget / max(1, attached.count)))" }.joined(separator: "\n\n")
+        // An engine that can see also gets the pages the answer draws on, as pictures: a figure,
+        // a graph or a typeset equation doesn't survive as text. A dropped PDF's best pages first.
+        let dropped = attached.flatMap(\.pages)
+        let pagePool = sees ? (query.isEmpty ? dropped : StudyIndex.search(query, in: dropped, k: 3)) + found : []
 
         m.thread.append(Tutor.Turn(question: q, mode: turnMode, images: imgs))
         let idx = m.thread.count - 1
         input = ""; m.images = []; attached = []; m.busy = true
         m.task = Task {
+            let pages = await Task.detached { StudyMaterial.pageImages(pagePool, max: 3) }.value
+            if m.thread.indices.contains(idx) { m.thread[idx].pages = pages.cited }
             let msgs = Tutor.messages(thread: prior, question: q, material: [files, StudyMaterial.block(found)].filter { !$0.isEmpty }.joined(separator: "\n\n"),
-                                      images: sees ? imgs : [], imageText: imageText, mode: turnMode, open: open)
+                                      images: sees ? imgs + pages.images : [], imageText: imageText, mode: turnMode, open: open,
+                                      pages: pages.cited)
             let out = try? await provider.streamPlain(system: Tutor.system(turnMode, course: code, weak: weak), messages: msgs,
                                                       temperature: 0.3) { partial in
                 if m.thread.indices.contains(idx) { m.thread[idx].answer = MathCheck.run(partial).text }
