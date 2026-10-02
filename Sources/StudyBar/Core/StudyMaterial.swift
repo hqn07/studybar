@@ -216,11 +216,13 @@ enum StudyMaterial {
     /// The pages behind the best passages, as pictures: one per page, best first, at most `max`.
     /// Only passages read from a PDF page ("p. 12") have one.
     static func pageImages(_ passages: [StudyPassage], max: Int) -> (images: [Data], cited: [String]) {
-        var seen: Set<String> = [], images: [Data] = [], cited: [String] = []
+        var seen: Set<String> = [], images: [Data] = [], cited: [String] = [], docs: [URL: PDFDocument] = [:]
         for p in passages where images.count < max {
             guard let url = p.pdf, p.locator.hasPrefix("p. "), let n = Int(p.locator.dropFirst(3)),
-                  seen.insert("\(url.path)#\(n)").inserted,
-                  let page = PDFDocument(url: url)?.page(at: n - 1), let img = render(page), let jpg = jpeg(img) else { continue }
+                  seen.insert("\(url.path)#\(n)").inserted else { continue }
+            // Held for the drawing: a page whose document has gone is drawn "unsupported".
+            if docs[url] == nil { docs[url] = PDFDocument(url: url) }
+            guard let page = docs[url]?.page(at: n - 1), let img = render(page), let jpg = jpeg(img) else { continue }
             images.append(jpg); cited.append(p.cite)
         }
         return (images, cited)

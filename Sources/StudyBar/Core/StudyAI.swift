@@ -1037,9 +1037,12 @@ enum StudySelfTest {
 
         // Syllabus coverage: objectives from the model's JSON, then counted locally.
         do {
-            let objs = Coverage.parse(#"Here: {"objectives":[{"text":"Apply Gauss's law","keys":["Gauss's law","flux","x"]},{"text":"Grading","keys":[]},{"text":"Capacitance","keys":["capacitor","capacitance"]}]}"#) ?? []
-            check("objectives parse; an empty one is dropped, short keys too", objs.count == 2 && objs[0].keys == ["gauss's law", "flux"], "\(objs.map(\.keys))")
+            let objs = Coverage.parse(#"Here: {"objectives":[{"text":"Apply Gauss's law","keys":["Gauss's law","flux","x"]},{"text":"Grading","keys":[]},{"text":"Capacitance","keys":["capacitors","capacitance","dielectrics"]}]}"#) ?? []
+            check("objectives parse; an empty one is dropped, short keys too; keys made singular",
+                  objs.count == 2 && objs[0].keys == ["gauss's law", "flux"] && objs[1].keys == ["capacitor", "capacitance", "dielectric"], "\(objs.map(\.keys))")
             let course = UUID(), deck = UUID()
+            check("a key matches across dashes and accents", Coverage.mentions("the Biot-Savart law and Ampere's law", ["biot–savart law"])
+                  && Coverage.mentions("Ampere's law", ["ampère's law"]))
             let notes = [Note(title: "Week 3", body: "Gauss’s law and the Gaussian surface", courseID: course)]
             let cards = [Flashcard(deckID: deck, front: "Electric flux?", back: "E·A cos θ")]
             let results = [TopicResult(courseID: course, topic: "Gauss's law", correct: true), TopicResult(courseID: course, topic: "Gauss's Law", correct: false)]
@@ -1316,10 +1319,12 @@ enum Coverage {
     static let system = """
     From this course syllabus, list what the course expects students to learn: its stated learning \
     objectives or outcomes — or, where it states none, the topics of its weekly schedule. Give 6 to 20 \
-    items in the syllabus's order, each a short phrase. For each, give 2 to 5 search phrases that notes \
-    on it would contain: the key terms, named laws or methods, common synonyms ("gauss's law", \
-    "electric flux", "gaussian surface"). Lowercase. Never a generic word such as "analysis", \
-    "understanding" or "concepts". Skip grading, policies and logistics.
+    items in the syllabus's order, each a short phrase in sentence case. For each, give 2 to 5 search \
+    phrases, in lowercase, that a student's notes on THAT objective would contain and notes on the \
+    others would not: its named laws, methods and terms, one to three words each, as a student would \
+    write them ("gauss's law", "gaussian surface", "electric flux"). Never a phrase that fits another \
+    objective too (such as "electric field" in a course full of them), and never a generic word such as \
+    "analysis" or "concepts". Skip grading, policies and logistics.
     Reply with ONLY JSON: {"objectives":[{"text":"…","keys":["…","…"]}]}
     """
 
@@ -1336,16 +1341,21 @@ enum Coverage {
               let list = obj["objectives"] as? [[String: Any]] else { return nil }
         let out = list.compactMap { o -> SyllabusObjective? in
             let text = (o["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let keys = (o["keys"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { $0.count >= 3 }
+            // Singular, so a key matches both "dielectric" and "dielectrics" in a note.
+            let keys = (o["keys"] as? [String] ?? []).map { k -> String in
+                let t = k.trimmingCharacters(in: .whitespaces).lowercased()
+                return t.count > 4 && t.hasSuffix("s") && !t.hasSuffix("ss") && !t.hasSuffix("'s") ? String(t.dropLast()) : t
+            }.filter { $0.count >= 3 }
             return text.isEmpty || keys.isEmpty ? nil : SyllabusObjective(text: text, keys: keys)
         }
         return out.isEmpty ? nil : out
     }
 
-    /// Curly apostrophes are how a pasted note writes "Gauss’s law".
+    /// Curly apostrophes and dashes are how a pasted note writes "Gauss’s law" or "Biot–Savart".
     static func mentions(_ text: String, _ keys: [String]) -> Bool {
-        let t = text.replacingOccurrences(of: "’", with: "'")
-        return keys.contains { t.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        func plain(_ s: String) -> String { s.replacingOccurrences(of: "’", with: "'").replacingOccurrences(of: "–", with: "-").replacingOccurrences(of: "—", with: "-") }
+        let t = plain(text)
+        return keys.contains { t.range(of: plain($0), options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     struct Row: Identifiable {
