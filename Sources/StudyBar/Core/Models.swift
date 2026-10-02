@@ -601,6 +601,15 @@ struct SyllabusItem: Codable, Hashable {
     var officeHours: String = ""
     var textbooks: [String] = []
     var keyDates: [SyllabusDate] = []
+    var objectives: [SyllabusObjective]? = nil   // what the course says you'll learn (`Coverage`); decode-safe
+}
+
+/// A learning objective — or, where a syllabus states none, a topic from its schedule — with the
+/// phrases notes on it would contain, so coverage is counted locally as notes are written.
+struct SyllabusObjective: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var text: String
+    var keys: [String]
 }
 
 struct SyllabusDate: Identifiable, Codable, Hashable {

@@ -621,7 +621,7 @@ private struct QuizPane: View {
             if let error = m.error { Text(error).font(.caption).foregroundStyle(.orange) }
             if !m.focus.isEmpty {
                 HStack(spacing: 6) {
-                    Label("On your weakest topics: \(m.focus.joined(separator: ", "))", systemImage: "scope").font(.callout)
+                    Label("Aimed at: \(m.focus.joined(separator: ", "))", systemImage: "scope").font(.callout)
                     Button { m.focus = [] } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.secondary)
                         .accessibilityLabel("Quiz on everything instead")
                 }
@@ -905,6 +905,8 @@ private struct ProgressPane: View {
     let course: Course?
     @ObservedObject var quiz: QuizModel
     let openQuiz: () -> Void
+    @State private var readingSyllabus = false
+    @State private var coverageError: String?
 
     var body: some View {
         let scores = TopicScores.of(course: course?.id, in: state.data.topicResults ?? [])
@@ -912,6 +914,7 @@ private struct ProgressPane: View {
         let cards = state.data.flashcards.filter { decks.contains($0.deckID) }
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let course { coverage(course, cards: cards); Divider() }
                 if scores.isEmpty {
                     Text("Take a quiz or a practice exam — your score on each topic shows here, weakest first.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -954,6 +957,67 @@ private struct ProgressPane: View {
                 }
             }
             .padding(20).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The syllabus's objectives, each against the notes, flashcards and quiz answers on it.
+    @ViewBuilder private func coverage(_ c: Course, cards: [Flashcard]) -> some View {
+        let objectives = c.syllabus?.objectives ?? []
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Syllabus coverage").font(.headline)
+                Spacer()
+                if readingSyllabus { ProgressView().controlSize(.small) }
+                else if c.syllabus != nil && !objectives.isEmpty {
+                    Button("Read the syllabus again") { readSyllabus(c) }.buttonStyle(.borderless).font(.caption)
+                }
+            }
+            if c.syllabus == nil {
+                Text("Add this course's syllabus in Courses, and this shows which of its objectives your notes, flashcards and quizzes cover — and which they don't.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if objectives.isEmpty {
+                Text("StudyBar reads the syllabus once for its learning objectives, then counts your notes, flashcards and quiz answers on each as you go.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Find the objectives") { readSyllabus(c) }.buttonStyle(.borderedProminent).disabled(readingSyllabus)
+            } else {
+                let rows = Coverage.rows(objectives, notes: state.data.notes.filter { $0.courseID == c.id }, cards: cards,
+                                         results: (state.data.topicResults ?? []).filter { $0.courseID == c.id })
+                Text("\(rows.filter { $0.notes > 0 }.count) of \(rows.count) have notes · \(rows.filter { $0.cards > 0 }.count) have flashcards · \(rows.filter { $0.answered > 0 }.count) quizzed")
+                    .font(.callout).foregroundStyle(.secondary)
+                ForEach(rows) { r in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: r.gaps == 0 ? "checkmark.circle.fill" : r.notes == 0 ? "circle.dashed" : "circle.lefthalf.filled")
+                            .foregroundStyle(r.gaps == 0 ? Color.green : r.notes == 0 ? Color.orange : Color.secondary)
+                        Text(r.objective.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                        Group {
+                            Text(r.notes == 0 ? "no notes" : "\(r.notes) note\(r.notes == 1 ? "" : "s")").foregroundStyle(r.notes == 0 ? Color.orange : Color.secondary)
+                            Text(r.cards == 0 ? "no cards" : "\(r.cards) card\(r.cards == 1 ? "" : "s")").foregroundStyle(r.cards == 0 ? Color.orange : Color.secondary)
+                            Text(r.answered == 0 ? "not quizzed" : "quiz \(r.right)/\(r.answered)").foregroundStyle(r.answered == 0 ? Color.orange : Color.secondary)
+                        }.font(.caption.monospacedDigit())
+                        Button("Quiz me") { quiz.focus = [r.objective.text]; openQuiz() }
+                            .controlSize(.small).opacity(r.gaps > 0 ? 1 : 0)
+                            .disabled(r.gaps == 0 || quiz.phase == .generating || quiz.phase == .taking)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            if let coverageError { Text(coverageError).font(.caption).foregroundStyle(.orange) }
+        }
+    }
+
+    private func readSyllabus(_ c: Course) {
+        guard let s = c.syllabus, let provider = AIService.makeProvider(for: .extract) else { return }
+        readingSyllabus = true; coverageError = nil
+        Task {
+            let text = SyllabusStore.text(s)
+            let found = await Coverage.extract(text, provider: provider)
+            readingSyllabus = false
+            guard let found else {
+                coverageError = text.count <= 40 ? "There's no text to read in this syllabus file."
+                    : "Couldn't find objectives in the syllabus — try again, or a stronger engine in Settings ▸ Intelligence."
+                return
+            }
+            if let i = state.data.courses.firstIndex(where: { $0.id == c.id }) { state.data.courses[i].syllabus?.objectives = found }
         }
     }
 }

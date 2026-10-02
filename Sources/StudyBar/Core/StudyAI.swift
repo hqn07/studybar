@@ -1035,6 +1035,21 @@ enum StudySelfTest {
             check("page pictures are named as course material", msg?.images.count == 2 && (msg?.text.contains("[Deck, p. 2], [Deck, p. 1]") ?? false))
         }
 
+        // Syllabus coverage: objectives from the model's JSON, then counted locally.
+        do {
+            let objs = Coverage.parse(#"Here: {"objectives":[{"text":"Apply Gauss's law","keys":["Gauss's law","flux","x"]},{"text":"Grading","keys":[]},{"text":"Capacitance","keys":["capacitor","capacitance"]}]}"#) ?? []
+            check("objectives parse; an empty one is dropped, short keys too", objs.count == 2 && objs[0].keys == ["gauss's law", "flux"], "\(objs.map(\.keys))")
+            let course = UUID(), deck = UUID()
+            let notes = [Note(title: "Week 3", body: "Gauss’s law and the Gaussian surface", courseID: course)]
+            let cards = [Flashcard(deckID: deck, front: "Electric flux?", back: "E·A cos θ")]
+            let results = [TopicResult(courseID: course, topic: "Gauss's law", correct: true), TopicResult(courseID: course, topic: "Gauss's Law", correct: false)]
+            let rows = Coverage.rows(objs, notes: notes, cards: cards, results: results)
+            check("coverage counts notes (curly apostrophe), cards and quiz answers",
+                  rows.count == 2 && rows[0].notes == 1 && rows[0].cards == 1 && rows[0].right == 1 && rows[0].answered == 2 && rows[0].gaps == 0,
+                  "\(rows.map { ($0.notes, $0.cards, $0.right, $0.answered) })")
+            check("an objective with nothing on it is three gaps", rows[1].gaps == 3)
+        }
+
         // Answer settings: nothing by default; each choice becomes one plain instruction.
         if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
             defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }
@@ -1113,6 +1128,11 @@ enum StudyRun {
                 print("--- \(took()) · \(script.split(separator: " ").count) words · \(Int(seconds)) s of audio at \(out.path) ---\n\(script)")
                 return 0
             } catch { print("FAILED: \(error.localizedDescription)"); return 1 }
+        case "objectives":
+            let objs = await Coverage.extract(units.map(\.text).joined(separator: "\n\n"), provider: provider)
+            print("--- \(took()) · \(objs?.count ?? 0) objectives ---")
+            for o in objs ?? [] { print("- \(o.text)  [\(o.keys.joined(separator: ", "))]") }
+            return objs == nil ? 1 : 0
         case "guide-raw":
             let g = StudyMaterial.groups(passages, maxChars: LectureNotes.chunkChars(for: mode) * 2 / 3).first ?? []
             let out = try? await provider.streamPlain(system: StudyGuide.system,
@@ -1262,6 +1282,65 @@ enum TopicScores {
         questions.compactMap { q in
             Quiz.isCorrect(q, responses[q.id] ?? QuizResponse())
                 .map { TopicResult(courseID: course, topic: q.topic.isEmpty ? "Other" : q.topic, correct: $0) }
+        }
+    }
+}
+
+// MARK: - Syllabus coverage
+
+/// What the syllabus says you'll learn, against what you have on it: notes, flashcards, quiz
+/// answers. The AI reads the syllabus once, for its objectives and the phrases that mark each;
+/// the counting after that is local, so the map keeps up as notes are written.
+enum Coverage {
+    static let system = """
+    From this course syllabus, list what the course expects students to learn: its stated learning \
+    objectives or outcomes — or, where it states none, the topics of its weekly schedule. Give 6 to 20 \
+    items in the syllabus's order, each a short phrase. For each, give 2 to 5 search phrases that notes \
+    on it would contain: the key terms, named laws or methods, common synonyms ("gauss's law", \
+    "electric flux", "gaussian surface"). Lowercase. Never a generic word such as "analysis", \
+    "understanding" or "concepts". Skip grading, policies and logistics.
+    Reply with ONLY JSON: {"objectives":[{"text":"…","keys":["…","…"]}]}
+    """
+
+    static func extract(_ syllabus: String, provider: AIProvider) async -> [SyllabusObjective]? {
+        guard syllabus.count > 40,
+              let raw = try? await provider.completePlain(system: system, messages: [AIMessage(role: .user, text: "SYLLABUS:\n" + syllabus.prefix(40_000))])
+        else { return nil }
+        return parse(raw)
+    }
+
+    static func parse(_ raw: String) -> [SyllabusObjective]? {
+        guard let s = raw.firstIndex(of: "{"), let e = raw.lastIndex(of: "}"), s < e,
+              let obj = try? JSONSerialization.jsonObject(with: Data(raw[s...e].utf8)) as? [String: Any],
+              let list = obj["objectives"] as? [[String: Any]] else { return nil }
+        let out = list.compactMap { o -> SyllabusObjective? in
+            let text = (o["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let keys = (o["keys"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { $0.count >= 3 }
+            return text.isEmpty || keys.isEmpty ? nil : SyllabusObjective(text: text, keys: keys)
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// Curly apostrophes are how a pasted note writes "Gauss’s law".
+    static func mentions(_ text: String, _ keys: [String]) -> Bool {
+        let t = text.replacingOccurrences(of: "’", with: "'")
+        return keys.contains { t.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+    }
+
+    struct Row: Identifiable {
+        let objective: SyllabusObjective
+        let notes: Int, cards: Int, right: Int, answered: Int
+        var id: UUID { objective.id }
+        var gaps: Int { (notes == 0 ? 1 : 0) + (cards == 0 ? 1 : 0) + (answered == 0 ? 1 : 0) }
+    }
+
+    static func rows(_ objectives: [SyllabusObjective], notes: [Note], cards: [Flashcard], results: [TopicResult]) -> [Row] {
+        objectives.map { o in
+            let quiz = results.filter { mentions($0.topic, o.keys) }
+            return Row(objective: o,
+                       notes: notes.filter { mentions($0.title + "\n" + $0.body, o.keys) }.count,
+                       cards: cards.filter { mentions($0.front + "\n" + $0.back, o.keys) }.count,
+                       right: quiz.filter(\.correct).count, answered: quiz.count)
         }
     }
 }
