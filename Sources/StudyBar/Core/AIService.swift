@@ -226,6 +226,25 @@ enum AIConfig {
         }
     }
 
+    /// How answers read — Settings ▸ Intelligence ▸ Answers: length, level and language. It goes
+    /// on the prompts that answer the student (the tutor, Ask this note, the assistant), never on
+    /// the ones that transform their own text, where a "detailed" proofread or a translated
+    /// rewrite would be wrong.
+    nonisolated static var answerStyle: String { answerStyle(.standard) }
+    nonisolated static func answerStyle(_ d: UserDefaults) -> String {
+        var s: [String] = []
+        switch d.string(forKey: "aiAnswerLength") ?? "" {
+        case "short": s.append("Keep answers short: the direct answer, and only the steps or detail it can't do without.")
+        case "detailed": s.append("Answer in depth: the reasoning behind each step, an example, and the points students usually get wrong.")
+        default: break
+        }
+        if let level = d.string(forKey: "aiAnswerLevel"), !level.isEmpty { s.append("Pitch it for a student at \(level) level.") }
+        if let lang = d.string(forKey: "aiAnswerLanguage")?.trimmingCharacters(in: .whitespaces), !lang.isEmpty {
+            s.append("Write in \(lang), whatever language the material is in; keep math, code and citations as they are.")
+        }
+        return s.isEmpty ? "" : "\n\nTHE STUDENT'S ANSWER SETTINGS: " + s.joined(separator: " ")
+    }
+
     static func isReady(_ mode: AIMode) -> Bool {
         switch mode {
         case .off:      return false
@@ -1221,7 +1240,7 @@ enum AIService {
         \(AIProtocol.toolCatalog)
 
         CURRENT STATE (a summary — use reads for detail):
-        \(StudyContext.snapshot(state: state))
+        \(StudyContext.snapshot(state: state))\(AIConfig.answerStyle.isEmpty ? "" : AIConfig.answerStyle + " (This is about the \"reply\" text.)")
         """
     }
 }
@@ -2430,7 +2449,7 @@ extension AIService {
         - Never invent data you didn't read or the student didn't give you.
 
         CURRENT STATE (a summary — use the read tools for detail):
-        \(StudyContext.snapshot(state: state))
+        \(StudyContext.snapshot(state: state))\(AIConfig.answerStyle)
         """
     }
 }

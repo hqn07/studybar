@@ -48,6 +48,9 @@ struct SettingsView: View {
     @State private var aiAskMode = AIConfig.askMode?.rawValue ?? ""
     @AppStorage("settingsShowAdvanced") private var showAdvanced = false
     @AppStorage("watchDownloads") private var watchDownloads = false
+    @AppStorage("aiAnswerLength") private var answerLength = ""
+    @AppStorage("aiAnswerLevel") private var answerLevel = ""
+    @AppStorage("aiAnswerLanguage") private var answerLanguage = ""
     @State private var autocompleteStatus = ""
     /// Which engine the credentials section is editing. Defaults to the main engine, but the
     /// ask engine can be selected without changing what the app runs on — gating this on the
@@ -611,6 +614,19 @@ struct SettingsView: View {
                 Label("Needs macOS 26+ with Apple Intelligence enabled.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(Color.dsWeek)
             }
+        }
+
+        Section("Answers") {
+            Picker("Length", selection: $answerLength) {
+                Text("Short").tag("short"); Text("Balanced").tag(""); Text("Detailed").tag("detailed")
+            }
+            Picker("Level", selection: $answerLevel) {
+                Text("Any").tag("")
+                ForEach(["high school", "first-year university", "upper-level university", "graduate"], id: \.self) { Text($0.capitalized).tag($0) }
+            }
+            TextField("Language", text: $answerLanguage, prompt: Text("The language you ask in"))
+            Text("For the tutor, Ask this note and the assistant. Rewrite, proofread and summaries keep your note's own length and language.")
+                .font(.caption).foregroundStyle(.secondary)
         }
 
         if !keyedEngines.isEmpty {

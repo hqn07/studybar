@@ -549,7 +549,7 @@ enum Tutor {
         comes with an image, the problem is in the image. When something is OPEN beside you, it is \
         what the student is looking at: "this", "this step" and "here" mean it.
 
-        \(mode.directive)\(lean)
+        \(mode.directive)\(lean)\(AIConfig.answerStyle)
 
         Write math as LaTeX in $…$ (display math in $$…$$). Use Markdown.\(mode == .full ? "\n\n" + MathCheck.instruction : mode == .check ? "\n\n" + MathCheck.studentInstruction : "")
 
@@ -1008,6 +1008,15 @@ enum StudySelfTest {
             check("the tutor's passages fit its budget", !fit.isEmpty && used <= 5_000 && fit.count > 1, "(\(fit.count) passages, \(used) chars)")
             check("a hosted engine reads a whole course at once", LectureNotes.readChars(for: .claude) >= 100_000)
             check("a local engine reads what it always did", LectureNotes.readChars(for: .ollama) == 6_000)
+        }
+
+        // Answer settings: nothing by default; each choice becomes one plain instruction.
+        if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
+            defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }
+            check("no answer settings → no extra prompt", AIConfig.answerStyle(d).isEmpty)
+            d.set("short", forKey: "aiAnswerLength"); d.set("graduate", forKey: "aiAnswerLevel"); d.set("Vietnamese", forKey: "aiAnswerLanguage")
+            let s = AIConfig.answerStyle(d)
+            check("answer settings reach the prompt", s.contains("short") && s.contains("graduate level") && s.contains("Write in Vietnamese"), s)
         }
 
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")

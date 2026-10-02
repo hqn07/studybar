@@ -80,7 +80,7 @@ enum NoteQA {
         When the question is a problem to solve — homework, a practice question, an exam-style \
         prompt — solve it step by step: name the idea that applies, show each step with its \
         working, and end with the final answer stated plainly. Check the arithmetic before you \
-        state it.
+        state it.\(AIConfig.answerStyle)
         """
     }
 
