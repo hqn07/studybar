@@ -31,6 +31,7 @@ struct SettingsView: View {
     @State private var importing = false
     @State private var autoBackup = BackupManager.auto
     @State private var backupStatus = ""
+    @State private var markdownStatus = ""
     @State private var confirmClear = false
     @State private var confirmEmptyTrash = false
     @State private var pendingRestore: URL? = nil
@@ -429,6 +430,16 @@ struct SettingsView: View {
         }
     }
 
+    private func exportMarkdown() {
+        let p = NSOpenPanel()
+        p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
+        p.prompt = "Export Here"; p.message = "Each course gets a folder of its notes, with their pictures in assets/."
+        guard p.runModal() == .OK, let root = p.url else { return }
+        let r = NoteHTML.exportAll(state.data, to: root)
+        markdownStatus = "\(r.written) note\(r.written == 1 ? "" : "s") exported" + (r.failed > 0 ? ", \(r.failed) couldn't be written" : "") + "."
+        if r.written > 0 { NSWorkspace.shared.activateFileViewerSelecting([root]) }
+    }
+
     @ViewBuilder private var dataSections: some View {
         Section("Data") {
             Toggle("Sync via iCloud Drive", isOn: $iCloud)
@@ -438,6 +449,11 @@ struct SettingsView: View {
                 Button("Export…") { exporting = true }
                 Button("Import…") { importing = true }
                 Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([state.dataFileURL]) }
+            }
+            HStack {
+                Button("Export notes as Markdown…") { exportMarkdown() }
+                    .help("Every note as a .md file, a folder per course, pictures in assets/ — opens in Obsidian, Bear or Notion")
+                if !markdownStatus.isEmpty { Text(markdownStatus).font(.caption).foregroundStyle(.secondary) }
             }
             Toggle("Daily auto-backup", isOn: $autoBackup)
                 .onChange(of: autoBackup) { _, v in

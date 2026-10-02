@@ -2104,8 +2104,7 @@ struct NoteEditor: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             if ext == "md" {
-                let text = markdownExport(exportAttributed().string)
-                try Data(text.utf8).write(to: url)
+                try NoteHTML.writeMarkdown(exportAttributed(), tags: draft.tags, to: url)
             } else if ext == "docx" {
                 try DOCX.write(exportAttributed(), to: url)
             } else {
@@ -2155,16 +2154,6 @@ struct NoteEditor: View {
                 Diagnostics.log(.data, .error, "slides export failed: \(error.localizedDescription)")
             }
         }
-    }
-
-    /// Turn the editor's plaintext mirror into portable Markdown (its list markers → md).
-    private func markdownExport(_ body: String) -> String {
-        var s = body
-        s = s.replacingOccurrences(of: #"(?m)^• "#, with: "- ", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"(?m)^☐ "#, with: "- [ ] ", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"(?m)^☑ "#, with: "- [x] ", options: .regularExpression)
-        s = s.replacingOccurrences(of: #"─{3,}"#, with: "---", options: .regularExpression)
-        return s
     }
 }
 

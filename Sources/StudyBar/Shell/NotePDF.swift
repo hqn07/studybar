@@ -393,7 +393,53 @@ enum NoteHTML {
         serialize(attr, asMarkdown: true).0
     }
 
-    private static func serialize(_ attr: NSAttributedString, asMarkdown: Bool) -> (String, [String]) {
+    /// A note as Markdown that Obsidian, Bear or Notion opens cleanly: its pictures written beside
+    /// it in `assets/`, its `[[links]]` kept, its tags as #tags at the end.
+    static func writeMarkdown(_ attr: NSAttributedString, tags: [String] = [], to url: URL) throws {
+        let assets = url.deletingLastPathComponent().appendingPathComponent("assets", isDirectory: true)
+        let stem = url.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: #"[^\p{L}\p{N}]+"#, with: "-", options: .regularExpression)
+        var n = 0, failure: Error?
+        var md = serialize(attr, asMarkdown: true, keepLinks: true) { att in
+            guard let png = DOCX.picture(att)?.png else { return nil }
+            n += 1
+            let name = "\(stem)-\(n).png"
+            do {
+                try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+                try png.write(to: assets.appendingPathComponent(name))
+            } catch { failure = error; return nil }
+            return "![](assets/\(name))"
+        }.0
+        if let failure { throw failure }
+        if !tags.isEmpty { md += "\n\n" + tags.map { "#" + $0.replacingOccurrences(of: " ", with: "-") }.joined(separator: " ") }
+        try md.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Every note as Markdown, a folder per course — the way out to Obsidian, Bear or Notion, and
+    /// a copy that needs no StudyBar to read. Run again into the same folder, it overwrites.
+    static func exportAll(_ data: AppData, to root: URL) -> (written: Int, failed: Int) {
+        func safe(_ s: String) -> String {
+            String(s.replacingOccurrences(of: #"[/:\\]"#, with: "-", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "."))).prefix(120))
+        }
+        var used: Set<String> = [], written = 0, failed = 0
+        for note in data.notes {
+            let course = data.courses.first { $0.id == note.courseID }.map { $0.code.isEmpty ? $0.name : $0.code } ?? "No course"
+            let dir = root.appendingPathComponent(safe(course).isEmpty ? "Course" : safe(course), isDirectory: true)
+            let base = safe(note.title).isEmpty ? "Untitled" : safe(note.title)
+            var url = dir.appendingPathComponent(base + ".md"), k = 2
+            while !used.insert(url.path.lowercased()).inserted { url = dir.appendingPathComponent("\(base) \(k).md"); k += 1 }
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try writeMarkdown(attributed(note), tags: note.tags, to: url)
+                written += 1
+            } catch { failed += 1 }
+        }
+        return (written, failed)
+    }
+
+    private static func serialize(_ attr: NSAttributedString, asMarkdown: Bool, keepLinks: Bool = false,
+                                  image mdImage: ((NSTextAttachment) -> String?)? = nil) -> (String, [String]) {
         var raw: [String] = []
         func tok(_ html: String) -> String { raw.append(html); return "\u{E010}\(raw.count - 1)\u{E011}" }
 
@@ -404,7 +450,10 @@ enum NoteHTML {
         func inline(_ p: NSAttributedString, heading: Bool) -> String {
             var out = ""
             p.enumerateAttributes(in: NSRange(location: 0, length: p.length)) { a, r, _ in
-                if let att = a[.attachment] as? NSTextAttachment { if !asMarkdown { out += image(att).map(tok) ?? "" }; return }
+                if let att = a[.attachment] as? NSTextAttachment {
+                    out += asMarkdown ? mdImage?(att) ?? "" : image(att).map(tok) ?? ""
+                    return
+                }
                 var text = (p.string as NSString).substring(with: r)
                 if asMarkdown {
                     text = text.replacingOccurrences(of: "\u{2028}", with: " ")
@@ -454,6 +503,7 @@ enum NoteHTML {
                 return "### " + trimmed.dropFirst(7).dropLast(2).trimmingCharacters(in: .whitespaces)
             }
             if trimmed == "[[/fold]]" { return "" }
+            if asMarkdown, trimmed.count >= 3, trimmed.allSatisfy({ $0 == "─" }) { return "\n---\n" }   // the editor's divider; alone, so the line above stays text, not a heading
 
             let size = p.attribute(.font, at: (text as NSString).range(of: trimmed).location, effectiveRange: nil)
                 .flatMap { ($0 as? NSFont)?.pointSize } ?? base
@@ -501,10 +551,9 @@ enum NoteHTML {
         }
         flushTable()
 
-        // `[[Note title]]` links mean nothing on paper; keep their text.
+        // `[[Note title]]` links mean nothing on paper; keep their text. Obsidian and Bear follow them.
         let md = lines.joined(separator: "\n")
-            .replacingOccurrences(of: #"\[\[([^\]\n]+)\]\]"#, with: "$1", options: .regularExpression)
-        return (md, raw)
+        return (keepLinks ? md : md.replacingOccurrences(of: #"\[\[([^\]\n]+)\]\]"#, with: "$1", options: .regularExpression), raw)
     }
 
     /// The most common font size, by characters — the body size, whatever the editor setting was.
@@ -828,6 +877,28 @@ enum PDFSelfTest {
         check("default color dropped", html.components(separatedBy: "color:#").count == 2)
         check("bullet is a list item", html.contains("<li>"))
         check("image kept", html.contains("<img src=\"data:image/png;base64,"))
+
+        // The same note as a Markdown bundle: its picture in assets/, its links and tags kept.
+        do {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-md-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let note = NSMutableAttributedString(attributedString: styled)
+            note.append(NSAttributedString(string: "\nSee [[Week 4]]\n──────────\n", attributes: [.font: NSFont.systemFont(ofSize: 13)]))
+            let url = dir.appendingPathComponent("My note.md")
+            try? NoteHTML.writeMarkdown(note, tags: ["exam prep"], to: url)
+            let md = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            check("markdown: heading, bold, picture, link, rule, tag",
+                  md.contains("## Heading typed in the editor") && md.contains("**bold**") && md.contains("![](assets/My-note-1.png)")
+                  && md.contains("[[Week 4]]\n\n---\n") && md.hasSuffix("#exam-prep"), md)
+            check("markdown: the picture is written beside it", FileManager.default.fileExists(atPath: dir.appendingPathComponent("assets/My-note-1.png").path))
+            var data = AppData(); let c = Course(name: "Physics", code: "PHY2049"); data.courses = [c]
+            data.notes = [Note(title: "Gauss", body: "a", courseID: c.id), Note(title: "Gauss", body: "b", courseID: c.id), Note(title: "a/b", body: "c")]
+            let r1 = NoteHTML.exportAll(data, to: dir), r2 = NoteHTML.exportAll(data, to: dir)
+            let files = ((try? FileManager.default.subpathsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
+            check("export all: a folder per course, same titles kept apart, a rerun overwrites",
+                  r1.written == 3 && r2.written == 3 && files == ["My note.md", "No course/a-b.md", "PHY2049/Gauss 2.md", "PHY2049/Gauss.md"], "\(files)")
+        }
 
         Swift.print(fail == 0 ? "PDF SELFTEST: ALL PASS (\(pass))" : "PDF SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
