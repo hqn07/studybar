@@ -1050,6 +1050,19 @@ enum StudySelfTest {
             check("an objective with nothing on it is three gaps", rows[1].gaps == 3)
         }
 
+        // The eval's scorer: a final answer in its usual spellings, and a quiz's checkable faults.
+        do {
+            let spellings = ["Q = 1.8 \\times 10^{-5}\\,\\text{C}", "$Q = 18\\,\\mu\\text{C}$", "each holds 18 μC", "about 1.8e-5 C"]
+            check("eval reads an answer however it's written", spellings.allSatisfy { AppEval.answers(1.8e-5, in: $0, tolerance: 0.02) })
+            check("eval: thousands, prefixes, rounding", AppEval.answers(134_850, in: "V = 134,850 V", tolerance: 0.02) && AppEval.answers(134_850, in: "≈ 1.35e5 V", tolerance: 0.02)
+                  && AppEval.answers(0.003384, in: "U = 3.38 mJ", tolerance: 0.02) && AppEval.answers(1.18e-10, in: "C ≈ 118 pF", tolerance: 0.02))
+            check("eval: a wrong answer is wrong", !AppEval.answers(1.8e-5, in: "Q = 27 μC at 0.20 m", tolerance: 0.02))
+            let good = QuizQuestion(kind: .mcq, prompt: "Unit of capacitance?", choices: ["farad", "henry", "ohm", "tesla"], answerIndex: 0, explanation: "C/V", topic: "Capacitance")
+            var bad = good; bad.answerIndex = 7
+            let s = AppEval.quizScore([good, bad, good], count: 4)
+            check("eval scores a quiz by what code can check", abs(s.score - 0.25) < 0.001 && s.problems.count == 3, "\(s)")
+        }
+
         // Answer settings: nothing by default; each choice becomes one plain instruction.
         if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
             defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }

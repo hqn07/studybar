@@ -166,6 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Task { @MainActor in exit(await SpeechBench.run(CommandLine.arguments)) }
             return
         }
+        if CommandLine.arguments.contains("--eval") {
+            Task { @MainActor in exit(await AppEval.run(CommandLine.arguments)) }
+            return
+        }
         if CommandLine.arguments.contains("--study-run") {
             Task { @MainActor in exit(await StudyRun.run(CommandLine.arguments)) }
             return
