@@ -116,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--format-selftest") {
             exit(NoteFormatSelfTest.run())
         }
+        if CommandLine.arguments.contains("--cite-selftest") {
+            exit(CitationSelfTest.run())
+        }
         // `StudyBar --lecture-run <transcript.txt> [--complete] [--engine ollama|claude|openai]`:
         // the real notes job on a real engine, printed — to read what a prompt change does.
         if let i = CommandLine.arguments.firstIndex(of: "--lecture-run"), i + 1 < CommandLine.arguments.count {

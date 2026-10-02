@@ -7,6 +7,7 @@ struct CitationsView: View {
     @State private var grabText = ""
     @State private var fetching = false
     @State private var error = ""
+    @State private var notice = ""
     @State private var search = ""
     @State private var searchResults: [Reference] = []
 
@@ -31,6 +32,8 @@ struct CitationsView: View {
                     Picker("", selection: $styleRaw) {
                         ForEach(CiteStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                     }.labelsHidden().fixedSize()
+                    Button { importFile() } label: { Image(systemName: "square.and.arrow.down") }
+                        .help("Import a library — BibTeX (.bib), RIS (.ris) or CSL-JSON, from Zotero, Mendeley, EndNote or Google Scholar")
                     Button { addManual() } label: { Image(systemName: "plus") }
                 }
             } content: {
@@ -68,7 +71,8 @@ struct CitationsView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search by title, or paste a DOI / URL / ISBN…", text: $grabText, onCommit: grab)
                     .textFieldStyle(.plain)
-                Button { if let s = NSPasteboard.general.string(forType: .string) { grabText = s; grab() } } label: {
+                // Straight from the clipboard, so a pasted RIS record keeps the lines it needs.
+                Button { if let s = NSPasteboard.general.string(forType: .string), !importText(s) { grabText = s; grab() } } label: {
                     Image(systemName: "doc.on.clipboard")
                 }.buttonStyle(.borderless).help("Paste & grab from clipboard")
                 if fetching {
@@ -82,6 +86,10 @@ struct CitationsView: View {
                 Text(error).font(.caption2).foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
             }
+            if !notice.isEmpty {
+                Text(notice).font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
+            }
         }
     }
 
@@ -90,15 +98,51 @@ struct CitationsView: View {
             Text("\(state.data.references.count) references")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
-            Button {
-                let all = state.data.references.map { CitationFormatter.bibtex($0) }.joined(separator: "\n\n")
-                copy(all)
-            } label: { Label("Copy all BibTeX", systemImage: "doc.on.doc") }
-                .buttonStyle(.borderless).font(.caption)
+            Menu {
+                let all = state.data.references
+                Button("Bibliography (\(style.rawValue))") {
+                    copy(all.map { CitationFormatter.format($0, style: style).replacingOccurrences(of: "*", with: "") }.sorted().joined(separator: "\n\n"))
+                }
+                Divider()
+                Button("BibTeX — LaTeX, Overleaf") { copy(all.map(CitationFormatter.bibtex).joined(separator: "\n\n")) }
+                Button("RIS — EndNote, Mendeley, Zotero") { copy(all.map(CitationFormatter.ris).joined(separator: "\n")) }
+                Button("CSL-JSON — Zotero, Pandoc") { copy(CitationFormatter.cslJSON(all)) }
+            } label: { Label("Copy all as", systemImage: "doc.on.doc") }
+                .menuStyle(.borderlessButton).fixedSize().font(.caption)
         }.padding(.horizontal, 12).padding(.vertical, 6)
     }
 
+    /// BibTeX, RIS or CSL-JSON → straight into the library, skipping what's already there.
+    /// False when the text is none of them.
+    private func importText(_ text: String) -> Bool {
+        let found = CitationFormatter.parse(text)
+        guard !found.isEmpty else { return false }
+        add(found)
+        return true
+    }
+
+    private func add(_ found: [Reference]) {
+        var added = 0
+        for r in found where !CitationFormatter.isDuplicate(r, of: state.data.references) { state.data.references.append(r); added += 1 }
+        error = ""; grabText = ""; searchResults = []
+        notice = "Added \(added) reference\(added == 1 ? "" : "s")" + (found.count > added ? " — \(found.count - added) already in your library" : "") + "."
+    }
+
+    private func importFile() {
+        let p = NSOpenPanel()
+        p.allowsMultipleSelection = true
+        p.message = "A library exported from Zotero, Mendeley, EndNote or Google Scholar: .bib, .ris or CSL-JSON."
+        guard p.runModal() == .OK else { return }
+        // Each file in its own format: a .bib and a .ris can come in together.
+        let found = p.urls.flatMap { u in
+            CitationFormatter.parse((try? String(contentsOf: u, encoding: .utf8)) ?? (try? String(contentsOf: u, encoding: .isoLatin1)) ?? "")
+        }
+        if found.isEmpty { notice = ""; error = "No references found — the file should be BibTeX, RIS or CSL-JSON." } else { add(found) }
+    }
+
     private func grab() {
+        notice = ""
+        if importText(grabText) { return }
         let q = grabText.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
         error = ""; searchResults = []; fetching = true
