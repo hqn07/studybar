@@ -52,7 +52,8 @@ enum AppEval {
             let ok = answers(c.answer, in: String(text.suffix(700)), tolerance: c.tolerance ?? 0.02)
             right += ok ? 1 : 0; checks += results.count; badChecks += results.filter { $0.ok == false }.count
             print("MATH  \(ok ? "right" : "WRONG")  \(results.count) checks, \(results.filter { $0.ok == false }.count) failed  \(c.name)"
-                  + (ok ? "" : "\n      expected \(c.answer); the answer ends: …" + text.suffix(160).replacingOccurrences(of: "\n", with: " ")))
+                  + (ok ? "" : "\n      expected \(c.answer); the answer ends: …" + text.suffix(160).replacingOccurrences(of: "\n", with: " "))
+                  + results.filter { $0.ok == false }.map { "\n      check failed: \($0.expression) = \($0.claimed)  (calculator: \($0.actual.map { MathEval.format($0) } ?? "–"))" }.joined())
         }
 
         let mean = { (xs: [Double]) in xs.isEmpty ? 0 : xs.reduce(0, +) / Double(xs.count) }

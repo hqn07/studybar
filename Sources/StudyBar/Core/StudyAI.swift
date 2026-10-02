@@ -712,7 +712,7 @@ enum MathCheck {
             t = t.replacingOccurrences(of: d, with: " ")
         }
         t = rx(t, #"(\d+(?:\.\d+)?)\s*(?:\\times|×|\*|\\cdot|·)\s*10\s*\^\s*\{?\s*\(?\s*([+\-−]?\s*\d+)\s*\)?\s*\}?"#, "($1*10^($2))")
-        t = rx(t, #"(\d(?:\.\d+)?|\.\d+)[eE]([+\-]?\d+)"#, "($1*10^($2))")
+        t = rx(t, #"(\d+(?:\.\d+)?|\.\d+)[eE]([+\-]?\d+)"#, "($1*10^($2))")   // all of 47e-6, not 4·(7e-6)
         var prev = ""
         while prev != t { prev = t; t = rx(t, #"\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}"#, "(($1)/($2))") }
         t = rx(t, #"\\sqrt\s*\{([^{}]*)\}"#, "sqrt($1)")
@@ -809,6 +809,10 @@ enum StudySelfTest {
         check("a × 10^n groups as one number", latex.count > 1 && latex[1].ok == true, "\(latex.count > 1 ? latex[1].actual.map(MathEval.format) ?? "unread" : "")")
         check("\\frac and a bullet", latex.count > 2 && latex[2].ok == true)
         check("a bare CHECK heading is not a check", latex.count == 3)
+        // As gpt-5.6-luna wrote them in the eval: mantissas of more than one digit.
+        let wide = MathCheck.run("CHECK: 0.5 * 47e-6 * 12^2 = 0.003384\nCHECK: 2e-6 * 9 = 18e-6\nCHECK: 100e-9 * 1.5E3 = 1.5e-4").results
+        check("e-notation with a multi-digit mantissa", wide.count == 3 && wide.allSatisfy { $0.ok == true },
+              wide.map { "\($0.expression) → \($0.actual.map(MathEval.format) ?? "–")" }.joined(separator: "; "))
 
         // The tutor's practice modes: the student's own arithmetic goes to the calculator, and
         // Quiz me starts from an empty message.
