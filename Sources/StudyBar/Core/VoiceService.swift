@@ -35,10 +35,16 @@ final class VoiceMeter: ObservableObject {
 ///    is deliberately used for quality. Model downloads once (with a progress bar), then offline.
 @MainActor
 final class VoiceService: ObservableObject {
-    enum Status: Equatable { case idle, recording, preparing, transcribing, denied, unavailable(String) }
+    enum Status: Equatable { case idle, recording, paused, preparing, transcribing, denied, unavailable(String) }
     @Published var status: Status = .idle {
-        didSet { holdAwake(status == .recording || status == .transcribing); summarizeAsItGoes(status == .recording) }
+        // The "So far" loop lives across a pause — it skips while paused — so resuming doesn't
+        // start the summaries over.
+        didSet { holdAwake(status == .recording || status == .transcribing); summarizeAsItGoes(status == .recording || status == .paused) }
     }
+    /// When a pause began; the clocks stand still while it lasts.
+    @Published private(set) var pausedAt: Date?
+    /// Something to tell the student that isn't an error screen — the take ended, its work kept.
+    @Published var notice: String?
     /// The deck the lecture is given from, until the note is saved: study notes follow it slide by
     /// slide, and the note keeps it beside it. Survives a new take — it's added before recording.
     @Published var slides: StudyFile?
@@ -166,9 +172,12 @@ final class VoiceService: ObservableObject {
     // 0.4s sat inside a normal gap between words, so a "pause" was often mid-sentence —
     // exactly where Whisper does worst. This is closer to a real sentence boundary.
     private let pauseGapSec = 0.7
-    // Autosave draft — crash-safe raw transcript.
+    // Autosave draft — the transcript, and beside it the take it goes with and its times, so a
+    // crash, a dead battery or a force-quit loses neither words nor audio.
     private var lastDraftSave = Date.distantPast
-    static var draftURL: URL { AppState.localDir.appendingPathComponent("voice-draft.txt") }
+    static var draftURL: URL { baseDir.appendingPathComponent("voice-draft.txt") }
+    static var draftInfoURL: URL { baseDir.appendingPathComponent("voice-draft.json") }
+    struct DraftInfo: Codable { var take: String?; var timeline = LectureTimeline(); var started: Date? }
 
     var whisperReady: Bool { loadedModel == whisperModel }
     /// Whether a model's files are on disk (survives launches) — distinct from `whisperReady`,
@@ -201,18 +210,27 @@ final class VoiceService: ObservableObject {
         }
     }
     var isRecording: Bool { status == .recording }
+    var isPaused: Bool { status == .paused }
+    /// A take is under way: recording, or paused in the middle of one.
+    var isActive: Bool { status == .recording || status == .paused }
+    /// Recorded time, pauses left out.
+    var elapsed: TimeInterval { startedAt.map { (pausedAt ?? Date()).timeIntervalSince($0) } ?? 0 }
+    /// A transcript or recording that hasn't been saved as a note — what a new take would replace.
+    var hasUnsaved: Bool { !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || takeURL != nil }
     func toggle() {
         switch status {
-        case .recording: userStop()
+        case .recording, .paused: userStop()
         case .preparing, .transcribing: break
         default: start()
         }
     }
 
+    /// A new take. One that was never saved goes to the Trash rather than nowhere — the screens
+    /// ask first (`hasUnsaved`), and this is the net under them.
     func start() {
-        discardTake()                         // a new take replaces one that was never saved
+        discardTake()
         transcript = ""; committed = ""; currentPartial = ""; wantsRecording = true
-        timeline = LectureTimeline()
+        timeline = LectureTimeline(); soFar = []; notice = nil; pausedAt = nil
         meter.reset()
         whisperMode = useWhisper
         Task { @MainActor in
@@ -239,7 +257,6 @@ final class VoiceService: ObservableObject {
     private func summarizeAsItGoes(_ on: Bool) {
         guard on else { soFarTask?.cancel(); soFarTask = nil; return }
         guard soFarTask == nil else { return }
-        soFar = []
         soFarTask = Task { [weak self] in
             var done = 0, doneAt: TimeInterval = 0          // characters and seconds already summarized
             while !Task.isCancelled {
@@ -270,6 +287,50 @@ final class VoiceService: ObservableObject {
         }
         if whisperMode { finishWhisperAndTranscribe() }
         else if task != nil { request?.endAudio() } else { finish() }
+    }
+
+    // MARK: - Pause
+
+    /// A break in the lecture: the mic goes off, and the take, the transcript and its times stay
+    /// open. Resume carries on in the same take — the audio continues from where it stopped, and
+    /// a pause takes no time in it.
+    func pause() {
+        guard status == .recording else { return }
+        pausedAt = Date()
+        status = .paused
+        stopInput()
+        if whisperMode {
+            cutChunk(final: false)               // what was said before the break is transcribed now
+        } else if liveFinish == nil {
+            // Apple Speech: keep what it heard and close the request. Ended rather than left open,
+            // its final callback would start the next segment with the mic off and end the take.
+            commitCurrent()
+            let old = task; task = nil; request = nil
+            segmentID &+= 1
+            old?.cancel()
+        }                                        // SpeechAnalyzer just waits for more audio
+        saveDraft(force: true)
+    }
+
+    func resume() {
+        guard status == .paused, let handle = inputHandle else { return }
+        // The take and the recognizer are open in the format the take began in; a mic swapped
+        // during the break would write audio the file can't hold.
+        let want = inputFormat
+        startInput(prepare: { f in want.map { f.sampleRate == $0.sampleRate && f.channelCount == $0.channelCount } ?? true },
+                   handle: handle) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                self.notice = "The microphone changed during the pause, so the recording was stopped there. Everything up to the pause is kept — save it, then record the rest."
+                self.userStop(); return
+            }
+            if let p = self.pausedAt, let s = self.startedAt { self.startedAt = s.addingTimeInterval(Date().timeIntervalSince(p)) }
+            self.pausedAt = nil
+            self.status = .recording
+            self.recordingStart = Date()         // the silent-mic watchdog starts its count again
+            if self.whisperMode { self.chunkStart = Date() }
+            else if self.liveFinish == nil { self.startSegment() }
+        }
     }
 
     // MARK: - Apple Speech (live, gap-free chained segments)
@@ -641,10 +702,10 @@ final class VoiceService: ObservableObject {
     private func finishWhisperAndTranscribe() {
         chunkTimer?.invalidate(); chunkTimer = nil
         stopInput()
-        closeTake()
+        finalizeTake()
         let recorded = totalFrames
         cutChunk(final: true)             // flush + enqueue the final chunk
-        status = .transcribing; startedAt = nil
+        status = .transcribing; startedAt = nil; pausedAt = nil
         Task { @MainActor in
             _ = await transcribeChain?.value   // let the queue drain
             if case .unavailable = status { return }
@@ -660,7 +721,7 @@ final class VoiceService: ObservableObject {
                 status = .idle
                 Diagnostics.info(.voice, "Recording transcribed · \(whisperCommitted.count) chars from \(String(format: "%.0f", Double(recorded)/sampleRate))s · chunks: \(chunksSent) sent, \(chunksDroppedSilent) silent-dropped, \(chunksKeptUnsure) kept-unsure, \(chunksEmptyResult) empty")
             }
-            saveDraft()
+            saveDraft(force: true)
         }
     }
 
@@ -765,6 +826,9 @@ final class VoiceService: ObservableObject {
     private let systemAudio = SystemAudio()
     /// Buffers are flowing from the source; what recognition and rotation check before going on.
     private var capturing = false
+    /// The running take's buffer handler and input format, kept for Resume.
+    private var inputHandle: ((AVAudioPCMBuffer) -> Void)?
+    private var inputFormat: AVAudioFormat?
 
     /// Start the chosen source. `prepare` gets the buffers' format before the first one arrives
     /// (the take and chunks open in it), `handle` every buffer on the audio thread, and
@@ -772,8 +836,10 @@ final class VoiceService: ObservableObject {
     private func startInput(prepare: @escaping (AVAudioFormat) -> Bool,
                             handle: @escaping (AVAudioPCMBuffer) -> Void,
                             started: @escaping @MainActor (Bool) -> Void) {
+        inputHandle = handle                  // for Resume, which reopens the same source
         if fromSystem {
             guard prepare(SystemAudio.format) else { started(false); return }
+            inputFormat = SystemAudio.format
             Task { @MainActor in
                 do {
                     try await systemAudio.start(handle)
@@ -791,6 +857,7 @@ final class VoiceService: ObservableObject {
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { status = .unavailable("No microphone input available."); started(false); return }
         guard prepare(format) else { started(false); return }
+        inputFormat = format
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in handle(buf) }
         engine.prepare()
         do {
@@ -822,18 +889,52 @@ final class VoiceService: ObservableObject {
         Task { @MainActor in self.meter.push(level) }
     }
 
-    private func saveDraft() {
-        guard Date().timeIntervalSince(lastDraftSave) > 2 else { return }
+    private func saveDraft(force: Bool = false) {
+        guard force || Date().timeIntervalSince(lastDraftSave) > 2 else { return }
         lastDraftSave = Date()
-        let text = transcript; let url = Self.draftURL
-        Task.detached { try? text.write(to: url, atomically: true, encoding: .utf8) }
+        let text = transcript, url = Self.draftURL, infoURL = Self.draftInfoURL
+        let info = try? JSONEncoder().encode(DraftInfo(take: takeURL?.deletingPathExtension().lastPathComponent, timeline: timeline, started: lastRecordingStart))
+        Task.detached {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+            try? info?.write(to: infoURL, options: .atomic)
+        }
     }
     static func draftText() -> String? {
         guard let t = try? String(contentsOf: draftURL, encoding: .utf8),
               !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return t
     }
-    static func clearDraft() { try? FileManager.default.removeItem(at: draftURL) }
+    static func clearDraft() {
+        try? FileManager.default.removeItem(at: draftURL)
+        try? FileManager.default.removeItem(at: draftInfoURL)
+    }
+    /// The audio a draft's take left on disk: the M4A it became, or the stream it was cut off as.
+    static func draftAudio() -> URL? {
+        guard let data = try? Data(contentsOf: draftInfoURL), let take = (try? JSONDecoder().decode(DraftInfo.self, from: data))?.take else { return nil }
+        return ["m4a", "aac"].map { recordingsDir.appendingPathComponent(take).appendingPathExtension($0) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+    /// Something an interrupted session left: words, or audio before any words came.
+    static var hasDraft: Bool { draftText() != nil || draftAudio() != nil }
+
+    /// Back as it was when the session stopped: the transcript, its times and stars, the audio.
+    func recover() async {
+        guard !isActive else { return }
+        let info = (try? Data(contentsOf: Self.draftInfoURL)).flatMap { try? JSONDecoder().decode(DraftInfo.self, from: $0) }
+        transcript = Self.draftText() ?? ""; committed = transcript
+        timeline = info?.timeline ?? LectureTimeline()
+        lastRecordingStart = info?.started
+        if let audio = Self.draftAudio() { takeURL = audio.pathExtension == "aac" ? await Self.makeM4A(audio) : audio }
+        status = .idle
+        saveDraft(force: true)                // still a draft until it's saved as a note
+    }
+
+    /// Dismissed: the interrupted session goes to the Trash, not nowhere.
+    static func trashDraft() {
+        let audio = draftAudio(), text = draftText() ?? ""
+        clearDraft()
+        trash(audio: audio, text: text, name: "Interrupted recording \(Date().formatted(.dateTime.year().month().day().hour().minute()).replacingOccurrences(of: ":", with: "."))")
+    }
 
     private func finish() {
         if let end = liveFinish { liveFinish = nil; Task { await end() } }   // ended some other way (quit, a dead mic)
@@ -842,18 +943,19 @@ final class VoiceService: ObservableObject {
         stopInput()
         task?.cancel(); task = nil; request = nil
         chunkLock.lock(); chunkFile = nil; chunkURL = nil; chunkLock.unlock()
-        closeTake()
-        startedAt = nil
-        if status == .recording { status = .idle }
+        finalizeTake()
+        startedAt = nil; pausedAt = nil
+        if status == .recording || status == .paused { status = .idle }
+        saveDraft(force: true)               // the last words, which the 2-second throttle may have held back
     }
 
     // MARK: - The take (audio kept with the note)
 
     /// Beside the store when a build runs on a throwaway one (STUDYBAR_DATA_DIR), so a test
-    /// recording never lands among the student's lectures.
+    /// recording never lands among the student's lectures — nor its draft among theirs.
+    static var baseDir: URL { ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) } ?? AppState.localDir }
     static var recordingsDir: URL {
-        let base = ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"].map { URL(fileURLWithPath: $0) } ?? AppState.localDir
-        let d = base.appendingPathComponent("Recordings", isDirectory: true)
+        let d = baseDir.appendingPathComponent("Recordings", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -863,9 +965,14 @@ final class VoiceService: ObservableObject {
     /// — a term of lectures in about 1.5 GB instead of 4–8. The take is only for listening back;
     /// transcription works from its own chunks. A device with more than two channels gets no
     /// take rather than a failed recording.
+    ///
+    /// Written as an ADTS stream (.aac), where every frame stands alone, and made an M4A when the
+    /// take ends (`finalizeTake`, under half a second for an hour). An M4A is only playable once
+    /// closed — its index is written last — so a crash, a dead battery or a force-quit used to
+    /// leave a lecture that couldn't be opened. A cut-off ADTS stream plays to its last frame.
     fileprivate func openTake(_ format: AVAudioFormat) {
         guard format.channelCount <= 2 else { return }
-        let url = Self.recordingsDir.appendingPathComponent("take-\(UUID().uuidString).m4a")
+        let url = Self.recordingsDir.appendingPathComponent("take-\(UUID().uuidString).aac")
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC_HE,
                                        AVSampleRateKey: format.sampleRate,
                                        AVNumberOfChannelsKey: format.channelCount,
@@ -877,15 +984,43 @@ final class VoiceService: ObservableObject {
         }
         takeLock.lock(); takeFile = f; takeFrames = 0; takeRate = format.sampleRate; takeLock.unlock()
         takeURL = url
+        saveDraft(force: true)                // a crash before the first word still leaves the audio findable
     }
 
     nonisolated fileprivate func writeTake(_ buf: AVAudioPCMBuffer) {
         takeLock.lock(); try? takeFile?.write(from: buf); takeFrames += AVAudioFramePosition(buf.frameLength); takeLock.unlock()
     }
 
-    /// Dropping the file is what writes the M4A's index; a take that is never closed can't be played.
     fileprivate func closeTake() {
         takeLock.lock(); takeFile = nil; takeLock.unlock()
+    }
+
+    /// The finished take as an M4A. Saving waits for it (`takeReady`).
+    private var takeFinalizing: Task<Void, Never>?
+    fileprivate func finalizeTake() {
+        closeTake()
+        guard let src = takeURL, src.pathExtension == "aac" else { return }
+        let prev = takeFinalizing
+        takeFinalizing = Task { @MainActor [weak self] in
+            await prev?.value
+            let out = await Self.makeM4A(src)
+            if let self, self.takeURL == src { self.takeURL = out }   // not if it was discarded meanwhile
+        }
+    }
+    func takeReady() async { await takeFinalizing?.value }
+
+    /// An ADTS take repackaged as M4A — the same audio, no re-encoding. On failure the ADTS file
+    /// stays, which still plays.
+    nonisolated static func makeM4A(_ src: URL) async -> URL {
+        let dst = src.deletingPathExtension().appendingPathExtension("m4a")
+        try? FileManager.default.removeItem(at: dst)
+        guard let ex = AVAssetExportSession(asset: AVURLAsset(url: src), presetName: AVAssetExportPresetPassthrough) else { return src }
+        do { try await ex.export(to: dst, as: .m4a) } catch {
+            Diagnostics.warn(.voice, "Couldn't repackage the take as M4A: \(error.localizedDescription)")
+            return src
+        }
+        try? FileManager.default.removeItem(at: src)
+        return dst
     }
 
     /// Mark this moment of the lecture as one that matters: it gets a ⭐ in the note's
@@ -901,17 +1036,46 @@ final class VoiceService: ObservableObject {
         finish()
     }
 
+    /// The take and its transcript to the Trash — named for when it was recorded, so it can be
+    /// found and put back — and the slate cleared. Never deleted outright.
     func discardTake() {
         closeTake()
-        if let url = takeURL { try? FileManager.default.removeItem(at: url) }
-        takeURL = nil
+        let audio = takeURL, text = transcript.trimmingCharacters(in: .whitespacesAndNewlines), pending = takeFinalizing
+        let when = (lastRecordingStart ?? .now).formatted(.dateTime.year().month().day().hour().minute()).replacingOccurrences(of: ":", with: ".")
+        takeURL = nil; takeFinalizing = nil; transcript = ""; committed = ""; currentPartial = ""; timeline = LectureTimeline()
+        Self.clearDraft()
+        guard audio != nil || !text.isEmpty else { return }
+        Task {
+            await pending?.value                                  // a repackaging in flight finishes first
+            Self.trash(audio: audio, text: text, name: "Discarded recording \(when)")
+        }
+    }
+
+    /// Where each went in the Trash.
+    @discardableResult
+    nonisolated static func trash(audio: URL?, text: String, name: String) -> [URL] {
+        var out: [URL] = []
+        func toTrash(_ u: URL) { var r: NSURL?; if (try? FileManager.default.trashItem(at: u, resultingItemURL: &r)) != nil, let r { out.append(r as URL) } }
+        let fm = FileManager.default, dir = fm.temporaryDirectory.appendingPathComponent("sb-discard-\(UUID().uuidString)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // The take may have become an M4A since it was named; whichever exists goes.
+        for src in [audio, audio?.deletingPathExtension().appendingPathExtension("m4a")].compactMap({ $0 }) where fm.fileExists(atPath: src.path) {
+            let dst = dir.appendingPathComponent(name).appendingPathExtension(src.pathExtension)
+            if (try? fm.moveItem(at: src, to: dst)) != nil { toTrash(dst) }
+        }
+        if !text.isEmpty {
+            let t = dir.appendingPathComponent(name).appendingPathExtension("txt")
+            if (try? text.write(to: t, atomically: true, encoding: .utf8)) != nil { toTrash(t) }
+        }
+        try? fm.removeItem(at: dir)
+        return out
     }
 
     /// Recordings nothing points to any more — their note deleted and past the trash's 30 days
     /// — and takes a crash left unsaved for over a week. Pure, for the self-test; see trashOrphans.
     static func orphans(_ files: [(name: String, modified: Date)], keeping: Set<String>, now: Date = .now) -> [String] {
         files.filter { f in
-            guard f.name.hasSuffix(".m4a") else { return false }
+            guard f.name.hasSuffix(".m4a") || f.name.hasSuffix(".aac") else { return false }
             return f.name.hasPrefix("take-") ? now.timeIntervalSince(f.modified) > 7 * 86_400 : !keeping.contains(f.name)
         }.map(\.name)
     }
@@ -932,8 +1096,8 @@ final class VoiceService: ObservableObject {
 
     /// Move the take next to the note it belongs to; returns the file name to store on it.
     func claimTake(for noteID: UUID) -> String? {
-        guard !isRecording, let url = takeURL else { return nil }
-        let name = "\(noteID.uuidString).m4a"
+        guard !isActive, let url = takeURL else { return nil }
+        let name = "\(noteID.uuidString).\(url.pathExtension)"    // .m4a once `takeReady`
         let dst = Self.recordingsDir.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: dst)
         guard (try? FileManager.default.moveItem(at: url, to: dst)) != nil else { return nil }
@@ -1044,7 +1208,7 @@ struct LectureTimeline: Codable, Equatable {
 /// out. Also the course vocabulary that recognition is handed.
 @MainActor
 enum VoiceTakeSelfTest {
-    static func run() -> Int32 {
+    static func run() async -> Int32 {
         var fail = 0
         func check(_ n: String, _ ok: Bool, _ d: String = "") {
             print("  \(ok ? "ok  " : "FAIL") \(n) \(d)"); if !ok { fail += 1 }
@@ -1064,9 +1228,19 @@ enum VoiceTakeSelfTest {
                 }
                 voice.writeTake(buf)
             }
-            voice.closeTake()
-            guard let url = voice.takeURL, let back = try? AVAudioFile(forReading: url) else {
-                check("\(channels)ch take is readable", false); continue
+            // What a crash leaves: the stream as it is on disk, never closed. It must still open.
+            if let live = voice.takeURL {
+                let crashed = FileManager.default.temporaryDirectory.appendingPathComponent("crashed-\(UUID().uuidString).aac")
+                try? FileManager.default.copyItem(at: live, to: crashed)
+                let saved = await VoiceService.makeM4A(crashed)
+                let secs = (try? AVAudioFile(forReading: saved)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+                check("\(channels)ch a take cut off by a crash still plays", saved.pathExtension == "m4a" && secs > 25, String(format: "(%.2f s of 30)", secs))
+                try? FileManager.default.removeItem(at: saved)
+            }
+            voice.finalizeTake()
+            await voice.takeReady()
+            guard let url = voice.takeURL, url.pathExtension == "m4a", let back = try? AVAudioFile(forReading: url) else {
+                check("\(channels)ch take becomes a readable M4A", false, voice.takeURL?.lastPathComponent ?? "none"); continue
             }
             let secs = Double(back.length) / back.fileFormat.sampleRate
             check("\(channels)ch take is ~30 s", abs(secs - 30) < 0.5, String(format: "(%.2f s)", secs))
@@ -1114,6 +1288,35 @@ enum VoiceTakeSelfTest {
             let files: [(name: String, modified: Date)] = [(kept, now), (gone, now), ("A.json", now),
                                                            (fresh, now.addingTimeInterval(-3600)), (stale, now.addingTimeInterval(-8 * 86_400))]
             check("orphaned recordings are found, and only those", Set(VoiceService.orphans(files, keeping: [kept], now: now)) == [gone, stale])
+            check("a crashed take's stream is cleaned up the same way", VoiceService.orphans([("take-3.aac", now.addingTimeInterval(-8 * 86_400)), ("take-4.aac", now)], keeping: [], now: now) == ["take-3.aac"])
+        }
+
+        // An interrupted session comes back whole: words, times, stars and audio.
+        if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
+            let writer = VoiceService()
+            let fmt = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+            writer.openTake(fmt)
+            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1024)!
+            buf.frameLength = 1024
+            for _ in 0..<(48_000 * 5 / 1024) { writer.writeTake(buf) }
+            let take = writer.takeURL?.deletingPathExtension().lastPathComponent
+            var tl = LectureTimeline(); tl.add("Flux is field through area.", from: 0, to: 3); tl.stars = [1]
+            try? "Flux is field through area.".write(to: VoiceService.draftURL, atomically: true, encoding: .utf8)
+            try? JSONEncoder().encode(VoiceService.DraftInfo(take: take, timeline: tl, started: .now)).write(to: VoiceService.draftInfoURL)
+            check("an interrupted session is offered back", VoiceService.hasDraft)
+            let voice = VoiceService()
+            await voice.recover()
+            check("recover brings back the words, times, stars and audio", voice.transcript == "Flux is field through area."
+                  && voice.timeline == tl && voice.takeURL?.pathExtension == "m4a" && voice.takeURL.map { FileManager.default.fileExists(atPath: $0.path) } == true,
+                  voice.takeURL?.lastPathComponent ?? "no audio")
+            check("…and it's unsaved, so a new take would ask first", voice.hasUnsaved)
+            // Discarded, it goes to the Trash under a name that says what it is — then out of it again here.
+            let gone = VoiceService.trash(audio: voice.takeURL, text: voice.transcript, name: "StudyBar self-test \(UUID().uuidString.prefix(6))")
+            check("a discard goes to the Trash, audio and transcript", gone.count == 2 && gone.contains { $0.pathExtension == "m4a" } && gone.contains { $0.pathExtension == "txt" },
+                  gone.map(\.lastPathComponent).joined(separator: ", "))
+            for u in gone { try? FileManager.default.removeItem(at: u) }
+            VoiceService.clearDraft()
+            check("a cleared draft is gone", !VoiceService.hasDraft)
         }
 
         print(fail == 0 ? "TAKE SELFTEST: ALL PASS" : "TAKE SELFTEST: \(fail) FAILED")

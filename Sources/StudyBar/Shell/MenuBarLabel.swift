@@ -8,7 +8,7 @@ struct MenuBarLabel: View {
     var body: some View {
         switch mode {
         case .smart:
-            if state.voice.status == .recording {
+            if state.voice.isActive {
                 recordingLabel
             } else if state.pomodoro.running {
                 Label(state.pomodoro.mmss, systemImage: "timer").labelStyle(.titleAndIcon).monospacedDigit()
@@ -32,7 +32,7 @@ struct MenuBarLabel: View {
                 Image(systemName: "graduationcap.fill")
             }
         case .timer:
-            if state.voice.status == .recording {
+            if state.voice.isActive {
                 recordingLabel
             } else if state.pomodoro.running {
                 Label(state.pomodoro.mmss, systemImage: "timer")
@@ -59,12 +59,12 @@ struct MenuBarLabel: View {
     /// recording in progress is the most time-sensitive thing to keep visible.
     private var recordingLabel: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            Label(recMMSS, systemImage: "record.circle")
-                .labelStyle(.titleAndIcon).monospacedDigit().foregroundStyle(.red)
+            Label(recMMSS, systemImage: state.voice.isPaused ? "pause.circle" : "record.circle")
+                .labelStyle(.titleAndIcon).monospacedDigit().foregroundStyle(state.voice.isPaused ? .orange : .red)
         }
     }
     private var recMMSS: String {
-        let s = max(0, Int(Date().timeIntervalSince(state.voice.startedAt ?? Date())))
+        let s = max(0, Int(state.voice.elapsed))
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 }

@@ -27,8 +27,19 @@ struct VoiceBody: View {
     @State private var naming = false
     @State private var addingSlides = false
     @State private var draftAvailable = false
+    /// What a new take or an imported file would replace, waiting for the student's word.
+    @State private var replacing: Replace?
+    @State private var confirmDiscard = false
+    enum Replace: Identifiable {
+        case record, transcribe(URL)
+        var id: String { if case .transcribe(let u) = self { return u.path }; return "record" }
+        var verb: String { if case .record = self { return "Record" }; return "Transcribe" }
+    }
 
-    private var idle: Bool { voice.status == .idle }
+    /// Not recording or working: what's there can be saved, discarded or replaced. A take that
+    /// ended in an error counts — its transcript is still worth keeping.
+    private var idle: Bool { switch voice.status { case .idle, .unavailable: true; default: false } }
+    private var problem: String? { if case .unavailable(let m) = voice.status { return m }; return voice.notice }
     private var whisper: Bool { voiceEngine == "whisper" }
 
     var body: some View {
@@ -80,7 +91,9 @@ struct VoiceBody: View {
                     switch voice.status {
                     case .denied:
                         deniedState
-                    case .unavailable(let msg):
+                    // With nothing recorded, the error is the screen; with a transcript or audio,
+                    // it's a line above them, so they can still be saved.
+                    case .unavailable(let msg) where !voice.hasUnsaved:
                         VStack(spacing: 12) {
                             EmptyState(symbol: "mic.slash", title: "Can't record", subtitle: msg)
                             HStack(spacing: 8) {
@@ -105,8 +118,23 @@ struct VoiceBody: View {
             }
             // Permission is granted outside the app, so coming back to this module is the
             // moment to stop believing a remembered "denied".
-            .onAppear { voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.draftText() != nil }
+            .onAppear { voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.hasDraft }
             .onChange(of: courseID) { _, _ in updateVocab() }
+            .confirmationDialog(replacing?.verb == "Record" ? "Start a new recording?" : "Transcribe a new file?",
+                                isPresented: Binding(get: { replacing != nil }, set: { if !$0 { replacing = nil } }),
+                                titleVisibility: .visible, presenting: replacing) { r in
+                Button("Save as Note, Then \(r.verb)") { saveNote(open: false) { run(r) } }
+                Button("Discard and \(r.verb)", role: .destructive) { discard(); run(r) }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("The transcript and recording you have now aren't saved as a note. Save them first, or discard them — a discarded recording goes to the Trash.")
+            }
+            .confirmationDialog("Discard this recording?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Move to Trash", role: .destructive) { discard() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The transcript and its audio go to the Trash, where you can still put them back.")
+            }
         }
     }
 
@@ -177,6 +205,24 @@ struct VoiceBody: View {
         panel.allowedContentTypes = [.audio, .movie]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        if voice.hasUnsaved { replacing = .transcribe(url) } else { transcribe(url) }
+    }
+
+    /// Record, or transcribe a file — asking first when either would replace unsaved work.
+    private func record() { if voice.hasUnsaved { replacing = .record } else { voice.start() } }
+    private func run(_ r: Replace) {
+        switch r {
+        case .record: voice.start()
+        case .transcribe(let u): transcribe(u)
+        }
+    }
+    private func discard() {
+        voice.discardTake(); voice.slides = nil; voice.rawBeforeOrganize = nil; voice.organizeError = nil
+        voice.notice = nil; voice.clearDenied(); draftAvailable = false
+        if case .unavailable = voice.status { voice.status = .idle }
+    }
+
+    private func transcribe(_ url: URL) {
         guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true else { voice.importFile(url); return }
         // A lecture video: transcribe its sound track. If that can't be pulled out, Whisper
         // gets the file itself and says what it makes of it.
@@ -189,35 +235,58 @@ struct VoiceBody: View {
 
     private var recorder: some View {
         VStack(spacing: 14) {
-            if draftAvailable && voice.transcript.isEmpty && idle {
+            if draftAvailable && !voice.hasUnsaved && idle {
                 HStack(spacing: DS.Space.m) {
                     Image(systemName: "arrow.uturn.backward.circle").foregroundStyle(.tint)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Unsaved transcript recovered").font(.caption.weight(.medium))
-                        Text("From an interrupted session — autosaved as you spoke.")
+                        Text("An unsaved recording was recovered").font(.caption.weight(.medium))
+                        Text("From a session that ended unexpectedly — its transcript and audio were saved as you went.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: DS.Space.s)
-                    Button("Recover") { if let t = VoiceService.draftText() { voice.transcript = t }; draftAvailable = false }
+                    Button("Recover") { Task { await voice.recover(); draftAvailable = false } }
                         .buttonStyle(.borderedProminent).controlSize(.small)
-                    Button("Dismiss") { VoiceService.clearDraft(); draftAvailable = false }
+                    Button("Move to Trash") { VoiceService.trashDraft(); draftAvailable = false }
                         .buttonStyle(.bordered).controlSize(.small)
                 }
                 .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)
                 .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: DS.Radius.card))
             }
-            Button { voice.toggle() } label: {
-                ZStack {
-                    Circle().fill(voice.isRecording ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
-                        .frame(width: 74, height: 74)
-                    Image(systemName: voice.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 28)).foregroundStyle(.white)
+            if let problem {
+                Label(problem, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                    .multilineTextAlignment(.center).frame(maxWidth: 460)
+            }
+
+            // Three plain controls: Record (or Resume), Pause, Stop. Pausing keeps the take open —
+            // Resume carries on in the same recording and the same transcript.
+            HStack(spacing: 22) {
+                Button { primary() } label: {
+                    ZStack {
+                        Circle().fill(voice.isRecording ? AnyShapeStyle(.orange) : voice.isPaused ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
+                            .frame(width: 74, height: 74)
+                        Image(systemName: voice.isRecording ? "pause.fill" : "mic.fill")
+                            .font(.system(size: 28)).foregroundStyle(.white)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(voice.isRecording ? "Pause — for a break; Resume carries on in the same recording" : voice.isPaused ? "Resume recording" : "Record")
+                .accessibilityLabel(voice.isRecording ? "Pause" : voice.isPaused ? "Resume" : "Record")
+                if voice.isActive {
+                    Button { voice.userStop() } label: {
+                        ZStack {
+                            Circle().strokeBorder(.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 54, height: 54)
+                            Image(systemName: "stop.fill").font(.system(size: 20)).foregroundStyle(.red)
+                        }
+                    }
+                    .buttonStyle(.plain).help("Stop — end the recording, then save it as a note").accessibilityLabel("Stop")
                 }
             }
-            .buttonStyle(.plain).padding(.top, DS.Space.s)
+            .padding(.top, DS.Space.s)
 
-            Text(voice.isRecording ? "Recording — tap to stop" : "Tap to record")
-                .font(.caption).foregroundStyle(.secondary)
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Text(caption).font(.caption.monospacedDigit()).foregroundStyle(voice.isPaused ? .orange : .secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             if voice.isRecording {
                 LevelMeter(meter: voice.meter).frame(height: 42).padding(.horizontal, 36)
@@ -245,9 +314,10 @@ struct VoiceBody: View {
                 .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
             }
 
-            if !voice.transcript.isEmpty {
+            // An audio-only take (it stopped before any words were transcribed) can be saved too.
+            if !voice.transcript.isEmpty || (idle && voice.hasUnsaved) {
                 ScrollView {
-                    Text(voice.transcript)
+                    Text(voice.transcript.isEmpty ? "No words were transcribed before it stopped — the audio is kept." : voice.transcript)
                         .font(.callout).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -290,7 +360,7 @@ struct VoiceBody: View {
                 } else if idle {
                     HStack(spacing: DS.Space.m) {
                         Button { saveNote() } label: {
-                            Label(naming ? "Naming…" : "Save as note", systemImage: "note.text.badge.plus")
+                            Label(naming ? "Saving…" : "Save as note", systemImage: "note.text.badge.plus")
                         }
                         .disabled(naming)
                             .buttonStyle(.borderedProminent)
@@ -303,7 +373,7 @@ struct VoiceBody: View {
                                 .buttonStyle(.bordered)
                                 .help("Organize the lecture into detailed notes, with definitions, examples and a review filled in and marked as added — the original is kept, revertible")
                         }
-                        Button("Discard") { voice.transcript = ""; voice.discardTake(); voice.slides = nil; voice.rawBeforeOrganize = nil; voice.organizeError = nil; VoiceService.clearDraft(); draftAvailable = false }
+                        Button("Discard") { confirmDiscard = true }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -437,34 +507,48 @@ struct VoiceBody: View {
     /// the timetable at the moment you pressed record — a fact, not a guess — and only when
     /// nothing was in session does the model get asked to place it. The title is then written
     /// in whatever convention that course's existing notes follow (see NoteTitleConvention),
-    /// which differs per course and is read rather than imposed.
-    private func saveNote() {
-        let text = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !naming else { return }
-
-        // An explicit pick wins; then the schedule; then, if there is anything to go on, AI.
-        let scheduled = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
-        guard scheduled == nil, AIConfig.isReady(for: .judge),
-              let provider = AIService.makeProvider(for: .judge),
-              !state.data.courses.isEmpty else {
-            finishSave(text: text, course: scheduled)
-            return
-        }
-
+    /// which differs per course and is read rather than imposed. `open` goes to the note after;
+    /// `then` runs once it's saved (a new take, from the "Start a new recording?" question).
+    private func saveNote(open: Bool = true, then next: (() -> Void)? = nil) {
+        let words = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty || voice.takeURL != nil, !naming else { return }
+        let text = words.isEmpty ? "Recording — no transcript." : words
         naming = true
-        let codes = state.data.courses.map { c in (id: c.id, code: c.code.isEmpty ? c.name : c.code) }
         Task {
-            let reply = (try? await provider.completePlain(
-                system: CourseGuess.system(codes: codes.map(\.code)),
-                messages: [AIMessage(role: .user, text: String(text.prefix(CourseGuess.sampleChars)))])) ?? ""
-            await MainActor.run {
-                naming = false
-                finishSave(text: text, course: CourseGuess.match(reply, courses: codes))
+            await voice.takeReady()              // the recording, finished as an M4A, goes with it
+            // An explicit pick wins; then the schedule; then, if there is anything to go on, AI.
+            var course = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
+            if course == nil, AIConfig.isReady(for: .judge), let provider = AIService.makeProvider(for: .judge), !state.data.courses.isEmpty {
+                let codes = state.data.courses.map { c in (id: c.id, code: c.code.isEmpty ? c.name : c.code) }
+                let reply = (try? await provider.completePlain(
+                    system: CourseGuess.system(codes: codes.map(\.code)),
+                    messages: [AIMessage(role: .user, text: String(text.prefix(CourseGuess.sampleChars)))])) ?? ""
+                course = CourseGuess.match(reply, courses: codes)
             }
+            naming = false
+            finishSave(text: text, course: course, open: open)
+            next?()
         }
     }
 
-    private func finishSave(text: String, course: UUID?) {
+    private var caption: String {
+        let t = Int(voice.elapsed), clock = String(format: "%d:%02d", t / 60, t % 60)
+        switch voice.status {
+        case .recording: return "Recording · \(clock) — pause for a break, stop when you're done"
+        case .paused: return "Paused at \(clock) — the transcript is kept. Resume carries on in the same recording."
+        default: return voice.hasUnsaved ? "Record again to start a new recording" : "Tap to record"
+        }
+    }
+
+    private func primary() {
+        switch voice.status {
+        case .recording: voice.pause()
+        case .paused: voice.resume()
+        default: record()
+        }
+    }
+
+    private func finishSave(text: String, course: UUID?, open: Bool = true) {
         let code = state.course(course).map { $0.code.isEmpty ? $0.name : $0.code }
         let siblings = state.data.notes.filter { $0.courseID == course }.map(\.title)
         let shape = NoteTitleConvention.detect(titles: siblings, courseCode: code)
@@ -486,7 +570,10 @@ struct VoiceBody: View {
         state.data.notes.append(note)
         voice.transcript = ""
         voice.rawBeforeOrganize = nil
+        voice.notice = nil
+        if case .unavailable = voice.status { voice.status = .idle }
         VoiceService.clearDraft(); draftAvailable = false     // saved for real — clear the crash-safe draft
+        guard open else { return }
         // Open it with the title selected: a generated name should be one keystroke from
         // being the name you wanted.
         state.pendingOpenNote = note.id

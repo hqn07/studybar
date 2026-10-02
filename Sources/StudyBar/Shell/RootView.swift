@@ -429,7 +429,7 @@ struct RecordingBar: View {
             HStack(spacing: 10) {
                 Circle().fill(.red).frame(width: 9, height: 9)
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(elapsed(voice.startedAt)).font(.callout.monospacedDigit().weight(.semibold))
+                    Text(clock).font(.callout.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.red).contentTransition(.numericText())
                 }
                 LevelMeter(meter: voice.meter).frame(width: 44, height: 16)
@@ -442,13 +442,33 @@ struct RecordingBar: View {
                 .help("Star this moment — it's marked in the note's transcript and stressed in the study notes")
                 .accessibilityLabel(voice.timeline.stars.isEmpty ? "Star this moment" : "Star this moment, \(voice.timeline.stars.count) starred")
                 Button("Open", action: open).buttonStyle(.borderless).font(.caption)
-                Button { voice.toggle() } label: { Label("Stop", systemImage: "stop.fill") }
+                Button { voice.pause() } label: { Label("Pause", systemImage: "pause.fill") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("Pause for a break — Resume carries on in the same recording")
+                Button { voice.userStop() } label: { Label("Stop", systemImage: "stop.fill") }
                     .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
             }
             .padding(.horizontal, 14).padding(.vertical, 7)
             .background(Color.red.opacity(0.06))
             .contentShape(Rectangle()).onTapGesture(perform: open)
-            .help("Recording — tap to open Voice, or Stop to finish")
+            .help("Recording — tap to open Voice, Pause for a break, or Stop to finish")
+        case .paused:
+            Divider()
+            HStack(spacing: 10) {
+                Image(systemName: "pause.circle.fill").foregroundStyle(.orange)
+                Text(clock).font(.callout.monospacedDigit().weight(.semibold)).foregroundStyle(.orange)
+                Text("Paused — the transcript is kept").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("Open", action: open).buttonStyle(.borderless).font(.caption)
+                Button { voice.resume() } label: { Label("Resume", systemImage: "mic.fill") }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                Button { voice.userStop() } label: { Label("Stop", systemImage: "stop.fill") }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(Color.orange.opacity(0.06))
+            .contentShape(Rectangle()).onTapGesture(perform: open)
+            .help("Paused — Resume carries on in the same recording, or Stop to finish")
         case .transcribing:
             Divider()
             HStack(spacing: 10) {
@@ -465,8 +485,9 @@ struct RecordingBar: View {
         }
     }
 
-    private func elapsed(_ start: Date?) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(start ?? Date())))
+    /// Recorded time; it stands still through a pause.
+    private var clock: String {
+        let s = max(0, Int(voice.elapsed))
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 }

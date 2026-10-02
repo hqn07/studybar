@@ -184,7 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             exit(LectureNotesSelfTest.run())
         }
         if CommandLine.arguments.contains("--take-selftest") {
-            exit(VoiceTakeSelfTest.run())
+            Task { @MainActor in exit(await VoiceTakeSelfTest.run()) }
+            return
         }
         if CommandLine.arguments.contains("--pdf-selftest") {
             Task { @MainActor in exit(await PDFSelfTest.run()) }
@@ -315,16 +316,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// audio properly so what was recorded can still be played.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let voice = state.voice
-        guard voice.status == .recording || voice.status == .transcribing else { return .terminateNow }
+        guard voice.isActive || voice.status == .transcribing else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = voice.status == .recording ? "A recording is in progress" : "A recording is still being transcribed"
-        alert.informativeText = "Quitting now stops it. The audio so far is kept, and the transcript up to this point is recoverable from Voice Note."
-        alert.addButton(withTitle: "Keep Recording")
+        alert.messageText = voice.isRecording ? "A recording is in progress" : voice.isPaused ? "A recording is paused" : "A recording is still being transcribed"
+        alert.informativeText = "Quitting now stops it. The audio and the transcript so far are kept — Voice Note offers them back next time."
+        alert.addButton(withTitle: voice.isPaused ? "Keep It" : "Keep Recording")
         alert.addButton(withTitle: "Quit")
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
         voice.stopForQuit()
-        return .terminateNow
+        // The take becomes an M4A in well under a second; quit once it has.
+        Task { @MainActor in await voice.takeReady(); NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
