@@ -9,10 +9,11 @@ enum CiteStyle: String, CaseIterable, Identifiable {
 
 enum CitationFormatter {
 
-    /// In-text citation, e.g. "(Smith, 2020)".
+    /// In-text citation, e.g. "(Smith, 2020)", "(Smith & Jones, 2020)", "(Smith et al., 2020)".
     static func inText(_ r: Reference) -> String {
-        let author = r.authors.first?.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "Author"
-        return "(\(author.isEmpty ? "Author" : author), \(r.year.isEmpty ? "n.d." : r.year))"
+        let last = r.authors.map { $0.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? $0 }.filter { !$0.isEmpty }
+        let who = last.isEmpty ? "Author" : last.count == 1 ? last[0] : last.count == 2 ? "\(last[0]) & \(last[1])" : "\(last[0]) et al."
+        return "(\(who), \(r.year.isEmpty ? "n.d." : r.year))"
     }
 
     static func format(_ r: Reference, style: CiteStyle) -> String {
@@ -485,7 +486,9 @@ enum CitationSelfTest {
 
         // Essay help: a draft is offered the library to cite from, and told never to invent one.
         let draft = NoteAI.draft.user("Point 2: Gauss's law makes symmetric fields easy", sources: Array(b.prefix(2)))
-        check("a draft may cite the library, as it's written there", draft.contains("SOURCES") && draft.contains("- (Gauss, 1813) Theoria")
+        check("in-text: one author, two, three or more", CitationFormatter.inText(b[1]) == "(Griffiths, 2017)"
+              && CitationFormatter.inText(b[0]) == "(Gauss & Möbius, 1813)" && CitationFormatter.inText(Reference(authors: ["A, B", "C, D", "E, F"], year: "2015")) == "(A et al., 2015)")
+        check("a draft may cite the library, as it's written there", draft.contains("SOURCES") && draft.contains("- (Gauss & Möbius, 1813) Theoria")
               && NoteAI.draft.system().contains("Never invent a source"))
         check("other actions aren't handed the library", !NoteAI.thesis.user("x", sources: b).contains("SOURCES") && !NoteAI.summarize.system().contains("coach"))
 
