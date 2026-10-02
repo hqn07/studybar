@@ -114,7 +114,9 @@ enum Converter {
 
     /// Where a converted file goes: beside the original (or in `dir`), never over a file that's there.
     static func destination(for url: URL, ext: String, suffix: String = "", in dir: URL? = nil) -> URL {
-        let folder = dir ?? url.deletingLastPathComponent()
+        // A fetched web page has no folder of its own to be "next to".
+        let web = url.deletingLastPathComponent().standardizedFileURL == WebPage.dir.standardizedFileURL
+        let folder = dir ?? (web ? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0] : url.deletingLastPathComponent())
         let base = url.deletingPathExtension().lastPathComponent + suffix
         var out = folder.appendingPathComponent(base).appendingPathExtension(ext)
         var n = 2
@@ -840,6 +842,32 @@ enum ConvertSelfTest {
                 let secs = Double(f.length) / f.fileFormat.sampleRate
                 check("wav → \(t.ext)", abs(secs - 1) < 0.1, String(format: "(%.2f s)", secs))
             } else { check("wav → \(t.ext)", false) }
+        }
+
+        // A web page: the article kept, the site around it dropped, then converted like any document.
+        do {
+            let para = String(repeating: "Electric flux through a closed surface equals the enclosed charge over epsilon zero. ", count: 4)
+            let page = dir.appendingPathComponent("site.html")
+            try? """
+            <html><head><title>Gauss's law explained</title><script>var tracker = 'TRACKING-CODE';</script></head><body>
+            <nav>SITE MENU Home About</nav><header>BANNER</header>
+            <article><header><h1>Gauss's law explained</h1></header><p>\(para)</p><h2>Symmetry</h2><p>\(para)</p><img src="fig1.png"></article>
+            <aside>SIDEBAR ADS</aside><footer>FOOTER Copyright</footer></body></html>
+            """.write(to: page, atomically: true, encoding: .utf8)
+            if let saved = try? await WebPage.fetch(page) {
+                defer { try? FileManager.default.removeItem(at: saved) }
+                let html = (try? String(contentsOf: saved, encoding: .utf8)) ?? ""
+                check("web page: the article kept", html.contains("Electric flux through") && html.contains("<h2>Symmetry</h2>"))
+                check("web page: menus, ads, footer and scripts dropped",
+                      !["SITE MENU", "BANNER", "SIDEBAR ADS", "FOOTER", "TRACKING-CODE"].contains { html.contains($0) })
+                check("web page: pictures keep a full address", html.contains("src=\"file://") && html.contains("fig1.png"))
+                check("web page: what it becomes goes to Downloads", Converter.destination(for: saved, ext: "pdf").deletingLastPathComponent().lastPathComponent == "Downloads")
+                if let md = try? await Converter.convert(saved, to: .md, in: dir).first, let text = try? String(contentsOf: md, encoding: .utf8) {
+                    check("web page → Markdown", text.hasPrefix("# Gauss's law explained") && text.contains("## Symmetry"), String(text.prefix(80)))
+                } else { check("web page → Markdown", false) }
+            } else { check("web page: read", false) }
+            check("web address: typed without https", WebPage.address("example.com/notes?id=3")?.absoluteString == "https://example.com/notes?id=3")
+            check("web address: not words, not other schemes", WebPage.address("gauss law") == nil && WebPage.address("notes") == nil && WebPage.address("ftp://x.com") == nil)
         }
 
         print(fail == 0 ? "CONVERT SELFTEST: ALL PASS" : "CONVERT SELFTEST: \(fail) FAILED")

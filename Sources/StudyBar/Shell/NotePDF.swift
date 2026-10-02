@@ -208,7 +208,7 @@ enum NotePDF {
         return out as Data
     }
 
-    private final class Loader: NSObject, WKNavigationDelegate {
+    final class Loader: NSObject, WKNavigationDelegate {
         private var done: CheckedContinuation<Bool, Never>?
         private var result: Bool?
         func finished() async -> Bool {

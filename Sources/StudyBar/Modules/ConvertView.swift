@@ -29,6 +29,8 @@ struct ConvertView: View {
     @State private var pageSpec = ""
     @State private var outDir: URL?
     @State private var targeted = false
+    @State private var askingAddress = false
+    @State private var address = ""
 
     struct Result: Identifiable { let id = UUID(); let name: String; let outputs: [URL]; let error: String? }
 
@@ -45,7 +47,10 @@ struct ConvertView: View {
 
     var body: some View {
         ModulePane(title: "Convert") {
-            Button { pick() } label: { Label("Add files…", systemImage: "plus") }
+            HStack {
+                Button { askAddress() } label: { Label("Add web page…", systemImage: "globe") }
+                Button { pick() } label: { Label("Add files…", systemImage: "plus") }
+            }
         } content: {
             VStack(spacing: 0) {
                 if queue.files.isEmpty { dropHint } else { fileList }
@@ -55,10 +60,34 @@ struct ConvertView: View {
             // whole module, header and all) and makes all of it a drop target.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(targeted ? Color.accentColor.opacity(0.07) : Color.clear)
-            .onDrop(of: [.fileURL], isTargeted: $targeted) { _ in
-                let urls = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-                queue.add(urls); return !urls.isEmpty
+            .onDrop(of: [.fileURL, .url], isTargeted: $targeted) { _ in
+                // A link dragged from Safari's address bar or a page arrives as a web URL.
+                let urls = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: [:]) as? [URL]) ?? []
+                queue.add(urls.filter(\.isFileURL))
+                for u in urls where ["http", "https"].contains(u.scheme ?? "") { addWebPage(u) }
+                return !urls.isEmpty
             }
+            .alert("Add a web page", isPresented: $askingAddress) {
+                TextField("https://…", text: $address)
+                Button("Add") { if let u = WebPage.address(address) { addWebPage(u) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("StudyBar reads the article without the menus and ads, then converts it like any document — or saves it as a note.")
+            }
+        }
+    }
+
+    private func askAddress() {
+        // A copied link is the usual reason to be here.
+        address = NSPasteboard.general.string(forType: .string).flatMap { WebPage.address($0)?.absoluteString } ?? ""
+        askingAddress = true
+    }
+
+    private func addWebPage(_ u: URL) {
+        run {
+            do { queue.add([try await WebPage.fetch(u)]) }
+            catch { throw Converter.Failure.app("\(u.host() ?? u.absoluteString): \(error.localizedDescription)") }
+            return []
         }
     }
 
@@ -66,7 +95,7 @@ struct ConvertView: View {
         VStack(spacing: 10) {
             Image(systemName: "arrow.triangle.2.circlepath.doc.on.clipboard").font(.system(size: 40)).foregroundStyle(.tint)
             Text("Drop files to convert").font(.title3.weight(.semibold))
-            Text("Word, PDF, PowerPoint, Excel, Pages, Keynote, Numbers, images, audio and video. Or right-click files in Finder ▸ Services ▸ Convert with StudyBar.")
+            Text("Word, PDF, PowerPoint, Excel, Pages, Keynote, Numbers, images, audio, video — and web pages: drop a link, or Add web page. Or right-click files in Finder ▸ Services ▸ Convert with StudyBar.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
             Button("Choose files…") { pick() }.buttonStyle(.borderedProminent)
         }
@@ -129,6 +158,10 @@ struct ConvertView: View {
                 }
                 if queue.files.count == 1, ["gif", "tif", "tiff"].contains(queue.files[0].pathExtension.lowercased()) {
                     Button("Frames") { run { [try Converter.frames(queue.files[0])] } }
+                }
+                if queue.files.allSatisfy({ Converter.kind($0) == .document }) {
+                    Button { run { try saveAsNotes() } } label: { Label("Save as note", systemImage: "note.text.badge.plus") }
+                        .help("Each file as a note — its headings, lists, tables and links kept")
                 }
                 if queue.files.allSatisfy({ ["pptx", "pdf"].contains($0.pathExtension.lowercased()) }) {
                     Button { run { try await studyNotes() } } label: { Label("Make study notes", systemImage: "sparkles") }
@@ -232,6 +265,21 @@ struct ConvertView: View {
             note.updatedAt = .now
             state.data.notes.append(note)
             results.insert(Result(name: "Saved “\(note.title)” to Notes", outputs: [], error: nil), at: 0)
+        }
+        return []
+    }
+
+    /// A document — a fetched web page, most often — as a Markdown note, its source link on top.
+    private func saveAsNotes() throws -> [URL] {
+        for u in queue.files {
+            let title = u.deletingPathExtension().lastPathComponent
+            var md = NoteHTML.markdown(from: try Converter.readDocument(u)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if md.hasPrefix("# \(title)\n") { md = String(md.dropFirst(title.count + 3)).trimmingCharacters(in: .newlines) }   // the title is the note's
+            guard !md.isEmpty else { throw Converter.Failure.nothingFound }
+            var note = Note(title: title, body: md)
+            note.updatedAt = .now
+            state.data.notes.append(note)
+            results.insert(Result(name: "Saved “\(title)” to Notes", outputs: [], error: nil), at: 0)
         }
         return []
     }

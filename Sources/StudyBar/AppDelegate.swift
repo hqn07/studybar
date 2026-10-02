@@ -137,14 +137,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             return
         }
-        // `StudyBar --convert-run <file> <target>`: one real conversion, for the routes the
-        // self-test can't take (Pages, Keynote, Numbers need the user's Automation permission).
+        // `StudyBar --convert-run <file|https://…> <target>`: one real conversion, for the routes the
+        // self-test can't take (Pages, Keynote, Numbers need the user's Automation permission; a
+        // real web page). A web page's result stays beside it, not in Downloads.
         if let i = CommandLine.arguments.firstIndex(of: "--convert-run"), i + 2 < CommandLine.arguments.count,
            let t = Converter.Target(rawValue: CommandLine.arguments[i + 2]) {
-            let url = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+            let arg = CommandLine.arguments[i + 1], web = arg.hasPrefix("http") ? URL(string: arg) : nil
             Task { @MainActor in
-                do { print(try await Converter.convert(url, to: t).map(\.path)); exit(0) }
-                catch { print("FAILED: \(error.localizedDescription)"); exit(1) }
+                do {
+                    let src = web == nil ? URL(fileURLWithPath: arg) : try await WebPage.fetch(web!)
+                    print(try await Converter.convert(src, to: t, in: web == nil ? nil : WebPage.dir).map(\.path)); exit(0)
+                } catch { print("FAILED: \(error.localizedDescription)"); exit(1) }
             }
             return
         }
