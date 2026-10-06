@@ -3,6 +3,22 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Progress says what to do next** — Study's Progress tab opens with one next step and the button that does it: sit a practice exam when a test is this week, review the flashcards that are due, quiz yourself on your weakest topic or on a syllabus objective your notes cover but no quiz has asked about, make flashcards from notes that have none, or take a first quiz.
+
+- **Quizzes as hard as you want** — Quiz and Practice exam have Easier, Standard and Harder. Easier sticks to definitions and one-step questions for a first pass; Harder asks multi-step problems and builds the wrong answers from the mistakes students really make. *Quiz me* on a note uses the last one you picked.
+
+- **Flashcards of the kind you want** — *Make flashcards* now asks what kind: Mixed, Terms (a term on the front, what it means on the back) or Fill in the blank — and how hard: Easier, Standard or Harder.
+
+- **Stop anything that's taking too long** — study notes from a lecture, quizzes, practice exams, study guides, study packs and audio reviews can be cancelled, from their own screen or from the bar under the window. *Make flashcards* has Stop too, and keeps the cards it has written so far.
+
+- **No dead end in Study** — a course with nothing in it yet says so, and offers to add slides or files, record a lecture, or switch to a course that has material, instead of a Start button that could only fail.
+
+- **Nothing lost to one click** — deleting a link, citation, snippet or Read-later item can be undone, and it waits in the Trash. Removing or clearing the Shelf shows Undo. *Remove PDF* on a book asks first, and the PDF goes to the Trash rather than disappearing.
+
+- **Fixed: search found everything** — searching "ohm" matched nearly every note, because those letters appear in order somewhere in most paragraphs. Search now only counts letters that sit close together.
+
 ## [2.6.0] — 2026-10-06
 
 - **Record from anywhere** — start, pause, resume and stop a lecture from the menu bar, or with a shortcut (⌃⌥R by default, in Settings ▸ Shortcuts with the others). If there's an unsaved recording, Voice Note opens and asks first.
