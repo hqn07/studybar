@@ -4,6 +4,21 @@ import AppKit
 /// Central, side-effecting actions usable from URL scheme, Services, notifications and App Intents.
 @MainActor
 enum AppActions {
+    /// Record from anywhere — the global shortcut and the menu bar: start, pause, resume. A new
+    /// take over unsaved work isn't started here; Voice Note opens and asks first.
+    static func toggleRecording() {
+        guard let state = AppState.current else { return }
+        let voice = state.voice
+        switch voice.status {
+        case .recording: voice.pause()
+        case .paused: voice.resume()
+        case .preparing, .transcribing: break
+        default:
+            if voice.hasUnsaved { state.recordRequested = true; state.selectedModuleID = "voice"; WindowOpener.routeToWindow?("voice") }
+            else { voice.start() }
+        }
+    }
+
     static func courseID(named name: String?) -> UUID? {
         guard let name, !name.isEmpty, let s = AppState.current else { return nil }
         return s.data.courses.first {

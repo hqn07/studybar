@@ -421,6 +421,20 @@ struct JobsBar: View {
 struct RecordingBar: View {
     @ObservedObject var voice: VoiceService
     let open: () -> Void
+    @State private var noting = false
+    @State private var note = ""
+
+    /// A note pinned to this moment, from whatever screen the student is on.
+    private var noteButton: some View {
+        Button { noting = true } label: { Label("Note", systemImage: "square.and.pencil") }
+            .buttonStyle(.borderless).font(.caption)
+            .help("Type a note at this moment of the lecture")
+            .popover(isPresented: $noting, arrowEdge: .top) {
+                TextField("Note this moment — Return adds it", text: $note)
+                    .textFieldStyle(.roundedBorder).frame(width: 300).padding(10)
+                    .onSubmit { voice.noteMoment(note); note = ""; noting = false }
+            }
+    }
 
     var body: some View {
         switch voice.status {
@@ -441,6 +455,7 @@ struct RecordingBar: View {
                 .buttonStyle(.borderless).font(.caption).foregroundStyle(.orange)
                 .help("Star this moment — it's marked in the note's transcript and stressed in the study notes")
                 .accessibilityLabel(voice.timeline.stars.isEmpty ? "Star this moment" : "Star this moment, \(voice.timeline.stars.count) starred")
+                noteButton
                 Button("Open", action: open).buttonStyle(.borderless).font(.caption)
                 Button { voice.pause() } label: { Label("Pause", systemImage: "pause.fill") }
                     .buttonStyle(.bordered).controlSize(.small)

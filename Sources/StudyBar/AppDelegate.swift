@@ -398,8 +398,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add("New Task…  ⌃⌥T", #selector(newTask))
         add("New Note…  ⌃⌥N", #selector(newNote))
         add("Capture from Screen…  \(HotKeyStore.display(HotKeyStore.binding(.capture)))", #selector(captureScreen))
-        if state.voice.status == .recording {
+        let rec = HotKeyStore.display(HotKeyStore.binding(.record))
+        switch state.voice.status {
+        case .recording:
+            add("Pause Recording  \(rec)", #selector(toggleRecording))
+            add("Stop Recording", #selector(stopRecording))
             add("Star This Moment  \(HotKeyStore.display(HotKeyStore.binding(.star)))", #selector(starMoment))
+        case .paused:
+            add("Resume Recording  \(rec)", #selector(toggleRecording))
+            add("Stop Recording", #selector(stopRecording))
+        case .preparing, .transcribing: break
+        default:
+            add("Start Recording  \(rec)", #selector(toggleRecording))
         }
         add(state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro", #selector(togglePomodoro))
         let due = state.data.flashcards.filter(\.isDue).count
@@ -549,6 +559,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func captureScreen() { ScreenGrab.start() }
     @objc private func reviewCards() { CardsPanel.shared.show(deckID: nil) }
     @objc private func starMoment() { state.voice.star() }
+    @objc private func toggleRecording() { AppActions.toggleRecording() }
+    @objc private func stopRecording() { state.voice.userStop() }
     @objc private func togglePomodoro() { AppActions.togglePomodoro() }
     @objc private func openMain() { showWindow() }
     @objc private func toggleShelf() { ShelfPanel.toggle() }

@@ -32,6 +32,7 @@ struct VoiceBody: View {
     /// "Make study notes" asks how first: detail, shape, how much filled in, a focus.
     @State private var choosingStyle = false
     @State private var notesFocus = ""
+    @State private var momentNote = ""
     @State private var confirmDiscard = false
     enum Replace: Identifiable {
         case record, transcribe(URL)
@@ -71,8 +72,9 @@ struct VoiceBody: View {
                                     Label(voice.isModelDownloaded(voiceWhisperModel) ? "Model downloaded" : "Download model now",
                                           systemImage: voice.isModelDownloaded(voiceWhisperModel) ? "checkmark.circle" : "arrow.down.circle")
                                 }.disabled(voice.isModelDownloaded(voiceWhisperModel))
-                                Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
                             }
+                            Divider()
+                            Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
                         } label: { Image(systemName: whisper ? "cpu" : "waveform") }
                             .help("Transcription engine")
                         if voiceEngine == "apple" {
@@ -121,7 +123,11 @@ struct VoiceBody: View {
             }
             // Permission is granted outside the app, so coming back to this module is the
             // moment to stop believing a remembered "denied".
-            .onAppear { voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.hasDraft }
+            .onAppear {
+                voice.clearDenied(); updateVocab(); draftAvailable = VoiceService.hasDraft
+                if state.recordRequested { state.recordRequested = false; record() }
+            }
+            .onChange(of: state.recordRequested) { _, asked in if asked { state.recordRequested = false; record() } }
             .onChange(of: courseID) { _, _ in updateVocab() }
             .confirmationDialog(replacing?.verb == "Record" ? "Start a new recording?" : "Transcribe a new file?",
                                 isPresented: Binding(get: { replacing != nil }, set: { if !$0 { replacing = nil } }),
@@ -291,6 +297,16 @@ struct VoiceBody: View {
                     .multilineTextAlignment(.center)
             }
 
+            if voice.isActive {
+                // A thought pinned to this moment of the lecture, without stopping it.
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.pencil").foregroundStyle(.secondary)
+                    TextField("Note this moment — “on the exam”, “ask about step 3” — Return adds it", text: $momentNote)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { voice.noteMoment(momentNote); momentNote = "" }
+                }
+                .frame(maxWidth: 520).padding(.horizontal, 36)
+            }
             if voice.isRecording {
                 LevelMeter(meter: voice.meter).frame(height: 42).padding(.horizontal, 36)
                 Text("Aim the mic at the speaker — the bars move when it's picking up their voice.")
@@ -435,9 +451,15 @@ struct VoiceBody: View {
         } else if addingSlides {
             ProgressView().controlSize(.small)
         } else {
-            Button { pickSlides() } label: { Label("Add the lecture's slides…", systemImage: "rectangle.on.rectangle") }
-                .buttonStyle(.borderless).font(.caption)
-                .help("A PDF or PowerPoint of the slides: study notes then follow them slide by slide, and the note keeps them beside it")
+            HStack(spacing: 16) {
+                Button { pickSlides() } label: { Label("Add the lecture's slides…", systemImage: "rectangle.on.rectangle") }
+                    .help("A PDF or PowerPoint of the slides: study notes then follow them slide by slide, and the note keeps them beside it")
+                if idle {
+                    Button { importAudio() } label: { Label("Transcribe a file…", systemImage: "waveform.badge.plus") }
+                        .help("A lecture you already have — audio or video — transcribed like a recording (Whisper, on this Mac)")
+                }
+            }
+            .buttonStyle(.borderless).font(.caption)
         }
     }
 

@@ -1034,6 +1034,25 @@ final class VoiceService: ObservableObject {
         return dst
     }
 
+    /// A note typed at this moment of the lecture — "this is on the exam", "ask about step 3" —
+    /// placed in the transcript where the lecture is, and in its times, so it plays back from there.
+    func noteMoment(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isActive, !t.isEmpty else { return }
+        let line = "📝 " + t, at = takeElapsed
+        if whisperMode {
+            whisperCommitted = (whisperCommitted.isEmpty ? "" : whisperCommitted + "\n") + line + "\n"
+            transcript = whisperCommitted
+        } else {
+            // Apple Speech: close the segment first, so the note lands after what was said so far.
+            if liveFinish == nil, isRecording, task != nil { rotate(restart: true) }
+            committed = (committed.isEmpty ? "" : committed + "\n") + line + "\n"
+            transcript = join(committed, currentPartial)
+        }
+        timeline.add(line, from: at, to: at)
+        saveDraft(force: true)
+    }
+
     /// Mark this moment of the lecture as one that matters: it gets a ⭐ in the note's
     /// transcript, and "Make study notes" gives it prominence.
     func star() {
@@ -1300,6 +1319,17 @@ enum VoiceTakeSelfTest {
                                                            (fresh, now.addingTimeInterval(-3600)), (stale, now.addingTimeInterval(-8 * 86_400))]
             check("orphaned recordings are found, and only those", Set(VoiceService.orphans(files, keeping: [kept], now: now)) == [gone, stale])
             check("a crashed take's stream is cleaned up the same way", VoiceService.orphans([("take-3.aac", now.addingTimeInterval(-8 * 86_400)), ("take-4.aac", now)], keeping: [], now: now) == ["take-3.aac"])
+        }
+
+        // A note typed mid-lecture lands in the transcript and its times; none while stopped.
+        do {
+            let voice = VoiceService()
+            voice.noteMoment("ignored while stopped")
+            voice.status = .recording
+            voice.noteMoment("  this is on the exam  ")
+            check("a moment note goes in the transcript and the times", voice.transcript.contains("📝 this is on the exam")
+                  && voice.timeline.lines.last?.text == "📝 this is on the exam" && !voice.transcript.contains("ignored"), voice.transcript)
+            voice.status = .idle
         }
 
         // An interrupted session comes back whole: words, times, stars and audio.
