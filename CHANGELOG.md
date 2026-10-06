@@ -5,6 +5,16 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Flashcards from your notes, where you'd look** — every note has *Flashcards* (and *Quiz me*) beside *Ask*; right-click a selection for *Make Flashcards from Selection*; and Flashcards opens with *Make cards from notes*. Pick the notes (a lecture, a week, the whole course), say how many and what to focus on, check and edit the cards, and add them to the course's deck — with Undo.
+
+- **Study notes your way** — *Make study notes* now asks how: Brief, Standard or Full; as Notes, an Outline, Cornell notes or Q&A; with nothing, a little or a lot filled in by the AI; and anything to stress, like "formulas" or "what's on the exam". It remembers your choices, and *Rewrite* writes them again from the original transcript. A transcript you've already saved can be turned into study notes from its note.
+
+- **After a lecture, what's next** — a lecture saved from Voice Note offers *Study notes*, *Flashcards* and *Quiz me* right on the note. *Quiz me* opens Study on that course with a quiz written from the note.
+
+- **Study opens on your course** — the course you're working in, or the class in session, instead of the first course in the list. Flashcards puts that course's decks first.
+
+- **Fixed: Study cut off in a small window** — at the window's default size the Study tabs pushed the quiz off the right edge; a narrow window now shows the tabs as a menu.
+
 - **Pause a recording, then carry on** — Voice Note now has Record, Pause and Stop. Pause turns the mic off for a break; Resume continues the same recording and the same transcript, and the clock stands still while you're paused. The bar under every screen and the menu-bar clock show it too.
 
 - **Nothing lost by a stray tap** — recording again, transcribing a file over a transcript you haven't saved, or Discard now ask first: *Save as Note, Then Record*, or discard — and a discarded recording goes to the Trash with its transcript, never straight to nowhere.
