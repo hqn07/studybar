@@ -268,10 +268,85 @@ enum Quiz {
             else { let d = Deck(name: name, courseID: course?.id); state.data.decks.append(d); deckID = d.id }
             for q in qs {
                 let c = card(q)
-                state.data.flashcards.append(Flashcard(deckID: deckID, front: c.front, back: c.back))
+                var f = Flashcard(deckID: deckID, front: c.front, back: c.back)
+                f.source = CardOrigin.from(cite: q.source, data: state.data)
+                state.data.flashcards.append(f)
             }
         }
         return name
+    }
+}
+
+// MARK: - Where a card came from
+
+/// A generated card's source, found by its words among the notes it was made from — the note,
+/// and the moment in that note's recording — so a card can open what it was made from. Words
+/// only, no AI: a batch of cards is placed in well under a second.
+enum CardOrigin {
+    /// A placer for cards made from `notes`: each card's best-matching note and lecture moment.
+    @MainActor
+    static func finder(among notes: [Note]) -> (_ front: String, _ back: String) -> CardSource? {
+        let passages = notes.flatMap { n in LectureNotes.chunks(n.body, maxChars: 1_500).map { StudyPassage(title: n.id.uuidString, locator: "", text: $0) } }
+        var timelines: [UUID: LectureTimeline] = [:]
+        for n in notes {
+            if let a = n.audioPath, let t = LectureTimeline.load(beside: VoiceService.recordingsDir.appendingPathComponent(a)), !t.lines.isEmpty { timelines[n.id] = t }
+        }
+        return { front, back in
+            let q = front + " " + back
+            let id = notes.count == 1 ? notes[0].id
+                : StudyIndex.search(q, in: passages, k: 1, meaning: false).first.flatMap { UUID(uuidString: $0.title) }
+            guard let id else { return nil }
+            var s = CardSource(noteID: id)
+            if let t = timelines[id] {
+                let lines = t.lines.enumerated().map { StudyPassage(title: "\($0.offset)", locator: "", text: $0.element.text) }
+                if let i = StudyIndex.search(q, in: lines, k: 1, meaning: false).first.flatMap({ Int($0.title) }) { s.at = t.lines[i].t }
+            }
+            return s
+        }
+    }
+
+    /// A quiz question's source as it was cited — a note's title, or "Book, p. 12".
+    @MainActor
+    static func from(cite: String, data: AppData) -> CardSource? {
+        let c = cite.trimmingCharacters(in: .whitespaces)
+        guard !c.isEmpty else { return nil }
+        if let n = data.notes.first(where: { !$0.title.isEmpty && $0.title.caseInsensitiveCompare(c) == .orderedSame }) { return CardSource(noteID: n.id) }
+        if let m = c.firstMatch(of: /^(.+?),\s*p\.\s*(\d+)/),
+           let b = data.reading.first(where: { $0.title.caseInsensitiveCompare(String(m.output.1)) == .orderedSame }) {
+            return CardSource(bookID: b.id, page: Int(m.output.2))
+        }
+        return nil
+    }
+
+    /// "Week 5 — Capacitors · 12:34", "Serway, p. 745".
+    static func label(_ s: CardSource, data: AppData) -> String? {
+        if let id = s.noteID, let n = data.notes.first(where: { $0.id == id }) {
+            let t = n.title.isEmpty ? "Untitled note" : n.title
+            return s.at.map { t + " · " + clock($0) } ?? t
+        }
+        if let id = s.bookID, let b = data.reading.first(where: { $0.id == id }) {
+            return s.page.map { "\(b.title), p. \($0)" } ?? b.title
+        }
+        return nil
+    }
+
+    static func clock(_ t: Double) -> String {
+        let s = Int(t)
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// Open it: the note (playing its lecture from the moment), or the book at the page.
+    @MainActor
+    static func open(_ s: CardSource, state: AppState) {
+        if let n = s.noteID {
+            state.pendingSeek = s.at.map { .init(note: n, at: $0) }
+            state.pendingOpenNote = n
+            state.selectedModuleID = "notes"
+        } else if let b = s.bookID {
+            state.pendingBook = .init(id: b, page: s.page)
+            state.selectedModuleID = "reading"
+        }
+        WindowOpener.open?("main")
     }
 }
 
@@ -1080,6 +1155,27 @@ enum StudySelfTest {
                   && blocks.count == 2 && blocks[1].front == "Unit of capacitance?", "\(lines) \(blocks)")
         }
 
+        // A card finds its note, and the moment in that note's lecture, by its words.
+        if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
+            var lecture = Note(title: "Week 6 — Circuits", body: "## Ohm's law\n- Current equals voltage over resistance.\n## Kirchhoff\n- The loop rule: voltages around a closed loop sum to zero.")
+            lecture.audioPath = "selftest-\(UUID().uuidString).m4a"
+            var tl = LectureTimeline()
+            tl.add("Ohm's law says the current equals the voltage divided by the resistance.", from: 30, to: 40)
+            tl.add("Kirchhoff's loop rule says the voltages around any closed loop add up to zero.", from: 300, to: 312)
+            let audio = VoiceService.recordingsDir.appendingPathComponent(lecture.audioPath!)
+            try? JSONEncoder().encode(tl).write(to: LectureTimeline.url(beside: audio))
+            defer { try? FileManager.default.removeItem(at: LectureTimeline.url(beside: audio)) }
+            let other = Note(title: "Week 1 — Vectors", body: "Vectors have magnitude and direction; add them tip to tail.")
+            let place = CardOrigin.finder(among: [other, lecture])
+            let loop = place("What does Kirchhoff's loop rule say?", "The voltages around a closed loop sum to zero.")
+            check("a card finds its note and the moment it was said", loop?.noteID == lecture.id && loop?.at == 300, "\(String(describing: loop))")
+            check("…and another note's card finds that note", place("How are vectors added?", "Tip to tail.")?.noteID == other.id)
+            var data = AppData(); data.notes = [lecture, other]; data.reading = [ReadingItem(title: "Serway")]
+            check("a quiz cite becomes a source", CardOrigin.from(cite: "Week 1 — Vectors", data: data)?.noteID == other.id
+                  && CardOrigin.from(cite: "Serway, p. 745", data: data)?.page == 745 && CardOrigin.from(cite: "nothing", data: data) == nil)
+            check("a source reads as where and when", CardOrigin.label(loop!, data: data) == "Week 6 — Circuits · 5:00")
+        }
+
         // Search inside books and course files: the page, and the words around the match.
         if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-material-\(UUID().uuidString)")
@@ -1288,8 +1384,12 @@ enum StudyPack {
                     ?? Deck(name: deckName, courseID: note.courseID)
                 if !state.data.decks.contains(where: { $0.id == deck.id }) { state.data.decks.append(deck) }
                 let known = Set(state.data.flashcards.filter { $0.deckID == deck.id }.map(\.front))
-                state.data.flashcards += cards.filter { !known.contains($0.front) }
-                    .map { Flashcard(deckID: deck.id, front: $0.front, back: $0.back) }
+                let place = CardOrigin.finder(among: [note])
+                state.data.flashcards += cards.filter { !known.contains($0.front) }.map {
+                    var f = Flashcard(deckID: deck.id, front: $0.front, back: $0.back)
+                    f.source = place($0.front, $0.back)
+                    return f
+                }
             }
 
             Jobs.shared.update(job, "quiz")

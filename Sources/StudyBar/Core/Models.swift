@@ -362,6 +362,13 @@ struct Reference: Identifiable, Codable, Hashable {
 
 // MARK: - Flashcards & Quiz (35, 36)
 
+struct CardSource: Codable, Hashable {
+    var noteID: UUID? = nil
+    var at: Double? = nil          // seconds into the note's recording
+    var bookID: UUID? = nil
+    var page: Int? = nil
+}
+
 struct Deck: Identifiable, Codable, Hashable {
     /// Last local edit, stamped at save time by diffing against the previous save.
     /// Optional so older stores decode; merge falls back to the old stamp when absent.
@@ -393,8 +400,13 @@ struct Flashcard: Identifiable, Codable, Hashable {
     /// The note it's written in as `term :: definition` (`NoteCards`), which owns its text.
     /// Optional, so older stores decode.
     var noteID: UUID? = nil
+    /// Where it was made from — a note and the moment in its lecture, or a book's page — so it can
+    /// open its source. Optional, so older stores decode.
+    var source: CardSource? = nil
 
     var isDue: Bool { due <= .now }
+    /// Its source, counting a `term :: definition` card's note.
+    var origin: CardSource? { source ?? noteID.map { CardSource(noteID: $0) } }
     /// A card whose front uses Anki-style {{cloze}} syntax.
     var isCloze: Bool { front.contains("{{") && front.contains("}}") }
 }

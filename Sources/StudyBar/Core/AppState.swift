@@ -40,6 +40,9 @@ final class AppState: ObservableObject {
     @Published var pendingDeck: UUID?
     struct PendingBook: Equatable { let id: UUID; let page: Int? }
     @Published var pendingBook: PendingBook?
+    /// Play a note's recording from a moment, once the note is open — a card's source.
+    struct PendingSeek: Equatable { let note: UUID; let at: Double }
+    @Published var pendingSeek: PendingSeek?
     /// Toggled by the global hotkey to request the command palette.
     @Published var paletteRequested = false
     /// Distraction-free writing: the module rail, the window header, the notes list and the

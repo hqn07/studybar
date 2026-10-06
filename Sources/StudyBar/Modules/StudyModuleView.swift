@@ -578,7 +578,11 @@ private struct GlossaryPane: View {
         state.withUndo("Made \(entries.count) flashcards from the glossary") {
             let deck = state.data.decks.first { $0.name.caseInsensitiveCompare(deckName) == .orderedSame } ?? Deck(name: deckName, courseID: course?.id)
             if !state.data.decks.contains(where: { $0.id == deck.id }) { state.data.decks.append(deck) }
-            state.data.flashcards += entries.map { Flashcard(deckID: deck.id, front: $0.term, back: $0.definition) }
+            state.data.flashcards += entries.map { e in
+                var f = Flashcard(deckID: deck.id, front: e.term, back: e.definition)
+                f.source = state.data.notes.first { $0.title == e.source }.map { CardSource(noteID: $0.id) }
+                return f
+            }
         }
     }
 }

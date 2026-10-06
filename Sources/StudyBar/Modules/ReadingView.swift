@@ -911,7 +911,9 @@ struct ReadingDetailView: View {
                 state.data.decks.append(deck)
             }
             for d in valid {
-                state.data.flashcards.append(Flashcard(deckID: deck.id, front: d.front, back: d.back))
+                var f = Flashcard(deckID: deck.id, front: d.front, back: d.back)
+                f.source = CardSource(bookID: state.data.reading[i].id, page: d.page)
+                state.data.flashcards.append(f)
             }
         }
     }

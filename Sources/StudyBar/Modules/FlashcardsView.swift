@@ -287,6 +287,10 @@ struct DeckView: View {
                     if !card.tags.isEmpty {
                         Text(card.tags.map { "#\($0)" }.joined(separator: " ")).font(.caption2).foregroundStyle(.tint)
                     }
+                    if let s = card.origin, let from = CardOrigin.label(s, data: state.data) {
+                        Label(from, systemImage: s.at != nil ? "waveform" : s.bookID != nil ? "book" : "note.text")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
                 Spacer()
                 Text(card.isDue ? "due" : card.due.dayMonth)
@@ -588,6 +592,14 @@ struct CardEditor: View {
                         .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                     } else {
                         FlipCardComposer(frontPlain: $frontPlain, back: $draft.back, blanks: $blanks, flipped: $flipped)
+                        if let s = draft.source, let from = CardOrigin.label(s, data: state.data) {
+                            HStack {
+                                Label("Made from “\(from)”", systemImage: s.at != nil ? "waveform" : s.bookID != nil ? "book" : "note.text")
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                Button(s.at != nil ? "Hear it" : "Open") { dismiss(); CardOrigin.open(s, state: state) }
+                            }
+                        }
                     }
                     labeled("Tags") { TagChips(suggestions: allTags, selected: $selectedTags) }
                     labeled("Deck") {
@@ -761,6 +773,14 @@ struct StudyView: View {
                         if !card.tags.isEmpty {
                             Text(card.tags.map { "#\($0)" }.joined(separator: " "))
                                 .font(.caption2).foregroundStyle(.tint)
+                        }
+                        // Where it came from, one click away — to hear the lecturer say it.
+                        if let s = card.origin, let from = CardOrigin.label(s, data: state.data) {
+                            Button { CardOrigin.open(s, state: state) } label: {
+                                Label(from, systemImage: s.at != nil ? "play.circle" : s.bookID != nil ? "book" : "note.text")
+                            }
+                            .buttonStyle(.borderless).font(.caption)
+                            .help(s.at != nil ? "Open the note and play the lecture from this moment" : "Open where this card came from")
                         }
                     }
                 }

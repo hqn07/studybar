@@ -695,7 +695,7 @@ struct NoteEditor: View {
             editor.onOpenLink = { openLink($0) }
             editor.onExplain = { picked in openAsk(); ask("Explain this part of the note, in the context of the rest: “\(picked)”") }
             editor.onCaret = { loc in if showSlides, let n = slideAt(loc) { slidePage = n } }
-            editor.onMakeCards = { picked in makingCards = .init(text: picked, course: draft.courseID) }
+            editor.onMakeCards = { picked in makingCards = .init(text: picked, course: draft.courseID, note: draft.id) }
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
@@ -1025,7 +1025,7 @@ struct NoteEditor: View {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     if let name = draft.audioPath {
-                        NoteRecordingBar(url: VoiceService.recordingsDir.appendingPathComponent(name)).id(name)   // a new player and transcript per recording
+                        NoteRecordingBar(noteID: draft.id, url: VoiceService.recordingsDir.appendingPathComponent(name)).id(name)   // a new player and transcript per recording
                         Divider()
                     }
                     HStack(spacing: 0) {
@@ -1428,7 +1428,9 @@ struct NoteEditor: View {
                         state.data.decks.append(deck)
                     }
                     for c in cards {
-                        state.data.flashcards.append(Flashcard(deckID: deck.id, front: c.front, back: c.back))
+                        var f = Flashcard(deckID: deck.id, front: c.front, back: c.back)
+                        f.source = CardSource(noteID: draft.id)
+                        state.data.flashcards.append(f)
                     }
                 }
                 askCardsNote = "\(cards.count) card\(cards.count == 1 ? "" : "s") → \(deckName)"
@@ -1580,7 +1582,7 @@ struct NoteEditor: View {
     private func cardsFromNote() {
         persist()
         let picked = showPreview ? "" : editor.selectedString.trimmingCharacters(in: .whitespacesAndNewlines)
-        makingCards = picked.count >= 20 ? .init(text: picked, course: draft.courseID) : .init(notes: [draft.id], course: draft.courseID)
+        makingCards = picked.count >= 20 ? .init(text: picked, course: draft.courseID, note: draft.id) : .init(notes: [draft.id], course: draft.courseID)
     }
 
     private func quizMe() {
@@ -1852,11 +1854,14 @@ struct NoteEditor: View {
                 Text("\(liveWords) word\(liveWords == 1 ? "" : "s")")
                 Text("·")
                 Text("edited \(draft.updatedAt.relativeShort)")
-                let cards = state.data.flashcards.lazy.filter { $0.noteID == draft.id }.count
-                if cards > 0 {
+                let cards = state.data.flashcards.filter { $0.origin?.noteID == draft.id }
+                if let first = cards.first {
                     Text("·")
-                    Label("\(cards) flashcard\(cards == 1 ? "" : "s")", systemImage: "rectangle.on.rectangle.angled")
-                        .help("Each line written term :: definition is a flashcard in the course's deck, kept in step with this note")
+                    Button { state.pendingDeck = first.deckID; state.selectedModuleID = "flashcards" } label: {
+                        Label("\(cards.count) flashcard\(cards.count == 1 ? "" : "s")", systemImage: "rectangle.on.rectangle.angled")
+                    }
+                    .buttonStyle(.plain)
+                    .help("The cards made from this note — open their deck")
                 }
                 Spacer()
             }.font(.caption2).foregroundStyle(.tertiary)
@@ -2332,6 +2337,8 @@ private struct NoteHistorySheet: View {
 /// kept — what was said, sentence by sentence: click one to hear that moment. It still works
 /// once "Make study notes" has rewritten the note, because it lists the recording, not the note.
 private struct NoteRecordingBar: View {
+    @EnvironmentObject var state: AppState
+    let noteID: UUID
     let url: URL
     @State private var player: AVPlayer?
     @State private var timeline: LectureTimeline?
@@ -2363,7 +2370,9 @@ private struct NoteRecordingBar: View {
             .onAppear {
                 if player?.currentItem == nil { player = AVPlayer(url: url) }
                 timeline = LectureTimeline.load(beside: url)
+                seekIfAsked()
             }
+            .onChange(of: state.pendingSeek) { _, _ in seekIfAsked() }
         }
     }
 
@@ -2398,6 +2407,14 @@ private struct NoteRecordingBar: View {
             .frame(maxHeight: 180)
             Divider()
         }
+    }
+
+    /// A card's source asked for this moment of this lecture: the transcript opens there, playing.
+    private func seekIfAsked() {
+        guard let s = state.pendingSeek, s.note == noteID else { return }
+        state.pendingSeek = nil
+        showing = true
+        play(s.at)
     }
 
     /// A moment early, so the sentence isn't clipped.

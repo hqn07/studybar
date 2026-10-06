@@ -364,7 +364,8 @@ enum StudyIndex {
         }
     }
 
-    static func search(_ query: String, in passages: [StudyPassage], k: Int = 5) -> [StudyPassage] {
+    /// `meaning: false` ranks by words alone — fast enough to run once per card in a batch.
+    static func search(_ query: String, in passages: [StudyPassage], k: Int = 5, meaning: Bool = true) -> [StudyPassage] {
         guard !passages.isEmpty else { return [] }
         let q = Set(tokens(query))
         let docs = passages.map { tokens($0.text + " " + $0.title) }
@@ -390,7 +391,7 @@ enum StudyIndex {
         let top = bm25.max() ?? 1
         var score: [Int: Double] = [:]
         for i in cand { score[i] = top > 0 ? bm25[i] / top : 0 }
-        if cand.count > 1, let qv = vector(query) {
+        if meaning, cand.count > 1, let qv = vector(query) {
             let sims = cand.map { i in vector(passages[i].text).map { cosine(qv, $0) } }
             let known = sims.compactMap { $0 }
             if let lo = known.min(), let hi = known.max(), hi > lo {

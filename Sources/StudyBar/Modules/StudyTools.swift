@@ -6,7 +6,8 @@ import SwiftUI
 /// Flashcards button, a selection's right-click, an empty Flashcards screen, a deck's menu. Pick
 /// the notes (or keep the selection), say how many and what to stress, check the cards, add them.
 struct MakeCardsView: View {
-    struct Request: Identifiable { let id = UUID(); var notes: [UUID] = []; var text = ""; var course: UUID? = nil; var deck: UUID? = nil }
+    /// `note`: the note a selection was made in, so its cards point back to it.
+    struct Request: Identifiable { let id = UUID(); var notes: [UUID] = []; var text = ""; var course: UUID? = nil; var deck: UUID? = nil; var note: UUID? = nil }
 
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
@@ -189,6 +190,9 @@ struct MakeCardsView: View {
 
     private func add() {
         let name = courseName
+        // Each card remembers its note — and the moment in that lecture — found by its words.
+        let from = fromSelection ? [request.note].compactMap { $0 } : Array(picked)
+        let place = CardOrigin.finder(among: state.data.notes.filter { from.contains($0.id) })
         state.withUndo("Added \(included) card\(included == 1 ? "" : "s") to \(target?.name ?? name)") {
             let d: Deck
             if let t = target { d = t } else { d = Deck(name: name, courseID: course); state.data.decks.append(d) }
@@ -196,7 +200,9 @@ struct MakeCardsView: View {
             for c in cards where c.include {
                 let key = c.front.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !key.isEmpty, seen.insert(key).inserted else { continue }
-                state.data.flashcards.append(Flashcard(deckID: d.id, front: c.front, back: c.back))
+                var f = Flashcard(deckID: d.id, front: c.front, back: c.back)
+                f.source = from.isEmpty ? nil : place(c.front, c.back)
+                state.data.flashcards.append(f)
             }
         }
         dismiss()
