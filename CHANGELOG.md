@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.6.0] — 2026-10-06
 
 - **Record from anywhere** — start, pause, resume and stop a lecture from the menu bar, or with a shortcut (⌃⌥R by default, in Settings ▸ Shortcuts with the others). If there's an unsaved recording, Voice Note opens and asks first.
 
