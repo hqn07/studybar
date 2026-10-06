@@ -5,6 +5,16 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Pause a recording, then carry on** — Voice Note now has Record, Pause and Stop. Pause turns the mic off for a break; Resume continues the same recording and the same transcript, and the clock stands still while you're paused. The bar under every screen and the menu-bar clock show it too.
+
+- **Nothing lost by a stray tap** — recording again, transcribing a file over a transcript you haven't saved, or Discard now ask first: *Save as Note, Then Record*, or discard — and a discarded recording goes to the Trash with its transcript, never straight to nowhere.
+
+- **A crash or a dead battery no longer loses the lecture** — the audio is saved in a form that survives being cut off, and Voice Note offers the interrupted recording back — transcript, audio, starred moments and all.
+
+- **Fixed: a quiet stretch ended the recording** — a few minutes of silence in a lecture stopped it with "Apple Speech isn't producing any text". It now keeps listening.
+
+- **Fixed: an error hid your transcript** — when a recording stopped with a problem, the error screen hid the transcript and *Try again* wiped it. It now stays on screen to save.
+
 - **Read your textbook in StudyBar** — a book with its PDF attached gets *Read*: the PDF opens in Reading at your page and keeps your place, so the chat beside it (⌘J) always knows the page you're on. Select text and *Highlight* (⇧⌘H) saves it to the book's highlights with its page — ready to become flashcards.
 
 - **A glossary of each course** — Study's new Glossary tab lists every term in the course with its definition, gathered from your notes (`term :: definition` lines, and the bold term-and-definition lines study notes are written in) and your flashcards, A to Z and searchable. *Make flashcards* adds the terms that don't have a card yet.
