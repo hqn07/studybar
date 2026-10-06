@@ -38,6 +38,12 @@ enum Cloze {
 struct FlashcardsView: View {
     @EnvironmentObject var state: AppState
     @State private var newDeck = ""
+    @State private var making: MakeCardsView.Request?
+    /// The course being worked in first, then the rest as they were.
+    private var decks: [Deck] {
+        let c = state.likelyCourseID
+        return state.data.decks.filter { c != nil && $0.courseID == c } + state.data.decks.filter { c == nil || $0.courseID != c }
+    }
 
     private func dueCount(_ deck: Deck) -> Int {
         state.data.flashcards.filter { $0.deckID == deck.id && $0.isDue }.count
@@ -51,18 +57,26 @@ struct FlashcardsView: View {
             ModulePane(title: "Flashcards") { EmptyView() } content: {
                 VStack(spacing: 0) {
                     HStack {
-                        TextField("New deck…", text: $newDeck, onCommit: addDeck)
+                        Button { making = .init() } label: { Label("Make cards from notes…", systemImage: "sparkles") }
+                            .buttonStyle(.borderedProminent).disabled(state.data.notes.isEmpty)
+                            .help("Pick notes — a lecture, a week, a whole course — and the AI writes cards you check before they're added")
+                        TextField("New empty deck…", text: $newDeck, onCommit: addDeck)
                             .textFieldStyle(.roundedBorder)
                         Button("Add", action: addDeck).disabled(newDeck.isEmpty)
                     }.padding(10)
                     Divider()
                     if state.data.decks.isEmpty {
-                        EmptyState(symbol: "rectangle.on.rectangle.angled", title: "No decks",
-                                   subtitle: "Create a deck, add cards, then study with spaced repetition.")
+                        // Most students arrive here with notes and no cards: that's the way in.
+                        EmptyState(symbol: "rectangle.on.rectangle.angled", title: "No decks yet",
+                                   subtitle: state.data.notes.isEmpty
+                                       ? "Write or record a note, then make cards from it here — or add a deck and write cards yourself."
+                                       : "Make cards from the notes you already have: pick them, say how many, check the cards, add them.",
+                                   actionTitle: state.data.notes.isEmpty ? nil : "Make cards from your notes",
+                                   action: state.data.notes.isEmpty ? nil : { making = .init() })
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 6) {
-                                ForEach(state.data.decks) { deck in
+                                ForEach(decks) { deck in
                                     NavigationLink(value: deck) { deckRow(deck) }.buttonStyle(.plain)
                                 }
                             }.padding(10)
@@ -71,6 +85,7 @@ struct FlashcardsView: View {
                 }
             }
             .navigationDestination(for: Deck.self) { DeckView(deck: $0) }
+            .sheet(item: $making) { MakeCardsView(request: $0) }
         }
     }
 
@@ -160,7 +175,7 @@ struct DeckView: View {
         .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id) }
         .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
         .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id) }
-        .navigationDestination(isPresented: $generating) { GenerateCardsView(deckID: deck.id) }
+        .sheet(isPresented: $generating) { MakeCardsView(request: .init(course: deck.courseID, deck: deck.id)) }
     }
 
     private var header: some View {
@@ -179,7 +194,7 @@ struct DeckView: View {
                     Divider()
                 }
                 if AIConfig.isReady {
-                    Button { generating = true } label: { Label("Generate with AI…", systemImage: "sparkles") }
+                    Button { generating = true } label: { Label("Make cards from notes…", systemImage: "sparkles") }
                     Divider()
                 }
                 Button { CardsPanel.shared.show(deckID: deck.id) } label: { Label("Review on top of other apps", systemImage: "pip") }
@@ -687,195 +702,6 @@ struct CSVImportView: View {
 /// Turn a student's own material (pasted, or pulled from a note) into flashcards. The AI
 /// only ever proposes — every card is shown for review, editable, with a per-card toggle;
 /// nothing lands in the deck until the user taps Add. Duplicates of existing fronts are skipped.
-struct GenerateCardsView: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) private var dismiss
-    let deckID: UUID
-
-    struct PropCard: Identifiable { let id = UUID(); var front: String; var back: String; var include = true }
-
-    @State private var source = ""
-    @State private var loading = false
-    @State private var raw = ""
-    @State private var proposed: [PropCard] = []
-    @State private var genError = false
-    @State private var task: Task<Void, Never>?
-
-    private var includedCount: Int { proposed.filter(\.include).count }
-    private var canGenerate: Bool {
-        AIConfig.isReady && !loading && source.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            SubHeader("Generate Cards") {
-                if !state.data.notes.isEmpty {
-                    Menu {
-                        ForEach(state.data.notes.prefix(60)) { n in
-                            Button(n.title.isEmpty ? "Untitled note" : n.title) { source = n.body }
-                        }
-                    } label: { Label("From a note…", systemImage: "note.text") }.buttonStyle(.borderless)
-                }
-            }
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.m) {
-                    Text("Paste your material (or pull a note), then let AI draft flashcards. You pick and edit which to keep — nothing is added until you tap Add.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $source).font(.callout)
-                        .frame(minHeight: 120).scrollContentBackground(.hidden)
-                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-                    Button { generate() } label: {
-                        Label(loading ? "Generating…" : "Generate cards", systemImage: "sparkles")
-                    }.buttonStyle(.borderedProminent).disabled(!canGenerate)
-                    if !AIConfig.isReady {
-                        Text("Turn on an engine in Settings ▸ Intelligence first.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    if loading {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Drafting from your material…").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if !raw.isEmpty {
-                            Text(raw).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    } else if !proposed.isEmpty {
-                        HStack {
-                            Text("\(includedCount) card\(includedCount == 1 ? "" : "s") selected").font(.caption.weight(.medium))
-                            Spacer()
-                            Text("Edit any card before adding").font(.caption2).foregroundStyle(.secondary)
-                        }
-                        ForEach($proposed) { $c in
-                            HStack(alignment: .top, spacing: 8) {
-                                Button { c.include.toggle() } label: {
-                                    Image(systemName: c.include ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(c.include ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                                }.buttonStyle(.plain).padding(.top, 3)
-                                VStack(spacing: 4) {
-                                    TextField("Front", text: $c.front).textFieldStyle(.roundedBorder)
-                                    TextField("Back", text: $c.back).textFieldStyle(.roundedBorder)
-                                }
-                            }.opacity(c.include ? 1 : 0.5)
-                        }
-                    } else if genError {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("Couldn't read cards from the reply — none added.", systemImage: "exclamationmark.triangle")
-                                .font(.caption).foregroundStyle(.orange)
-                            Text("Tap Generate again, or switch to a stronger engine in Settings ▸ Intelligence. Raw reply:")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            if !raw.isEmpty {
-                                Text(raw).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                            }
-                        }
-                    }
-                }.padding(14)
-            }
-            Divider()
-            HStack {
-                Spacer()
-                Button("Cancel") { task?.cancel(); dismiss() }
-                Button("Add \(includedCount)") { add() }.buttonStyle(.borderedProminent).disabled(includedCount == 0)
-            }.padding(12)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
-    }
-
-    private func generate() {
-        guard AIConfig.isReady, let provider = AIService.makeProvider(for: .rewrite) else { return }
-        let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count >= 20 else { return }
-        loading = true; raw = ""; proposed = []; genError = false
-        let sys = "You create study flashcards from a student's own material. Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` Vary the cards: mix plain definitions, key-concept questions, and one or two 'why' or application questions. Keep each back to 1–2 sentences. Write any math as LaTeX in $…$. 5–15 cards covering the key facts, terms, definitions, dates, and numbers. Use only what's in the material — do not invent. No numbering, no preamble, no other text."
-        task?.cancel()
-        task = Task {
-            let msgs = [AIMessage(role: .user, text: text)]
-            let out: String?
-            out = try? await provider.streamPlain(system: sys, messages: msgs) { p in raw = p }
-            await MainActor.run {
-                loading = false
-                let cards = parseCards(out ?? raw)
-                proposed = cards
-                genError = cards.isEmpty
-            }
-        }
-    }
-
-    /// Tolerant of however the model actually formatted the cards — weak local models rarely
-    /// obey the `::` instruction. Tries, in order: a `::`/`|`/tab delimiter per line; then
-    /// blank-line-separated blocks (first line = front, rest = back — the common Q?/A layout);
-    /// then consecutive line pairs. Strips numbering and Q:/A:/Front:/Back: prefixes.
-    private func parseCards(_ s: String) -> [PropCard] {
-        let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return [] }
-
-        func clean(_ t: String) -> String {
-            MathSupport.normalized(t).trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: #"^\s*(\d+[.)]|[-•*])\s*"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"(?i)^\s*(front|back|q(?:uestion)?|a(?:nswer)?)\s*[:.)\-]\s*"#, with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
-        }
-
-        // 1) Delimiter per line. Space-padded " / " and " | " so mid-content slashes/pipes
-        //    ("benefit/cost") don't split; `::` and tab are unambiguous.
-        for d in ["::", " / ", " | ", "\t"] {
-            let cards: [PropCard] = text.split(whereSeparator: \.isNewline).compactMap { line in
-                let raw = String(line)
-                guard raw.contains(d) else { return nil }
-                let parts = raw.components(separatedBy: d)
-                guard parts.count >= 2 else { return nil }
-                let f = clean(parts[0]); let b = clean(parts[1...].joined(separator: d))
-                return (!f.isEmpty && !b.isEmpty) ? PropCard(front: f, back: b) : nil
-            }
-            if cards.count >= 2 { return cards }
-        }
-
-        // Group into blocks separated by blank lines.
-        var blocks: [[String]] = []; var cur: [String] = []
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if raw.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !cur.isEmpty { blocks.append(cur); cur = [] }
-            } else { cur.append(String(raw)) }
-        }
-        if !cur.isEmpty { blocks.append(cur) }
-
-        // 2) Blank-line-separated cards: first line = front, remaining lines = back.
-        if blocks.count >= 2 {
-            let cards = blocks.compactMap { lines -> PropCard? in
-                guard lines.count >= 2 else { return nil }
-                let f = clean(lines[0]); let b = clean(lines[1...].joined(separator: " "))
-                return (!f.isEmpty && !b.isEmpty) ? PropCard(front: f, back: b) : nil
-            }
-            if !cards.isEmpty { return cards }
-        }
-
-        // 3) Last resort: pair up consecutive non-empty lines.
-        let lines = text.split(whereSeparator: \.isNewline).map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        var out: [PropCard] = []; var i = 0
-        while i + 1 < lines.count {
-            let f = clean(lines[i]); let b = clean(lines[i + 1])
-            if !f.isEmpty, !b.isEmpty { out.append(PropCard(front: f, back: b)); i += 2 } else { i += 1 }
-        }
-        return out
-    }
-
-    private func add() {
-        var seen = Set(state.data.flashcards.filter { $0.deckID == deckID }
-            .map { $0.front.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
-        for c in proposed where c.include {
-            let key = c.front.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, seen.insert(key).inserted else { continue }
-            state.data.flashcards.append(Flashcard(deckID: deckID, front: c.front, back: c.back))
-        }
-        dismiss()
-    }
-}
-
 // MARK: - Study session
 
 struct StudyView: View {

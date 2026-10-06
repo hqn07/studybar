@@ -46,6 +46,8 @@ final class RichTextController: ObservableObject {
     var onOpenLink: (String) -> Void = { _ in }
     /// "Explain" on the right-click menu of a selection; nil hides the item.
     var onExplain: ((String) -> Void)?
+    /// Right-click ▸ Make Flashcards from Selection.
+    var onMakeCards: ((String) -> Void)?
     /// The caret moved — to this character.
     var onCaret: ((Int) -> Void)?
 
@@ -1123,10 +1125,16 @@ final class FoldingTextView: NSTextView {
             let it = NSMenuItem(title: "Explain “\(shown)”", action: #selector(explainSelection), keyEquivalent: "")
             it.target = self
             menu.insertItem(it, at: 0)
-            menu.insertItem(.separator(), at: 1)
+            if mathController?.onMakeCards != nil {
+                let cards = NSMenuItem(title: "Make Flashcards from Selection…", action: #selector(makeCardsFromSelection), keyEquivalent: "")
+                cards.target = self
+                menu.insertItem(cards, at: 1)
+            }
+            menu.insertItem(.separator(), at: menu.items.firstIndex { $0.action == #selector(makeCardsFromSelection) }.map { $0 + 1 } ?? 1)
         }
         return menu
     }
+    @objc private func makeCardsFromSelection() { mathController?.onMakeCards?(explainText) }
     private var explainText = ""
     @objc private func explainSelection() { mathController?.onExplain?(explainText) }
     @objc private func tblRowAbove() { mathController?.tableMutate(.insertRowAbove, at: tableActionLocation) }

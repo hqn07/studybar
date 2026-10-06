@@ -560,6 +560,9 @@ struct NoteEditor: View {
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
     @State private var aiAction: NoteAI?
+    /// The flashcards sheet, and what it starts from (this note, or a selection in it).
+    @State private var makingCards: MakeCardsView.Request?
+    @State private var writingNotes = false
     @State private var aiText = ""
     @State private var aiDone = false
     @State private var asking = false
@@ -675,6 +678,7 @@ struct NoteEditor: View {
                 Divider()
             }
             if let defineResult { defineCard(defineResult) }
+            if state.justSavedLecture == draft.id && !focusMode { nextSteps }
             if aiAction != nil { aiCard }
             else if showProactiveChip && !asking { proactiveChip }
             askAndEditor
@@ -691,7 +695,9 @@ struct NoteEditor: View {
             editor.onOpenLink = { openLink($0) }
             editor.onExplain = { picked in openAsk(); ask("Explain this part of the note, in the context of the rest: “\(picked)”") }
             editor.onCaret = { loc in if showSlides, let n = slideAt(loc) { slidePage = n } }
+            editor.onMakeCards = { picked in makingCards = .init(text: picked, course: draft.courseID) }
             showSlides = deck != nil
+            if let c = draft.courseID { state.workingCourseID = c }
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
@@ -699,7 +705,11 @@ struct NoteEditor: View {
         .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
         .onChange(of: tagText)             { _, _ in scheduleAutosave() }
         .onChange(of: draft.pinned)        { _, _ in scheduleAutosave() }
-        .onChange(of: draft.courseID)      { _, _ in scheduleAutosave() }
+        .onChange(of: draft.courseID)      { _, c in scheduleAutosave(); if let c { state.workingCourseID = c } }
+        .sheet(item: $makingCards) { MakeCardsView(request: $0) }
+        .sheet(isPresented: $writingNotes) {
+            StudyNotesSheet(text: draft.body, course: draft.courseID) { replaceBody($0) }
+        }
         .onChange(of: draft.assignmentID)  { _, _ in scheduleAutosave() }
         .onDisappear { saveTask?.cancel(); persist() }
         .overlay { if foldPrompt { foldPromptCard } }
@@ -889,8 +899,19 @@ struct NoteEditor: View {
     private var aiToolbarButton: some View {
         HStack(spacing: 8) {
             Divider().frame(height: 18)
+            if AIConfig.isReady(for: .ask) {
+                Button { cardsFromNote() } label: { Image(systemName: "rectangle.on.rectangle.angled") }
+                    .buttonStyle(.borderless).foregroundStyle(.tint)
+                    .help("Make flashcards from this note — or from the selection")
+                    .accessibilityLabel("Make flashcards")
+            }
             Menu {
                 if AIConfig.isReady(for: .rewrite) {
+                    Section("Study") {
+                        Button { cardsFromNote() } label: { Label("Make flashcards…", systemImage: "rectangle.on.rectangle.angled") }
+                        Button { quizMe() } label: { Label("Quiz me on this note", systemImage: "checklist") }
+                        Button { persist(); writingNotes = true } label: { Label("Study notes — choose how detailed…", systemImage: "text.badge.star") }
+                    }
                     Section("Selection, or the whole note") {
                         ForEach(NoteAI.transforms) { a in
                             Button { runAI(a) } label: { Label(a.label, systemImage: a.icon) }
@@ -904,7 +925,7 @@ struct NoteEditor: View {
                     Divider()
                     Button { openAsk() } label: { Label("Ask this note…", systemImage: "questionmark.bubble") }
                     Button { persist(); StudyPack.make(from: draft, state: state) } label: {
-                        Label("Study pack — flashcards and a quiz", systemImage: "rectangle.stack.badge.plus")
+                        Label("Study pack — cards and a quiz, in the background", systemImage: "rectangle.stack.badge.plus")
                     }
                 } else {
                     Button("Turn on AI in Settings ▸ Intelligence") {}.disabled(true)
@@ -1555,6 +1576,46 @@ struct NoteEditor: View {
         }
     }
 
+    /// Flashcards from this note — or from what's selected in it, when something is.
+    private func cardsFromNote() {
+        persist()
+        let picked = showPreview ? "" : editor.selectedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        makingCards = picked.count >= 20 ? .init(text: picked, course: draft.courseID) : .init(notes: [draft.id], course: draft.courseID)
+    }
+
+    private func quizMe() {
+        persist()
+        if let n = state.data.notes.first(where: { $0.id == draft.id }) { StudyPack.quiz(on: n, state: state) }
+    }
+
+    /// The note rewritten (study notes from a transcript): what it said before goes to History first.
+    private func replaceBody(_ text: String) {
+        persist()
+        editor.load(NSAttributedString(string: text, attributes: [.font: RichTextController.baseFont, .foregroundColor: NSColor.labelColor,
+                                                                 .paragraphStyle: RichTextController.bodyParagraph]))
+        persist()
+    }
+
+    /// Right after a lecture is saved: what to do with it next, one click each.
+    private var nextSteps: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Text("Saved from your recording. Next:").font(.callout.weight(.medium))
+            if !draft.body.contains("## ") {
+                Button { writingNotes = true } label: { Label("Study notes…", systemImage: "text.badge.star") }
+                    .help("Turn the transcript into study notes — brief or full, in the shape you like")
+            }
+            Button { cardsFromNote() } label: { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }
+            Button { quizMe() } label: { Label("Quiz me", systemImage: "checklist") }
+            Spacer()
+            Button { state.justSavedLecture = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).accessibilityLabel("Dismiss")
+        }
+        .controlSize(.small).disabled(!AIConfig.isReady(for: .ask))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.tint.opacity(0.08))
+    }
+
     /// The library a draft may cite from: this course's references first.
     private var citable: [Reference] {
         Array(state.data.references.sorted { ($0.courseID == draft.courseID ? 0 : 1) < ($1.courseID == draft.courseID ? 0 : 1) }.prefix(40))
@@ -1705,6 +1766,14 @@ struct NoteEditor: View {
             Text("Reading").font(.caption2.weight(.semibold))
             Spacer()
             if AIConfig.isReady(for: .ask) {
+                Button { cardsFromNote() } label: { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled").font(.caption2) }
+                    .buttonStyle(.plain).foregroundStyle(.tint)
+                    .help("Make flashcards from this note — you pick how many and check them before they're added")
+                Text("·").font(.caption2)
+                Button { quizMe() } label: { Label("Quiz me", systemImage: "checklist").font(.caption2) }
+                    .buttonStyle(.plain).foregroundStyle(.tint)
+                    .help("A quiz on this note, in Study")
+                Text("·").font(.caption2)
                 Button { asking ? closeAsk() : openAsk() } label: {
                     Label("Ask", systemImage: "questionmark.bubble").font(.caption2)
                 }

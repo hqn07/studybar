@@ -1070,6 +1070,16 @@ enum StudySelfTest {
             check("eval scores a quiz by what code can check", abs(s.score - 0.25) < 0.001 && s.problems.count == 3, "\(s)")
         }
 
+        // Make flashcards: the count and focus reach the prompt; replies are read however they're laid out.
+        do {
+            let sys = MakeCardsView.system(count: 20, focus: "dates")
+            check("card prompt carries the count and focus", sys.contains("about 20 cards") && sys.contains("focus on: dates"))
+            let lines = MakeCardsView.parse("1. What is flux? / Field through an area.\n2. Unit of capacitance? / The farad.")
+            let blocks = MakeCardsView.parse("Q: What is flux?\nA: Field through an area.\n\nQ: Unit of capacitance?\nA: The farad.")
+            check("cards read from lines and from Q/A blocks", lines.count == 2 && lines[0].front == "What is flux?" && lines[1].back == "The farad."
+                  && blocks.count == 2 && blocks[1].front == "Unit of capacitance?", "\(lines) \(blocks)")
+        }
+
         // Answer settings: nothing by default; each choice becomes one plain instruction.
         if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
             defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }
@@ -1156,6 +1166,16 @@ enum StudyRun {
                 AIMessage(role: .user, text: action.user(units.map(\.text).joined(separator: "\n\n"), sources: refs))], temperature: action.temperature) { _ in }
             print("--- \(took()) · \(action.label) ---\n\(out ?? "FAILED")")
             return out == nil ? 1 : 0
+        case "make-cards":
+            // `make-cards <file> [--count N] [--focus "…"]`: the Make flashcards prompt.
+            let n = args.firstIndex(of: "--count").flatMap { Int(args[$0 + 1]) } ?? 10
+            let focus = args.firstIndex(of: "--focus").map { args[$0 + 1] } ?? ""
+            let raw = (try? await provider.completePlain(system: MakeCardsView.system(count: n, focus: focus), messages: [
+                AIMessage(role: .user, text: String(units.map(\.text).joined(separator: "\n\n").prefix(LectureNotes.readChars(for: mode))))])) ?? ""
+            let cards = MakeCardsView.parse(raw)
+            print("--- \(took()) · \(cards.count) cards (asked \(n)) ---")
+            for c in cards { print("Q: \(c.front)\nA: \(c.back)\n") }
+            return cards.isEmpty ? 1 : 0
         case "objectives":
             let objs = await Coverage.extract(units.map(\.text).joined(separator: "\n\n"), provider: provider)
             print("--- \(took()) · \(objs?.count ?? 0) objectives ---")
@@ -1236,31 +1256,49 @@ enum StudyPack {
                     .map { Flashcard(deckID: deck.id, front: $0.front, back: $0.back) }
             }
 
-            // A quiz in progress in that course's Study is the student's — don't replace it.
-            var questions = 0
-            if quiz.phase == .setup || quiz.phase == .done, !passages.isEmpty {
-                Jobs.shared.update(job, "quiz")
-                quiz.phase = .generating; quiz.progress = (0, 0); quiz.error = nil
-                let qs = await Quiz.generate(from: passages, count: 10, exam: false, provider: provider, mode: engine) { p, t in
-                    quiz.progress = (p, t)
-                }
-                if quiz.phase == .generating {
-                    if let qs, !qs.isEmpty {
-                        quiz.questions = qs; quiz.responses = [:]; quiz.revealed = []; quiz.index = 0
-                        quiz.addedTo = nil; quiz.feedback = [:]; quiz.deadline = nil
-                        quiz.phase = .taking
-                        questions = qs.count
-                        UserDefaults.standard.set(note.courseID?.uuidString ?? "", forKey: "studyCourse")
-                        UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
-                    } else {
-                        quiz.phase = .setup
-                    }
-                }
+            Jobs.shared.update(job, "quiz")
+            let questions = await fill(quiz, from: passages, provider: provider, engine: engine)
+            if questions > 0 {
+                UserDefaults.standard.set(note.courseID?.uuidString ?? "", forKey: "studyCourse")
+                UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
             }
             let made = [cards.isEmpty ? nil : "\(cards.count) flashcards in \(deckName)",
                         questions == 0 ? nil : "a \(questions)-question quiz in Study"].compactMap { $0 }
             Jobs.shared.end(job, done: made.isEmpty ? "Couldn't make the study pack" : "Study pack ready: " + made.joined(separator: " and "))
         }
+    }
+
+    /// Quiz me on one note: Study opens on its course's Quiz tab, where the quiz is written and taken.
+    static func quiz(on note: Note, state: AppState) {
+        guard let course = note.courseID else {
+            Jobs.shared.end(Jobs.shared.begin("Quiz me", module: "notes"), done: "Give the note a course first — Study quizzes by course")
+            return
+        }
+        UserDefaults.standard.set(course.uuidString, forKey: "studyCourse")
+        UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
+        state.workingCourseID = course
+        state.selectedModuleID = "study"
+        let quiz = state.studySession(course).quiz
+        let passages = StudyMaterial.passages(.note(note.id), in: state.data)
+        guard let provider = AIService.makeProvider(for: .ask), !passages.isEmpty else { return }
+        Task { _ = await fill(quiz, from: passages, provider: provider, engine: AIConfig.engine(for: .ask)) }
+    }
+
+    /// A ten-question quiz written into Study's quiz for the course. A quiz in progress there is
+    /// the student's, and isn't replaced. The number of questions written.
+    @MainActor
+    private static func fill(_ quiz: QuizModel, from passages: [StudyPassage], provider: AIProvider, engine: AIMode) async -> Int {
+        guard quiz.phase == .setup || quiz.phase == .done, !passages.isEmpty else { return 0 }
+        quiz.phase = .generating; quiz.progress = (0, 0); quiz.error = nil
+        let qs = await Quiz.generate(from: passages, count: 10, exam: false, provider: provider, mode: engine) { p, t in
+            quiz.progress = (p, t)
+        }
+        guard quiz.phase == .generating else { return 0 }
+        guard let qs, !qs.isEmpty else { quiz.phase = .setup; quiz.error = "Couldn't write a quiz from that note — try again."; return 0 }
+        quiz.questions = qs; quiz.responses = [:]; quiz.revealed = []; quiz.index = 0
+        quiz.addedTo = nil; quiz.feedback = [:]; quiz.deadline = nil
+        quiz.phase = .taking
+        return qs.count
     }
 }
 
