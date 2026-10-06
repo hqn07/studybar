@@ -320,13 +320,17 @@ struct VoiceBody: View {
             // An audio-only take (it stopped before any words were transcribed) can be saved too.
             if !voice.transcript.isEmpty || (idle && voice.hasUnsaved) {
                 ScrollView {
-                    Text(voice.transcript.isEmpty ? "No words were transcribed before it stopped — the audio is kept." : voice.transcript)
-                        .font(.callout).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+                    Group {
+                        // Study notes read as notes — headings, bold, math — not as their Markdown.
+                        if voice.rawBeforeOrganize != nil, idle { RichText(text: voice.transcript) }
+                        else { Text(voice.transcript.isEmpty ? "No words were transcribed before it stopped — the audio is kept." : voice.transcript).font(.callout) }
+                    }
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
                 }
-                .frame(maxHeight: 260)
+                .frame(maxHeight: voice.rawBeforeOrganize == nil ? 260 : 380)
 
                 if !voice.lastEngine.isEmpty {
                     Label("Transcribed by \(voice.lastEngine)",
