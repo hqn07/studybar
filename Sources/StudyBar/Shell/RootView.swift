@@ -411,6 +411,10 @@ struct JobsBar: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 8)
                 Button("Open") { AppActions.open(module: j.module) }.buttonStyle(.borderless).font(.caption)
+                if j.stop != nil {
+                    Button("Cancel") { jobs.cancel(j.id) }.buttonStyle(.borderless).font(.caption)
+                        .help("Stop this — nothing it hasn't finished is kept")
+                }
             }
             .padding(.horizontal, 14).padding(.vertical, 7)
             .background(.tint.opacity(0.05))

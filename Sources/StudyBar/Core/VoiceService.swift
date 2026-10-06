@@ -60,6 +60,13 @@ final class VoiceService: ObservableObject {
     @Published var rawBeforeOrganize: String?
     @Published var organizeError: String?
     @Published var organizePart = (1, 1)      // which part of a long lecture is being written
+    var organizeTask: Task<Void, Never>?
+    var organizeJob: UUID?
+    /// Stop writing notes: the transcript was never touched, so there's nothing to put back.
+    func stopOrganizing() {
+        organizeTask?.cancel(); organizeTask = nil
+        organizing = false; organizeStream = ""
+    }
     /// Not `@Published`: see `VoiceMeter`. Its own object so a 30 Hz meter doesn't re-render
     /// every view that observes the recorder.
     let meter = VoiceMeter()

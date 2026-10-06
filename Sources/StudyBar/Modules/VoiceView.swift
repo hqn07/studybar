@@ -367,6 +367,9 @@ struct VoiceBody: View {
                                 Text("Writing notes\(voice.organizePart.1 > 1 ? " — part \(voice.organizePart.0) of \(voice.organizePart.1)" : "")… \(secs)s · your raw transcript is kept")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
+                            Spacer(minLength: 0)
+                            Button("Stop") { Jobs.shared.cancel(voice.organizeJob) }.controlSize(.small)
+                                .help("Stop writing notes — the transcript stays as it was")
                         }
                         if !voice.organizeStream.isEmpty {
                             ScrollView {
@@ -486,7 +489,8 @@ struct VoiceBody: View {
         voice.organizeError = nil; voice.organizeStream = ""; voice.organizeStart = Date(); voice.organizePart = (1, 1)
         voice.organizing = true
         let job = Jobs.shared.begin("Study notes from the recording", module: "voice")
-        Task {
+        voice.organizeJob = job
+        voice.organizeTask = Task {
             // Detailed notes plus marked additions, part by part when the lecture is longer
             // than the engine can read at once — see LectureNotes.
             let course = courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now)
@@ -498,6 +502,7 @@ struct VoiceBody: View {
                 if total > 1 { Jobs.shared.update(job, "part \(part) of \(total)") }
             }
             await MainActor.run {
+                guard !Task.isCancelled else { return }                  // stopped: `stopOrganizing` tidied up
                 voice.organizing = false; voice.organizeStream = ""
                 // Same reason as the Notes AI card: the system prompt above already asks for
                 // `$…$` and the model still returns `\[…\]`, so normalize deterministically.
@@ -516,6 +521,7 @@ struct VoiceBody: View {
                 }
             }
         }
+        Jobs.shared.stoppable(job) { voice.stopOrganizing() }
     }
 
     /// Guard against a broken model reply overwriting good text — must be substantial and

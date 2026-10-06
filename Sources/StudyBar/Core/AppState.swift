@@ -861,7 +861,12 @@ extension AppData {
 @MainActor
 final class Jobs: ObservableObject {
     static let shared = Jobs()
-    struct Job: Identifiable, Equatable { let id = UUID(); let title: String; let module: String; var detail = "" }
+    struct Job: Identifiable, Equatable {
+        let id = UUID(); let title: String; let module: String; var detail = ""
+        /// Cancels the work — set by `stoppable`, so the bar can offer Cancel.
+        var stop: (() -> Void)?
+        static func == (l: Job, r: Job) -> Bool { l.id == r.id && l.detail == r.detail && (l.stop == nil) == (r.stop == nil) }
+    }
     @Published private(set) var running: [Job] = []
 
     func begin(_ title: String, module: String) -> UUID {
@@ -871,6 +876,20 @@ final class Jobs: ObservableObject {
     }
     func update(_ id: UUID?, _ detail: String) {
         if let i = running.firstIndex(where: { $0.id == id }) { running[i].detail = detail }
+    }
+    /// How to stop the job, so the bar can offer Cancel: cancel its task and put its screen back.
+    /// A cancelled task then touches nothing when it ends, so it can't undo a newer run.
+    func stoppable(_ id: UUID?, _ stop: @escaping () -> Void) {
+        guard let i = running.firstIndex(where: { $0.id == id }) else { return }
+        running[i].stop = stop
+    }
+    func stoppable(_ id: UUID?, _ task: Task<Void, Never>?) {
+        guard let task else { return }
+        stoppable(id) { task.cancel() }
+    }
+    func cancel(_ id: UUID?) {
+        running.first { $0.id == id }?.stop?()
+        end(id, done: nil)
     }
     /// `done` is what the notification says; nil (cancelled) says nothing.
     func end(_ id: UUID?, done: String?) {

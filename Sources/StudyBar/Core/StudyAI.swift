@@ -428,6 +428,7 @@ enum AudioReview {
         let clean = spoken(script)
         guard clean.count > 200 else { throw AIError.badResponse }
         progress("reading it aloud")
+        try Task.checkCancellation()
         try await Converter.speak(clean, to: out)
         return clean
     }
@@ -1374,10 +1375,11 @@ enum StudyPack {
         let quiz = state.studySession(note.courseID).quiz
         let passages = StudyMaterial.passages(.note(note.id), in: state.data)
         let job = Jobs.shared.begin("Study pack · \(title)", module: "study")
-        Task {
+        let task = Task {
             Jobs.shared.update(job, "flashcards")
             let raw = (try? await provider.completePlain(system: cardSystem, messages: [
                 AIMessage(role: .user, text: String(note.body.prefix(LectureNotes.chunkChars(for: engine))))])) ?? ""
+            guard !Task.isCancelled else { return }
             let cards = NoteQA.parseCards(raw)
             if !cards.isEmpty {
                 let deck = state.data.decks.first { $0.name.caseInsensitiveCompare(deckName) == .orderedSame }
@@ -1394,6 +1396,7 @@ enum StudyPack {
 
             Jobs.shared.update(job, "quiz")
             let questions = await fill(quiz, from: passages, provider: provider, engine: engine)
+            guard !Task.isCancelled else { return }
             if questions > 0 {
                 UserDefaults.standard.set(note.courseID?.uuidString ?? "", forKey: "studyCourse")
                 UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
@@ -1402,6 +1405,7 @@ enum StudyPack {
                         questions == 0 ? nil : "a \(questions)-question quiz in Study"].compactMap { $0 }
             Jobs.shared.end(job, done: made.isEmpty ? "Couldn't make the study pack" : "Study pack ready: " + made.joined(separator: " and "))
         }
+        Jobs.shared.stoppable(job, task)
     }
 
     /// Quiz me on one note: Study opens on its course's Quiz tab, where the quiz is written and taken.
@@ -1417,7 +1421,8 @@ enum StudyPack {
         let quiz = state.studySession(course).quiz
         let passages = StudyMaterial.passages(.note(note.id), in: state.data)
         guard let provider = AIService.makeProvider(for: .ask), !passages.isEmpty else { return }
-        Task { _ = await fill(quiz, from: passages, provider: provider, engine: AIConfig.engine(for: .ask)) }
+        // The quiz's own Cancel stops it.
+        quiz.task = Task { _ = await fill(quiz, from: passages, provider: provider, engine: AIConfig.engine(for: .ask)) }
     }
 
     /// A ten-question quiz written into Study's quiz for the course. A quiz in progress there is
@@ -1430,7 +1435,11 @@ enum StudyPack {
             quiz.progress = (p, t)
         }
         guard quiz.phase == .generating else { return 0 }
-        guard let qs, !qs.isEmpty else { quiz.phase = .setup; quiz.error = "Couldn't write a quiz from that note — try again."; return 0 }
+        guard let qs, !qs.isEmpty else {
+            quiz.phase = .setup
+            if !Task.isCancelled { quiz.error = "Couldn't write a quiz from that note — try again." }
+            return 0
+        }
         quiz.questions = qs; quiz.responses = [:]; quiz.revealed = []; quiz.index = 0
         quiz.addedTo = nil; quiz.feedback = [:]; quiz.deadline = nil
         quiz.phase = .taking

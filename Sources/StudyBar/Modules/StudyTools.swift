@@ -68,7 +68,11 @@ struct MakeCardsView: View {
                         Text("Set up an engine in Settings ▸ Intelligence to write cards.").font(.caption).foregroundStyle(.secondary)
                     }
                     if loading {
-                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Reading \(fromSelection ? "the selection" : "\(picked.count) note\(picked.count == 1 ? "" : "s")")…").font(.caption).foregroundStyle(.secondary) }
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Reading \(fromSelection ? "the selection" : "\(picked.count) note\(picked.count == 1 ? "" : "s")")…").font(.caption).foregroundStyle(.secondary)
+                            Button("Stop") { task?.cancel() }.controlSize(.small).help("Stop — keep the cards written so far")
+                        }
                     } else if failed {
                         Label("No cards came back that could be read — try again, or a stronger engine in Settings ▸ Intelligence.", systemImage: "exclamationmark.triangle")
                             .font(.caption).foregroundStyle(.orange)
@@ -183,8 +187,10 @@ struct MakeCardsView: View {
         task = Task {
             let out = try? await provider.streamPlain(system: sys, messages: [AIMessage(role: .user, text: text)]) { p in raw = p }
             loading = false
-            cards = Self.parse(out ?? raw).map { Card(front: $0.front, back: $0.back) }
-            failed = cards.isEmpty
+            // Stopped: the cards written so far, less the one cut off mid-line.
+            let written = Task.isCancelled ? String(raw[..<(raw.lastIndex(of: "\n") ?? raw.startIndex)]) : (out ?? raw)
+            cards = Self.parse(written).map { Card(front: $0.front, back: $0.back) }
+            failed = cards.isEmpty && !Task.isCancelled
         }
     }
 

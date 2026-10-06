@@ -236,16 +236,18 @@ struct NotesView: View {
         panel.allowedContentTypes = [.mpeg4Audio]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let job = Jobs.shared.begin(name, module: "notes")
-        Task {
+        let task = Task {
             do {
                 try await AudioReview.make(from: list, to: url, provider: provider, mode: AIConfig.engine(for: .ask)) { Jobs.shared.update(job, $0) }
                 Jobs.shared.end(job, done: "\(name) saved")
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             } catch {
+                guard !Task.isCancelled else { try? FileManager.default.removeItem(at: url); return }
                 Jobs.shared.end(job, done: "Couldn't make the audio review")
                 Diagnostics.log(.ai, .error, "audio review failed: \(error.localizedDescription)")
             }
         }
+        Jobs.shared.stoppable(job, task)
     }
 
     // MARK: Narrow / popover — list that pushes one note

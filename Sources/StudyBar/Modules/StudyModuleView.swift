@@ -44,6 +44,8 @@ final class GuideModel: ObservableObject {
     @Published var progress = (0, 0)
     @Published var saved = false
     @Published var error: String?
+    var task: Task<Void, Never>?
+    var job: UUID?
 }
 
 /// The study assistant, one course at a time: tick what to study from — notes, slides, the
@@ -676,7 +678,7 @@ private struct QuizPane: View {
                 if t > 1 { Jobs.shared.update(job, "part \(p) of \(t)") }
             }
             await MainActor.run {
-                guard m.phase == .generating else { return }
+                guard m.phase == .generating, m.job == job, !Task.isCancelled else { return }
                 guard let qs, !qs.isEmpty else {
                     m.error = "The AI didn't return usable questions. Try again, or a stronger engine in Settings ▸ Intelligence."
                     m.phase = .setup
@@ -688,6 +690,11 @@ private struct QuizPane: View {
                 m.deadline = isExam ? Date().addingTimeInterval(Double(minutes) * 60) : nil
                 m.phase = .taking
             }
+        }
+        Jobs.shared.stoppable(job) {
+            guard m.job == job else { return }
+            m.task?.cancel()
+            if m.phase == .generating { m.phase = .setup }
         }
     }
 
@@ -1077,6 +1084,7 @@ private struct GuidePane: View {
                 if m.busy {
                     ProgressView()
                     Text(m.progress.1 > 1 ? "Reading part \(m.progress.0) of \(m.progress.1)…" : "Writing the guide…").foregroundStyle(.secondary)
+                    Button("Cancel") { Jobs.shared.cancel(m.job) }
                 } else {
                     Image(systemName: "doc.text.magnifyingglass").font(.largeTitle).foregroundStyle(.tint)
                     Text("Key concepts, definitions, formulas and worked examples from the ticked material — each with its source.")
@@ -1095,17 +1103,23 @@ private struct GuidePane: View {
         m.busy = true; m.saved = false; m.error = nil; m.progress = (0, 0)
         let t = title, m = m
         let job = Jobs.shared.begin("Study guide · \(code)", module: "study")
-        Task {
+        m.job = job
+        m.task = Task {
             let out = await StudyGuide.generate(from: passages, title: t, provider: provider,
                                                 mode: AIConfig.engine(for: .ask)) { p, n in
                 m.progress = (p, n)
                 if n > 1 { Jobs.shared.update(job, "part \(p) of \(n)") }
             }
             await MainActor.run {
+                guard m.job == job, !Task.isCancelled else { return }            // stopped, or a newer run took over
                 m.busy = false
                 if let out { m.guide = out } else { m.error = "The AI didn't return a guide. Try again, or a stronger engine." }
                 Jobs.shared.end(job, done: out == nil ? "Couldn't write the study guide" : "Study guide ready")
             }
+        }
+        Jobs.shared.stoppable(job) {
+            guard m.job == job else { return }
+            m.task?.cancel(); m.busy = false
         }
     }
 
