@@ -117,13 +117,19 @@ struct StudyModuleView: View {
                         } else {
                             // All four stay alive, so a quiz in progress survives a look at the tutor.
                             let session = state.studySession(course?.id)
+                            // Nothing to write a quiz, exam, guide or glossary from: say what would be.
+                            let bare = sources.isEmpty && reading.isEmpty && ![.tutor, .progress].contains(tab)
                             ZStack {
-                                TutorPane(course: course, material: material, m: session.tutor).opacity(tab == .tutor ? 1 : 0).allowsHitTesting(tab == .tutor)
-                                QuizPane(exam: false, course: course, material: material, m: session.quiz).opacity(tab == .quiz ? 1 : 0).allowsHitTesting(tab == .quiz)
-                                QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
-                                GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
-                                ProgressPane(course: course, quiz: session.quiz) { tab = .quiz }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
-                                if tab == .glossary { GlossaryPane(course: course, notes: tickedNotes) }
+                                ZStack {
+                                    TutorPane(course: course, material: material, m: session.tutor).opacity(tab == .tutor ? 1 : 0).allowsHitTesting(tab == .tutor)
+                                    QuizPane(exam: false, course: course, material: material, m: session.quiz).opacity(tab == .quiz ? 1 : 0).allowsHitTesting(tab == .quiz)
+                                    QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
+                                    GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
+                                    ProgressPane(course: course, quiz: session.quiz) { tab = $0 }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
+                                    if tab == .glossary { GlossaryPane(course: course, notes: tickedNotes) }
+                                }
+                                .opacity(bare ? 0 : 1).allowsHitTesting(!bare)
+                                if bare { noMaterial }
                             }
                         }
                     }
@@ -134,6 +140,36 @@ struct StudyModuleView: View {
         }
         .onAppear(perform: follow)
         .onChange(of: state.workingCourseID) { _, _ in follow() }
+    }
+
+    /// A course with nothing in it yet: what Study reads, the two ways to add it, and a course
+    /// that already has material — rather than a Start button that can only fail.
+    private var noMaterial: some View {
+        let name: (Course) -> String = { $0.code.isEmpty ? $0.name : $0.code }
+        let here = course.map(name) ?? "this course"
+        let other = state.data.courses.filter { $0.id != course?.id }
+            .map { (course: $0, count: StudyMaterial.sources(course: $0.id, in: state.data).count) }
+            .filter { $0.count > 0 }.max { $0.count < $1.count }
+        let loose = state.data.notes.filter { $0.courseID == nil }.count
+        return VStack(spacing: 14) {
+            Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
+            Text("Nothing to study from in \(here) yet").font(.title3.weight(.semibold))
+            Text("Quizzes, practice exams, study guides and the glossary are written from this course's notes, slides, textbook and syllabus.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
+            HStack(spacing: 10) {
+                Button { pickFiles() } label: { Label("Add slides or files…", systemImage: "plus") }.buttonStyle(.borderedProminent)
+                Button { state.selectedModuleID = "voice" } label: { Label("Record a lecture", systemImage: "mic") }
+            }
+            if let other {
+                Button("Study \(name(other.course)) instead — \(other.count) source\(other.count == 1 ? "" : "s")") {
+                    courseRaw = other.course.id.uuidString; excluded = []
+                }.buttonStyle(.link)
+            }
+            Text(loose > 0 ? "\(loose) note\(loose == 1 ? " has" : "s have") no course — give \(loose == 1 ? "it" : "them") \(here) in Notes and \(loose == 1 ? "it shows" : "they show") up here."
+                           : "You can also drop files on the list at the left.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
+        }
+        .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Sources
@@ -935,9 +971,10 @@ private struct ProgressPane: View {
     @EnvironmentObject var state: AppState
     let course: Course?
     @ObservedObject var quiz: QuizModel
-    let openQuiz: () -> Void
+    let open: (StudyModuleView.Tab) -> Void
     @State private var readingSyllabus = false
     @State private var coverageError: String?
+    @State private var makingCards: MakeCardsView.Request?
 
     var body: some View {
         let scores = TopicScores.of(course: course?.id, in: state.data.topicResults ?? [])
@@ -945,6 +982,10 @@ private struct ProgressPane: View {
         let cards = state.data.flashcards.filter { decks.contains($0.deckID) }
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let course, let next = NextStep.pick(course: course, data: state.data,
+                                                       hasMaterial: !StudyMaterial.sources(course: course.id, in: state.data).isEmpty) {
+                    nextCard(next, course: course)
+                }
                 if let course { coverage(course, cards: cards); Divider() }
                 if scores.isEmpty {
                     Text("Take a quiz or a practice exam — your score on each topic shows here, weakest first.")
@@ -956,7 +997,7 @@ private struct ProgressPane: View {
                         Button("Quiz me on the weakest") {
                             let weak = scores.filter { $0.ratio < 0.8 }.prefix(3).map(\.topic)
                             quiz.focus = weak.isEmpty ? scores.prefix(3).map(\.topic) : weak
-                            openQuiz()
+                            open(.quiz)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(quiz.phase == .generating || quiz.phase == .taking)
@@ -989,6 +1030,39 @@ private struct ProgressPane: View {
             }
             .padding(20).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
         }
+        .sheet(item: $makingCards) { MakeCardsView(request: $0) }
+    }
+
+    /// What to do now, with the one button that does it.
+    private func nextCard(_ next: NextStep.Pick, course: Course) -> some View {
+        let quizBusy = quiz.phase == .generating || quiz.phase == .taking
+        return HStack(spacing: 12) {
+            Image(systemName: "arrow.forward.circle.fill").font(.title2).foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("NEXT").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(next.title).font(.headline).lineLimit(2)
+                Text(next.why).font(.callout).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button(next.button) {
+                switch next.action {
+                case .exam: open(.exam)
+                case .quiz(let focus): quiz.focus = focus; open(.quiz)
+                case .makeCards: makingCards = .init(notes: [], course: course.id)
+                case .review:
+                    // The deck with the most due, opened, rather than the list of every deck.
+                    let due = state.data.flashcards.filter(\.isDue)
+                    state.pendingDeck = state.data.decks.filter { $0.courseID == course.id }
+                        .max { a, b in due.filter { $0.deckID == a.id }.count < due.filter { $0.deckID == b.id }.count }?.id
+                    state.selectedModuleID = "flashcards"
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled({ if case .quiz = next.action { return quizBusy }; return false }())
+        }
+        .padding(14)
+        .background(.tint.opacity(0.07), in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .accessibilityElement(children: .combine)
     }
 
     /// The syllabus's objectives, each against the notes, flashcards and quiz answers on it.
@@ -1025,7 +1099,7 @@ private struct ProgressPane: View {
                             Text(r.cards == 0 ? "no cards" : "\(r.cards) card\(r.cards == 1 ? "" : "s")").foregroundStyle(r.cards == 0 ? Color.orange : Color.secondary)
                             Text(r.answered == 0 ? "not quizzed" : "quiz \(r.right)/\(r.answered)").foregroundStyle(r.answered == 0 ? Color.orange : Color.secondary)
                         }.font(.caption.monospacedDigit())
-                        Button("Quiz me") { quiz.focus = [r.objective.text]; openQuiz() }
+                        Button("Quiz me") { quiz.focus = [r.objective.text]; open(.quiz) }
                             .controlSize(.small).opacity(r.gaps > 0 ? 1 : 0)
                             .disabled(r.gaps == 0 || quiz.phase == .generating || quiz.phase == .taking)
                     }
@@ -1178,6 +1252,15 @@ enum StudySnapshot {
             win.orderOut(nil)
         }
         save(StudyModuleView(), "module.png", CGSize(width: 1000, height: 640))
+        // A course with nothing in it, on the Quiz tab: what to add, not a Start that fails.
+        let empty = Course(name: "Calculus III", code: "MAC2313")
+        state.data.courses.append(empty)
+        UserDefaults.standard.set(empty.id.uuidString, forKey: "studyCourse")
+        UserDefaults.standard.set(StudyModuleView.Tab.quiz.rawValue, forKey: "studyTab")
+        save(StudyModuleView(), "study-empty.png", CGSize(width: 1000, height: 560))
+        UserDefaults.standard.set(course.id.uuidString, forKey: "studyCourse")
+        save(QuizPane(exam: false, course: course, material: { [] }, m: QuizModel()), "quiz-setup.png", CGSize(width: 700, height: 380))
+        save(MakeCardsView(request: .init(notes: state.data.notes.map(\.id), course: course.id)), "make-cards.png", CGSize(width: 640, height: 560))
         save(VStack(spacing: 16) {
             QuestionCard(q: mcq, response: .constant(QuizResponse(choice: 1)), revealed: true, feedback: nil, check: {})
             QuestionCard(q: tf, response: .constant(QuizResponse(bool: true)), revealed: false, feedback: nil, check: {})
@@ -1189,7 +1272,7 @@ enum StudySnapshot {
         let deck = Deck(name: "PHY2049", courseID: course.id)
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
-        save(ProgressPane(course: course, quiz: QuizModel()) {}, "progress.png", CGSize(width: 760, height: 420))
+        save(ProgressPane(course: course, quiz: QuizModel()) { _ in }, "progress.png", CGSize(width: 760, height: 420))
         save(NavigationStack { StudyView(deckID: nil, onClose: {}) }, "cards-panel.png", CGSize(width: 380, height: 440))
         state.data.notes[0].body = "## Flux\n- **Flux** — the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$\nGaussian surface :: an imaginary closed surface chosen for symmetry"
         save(GlossaryPane(course: course, notes: { state.data.notes.filter { $0.courseID == course.id } }), "glossary.png", CGSize(width: 760, height: 420))

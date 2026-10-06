@@ -1260,6 +1260,36 @@ enum StudySelfTest {
             check("answer settings reach the prompt", s.contains("short") && s.contains("graduate level") && s.contains("Write in Vietnamese"), s)
         }
 
+        // What to do next: each step in turn, as the one before it is dealt with.
+        do {
+            var c = Course(name: "Physics II", code: "PHY2049")
+            var d = AppData()
+            let now = Date()
+            d.courses = [c]
+            d.notes = [Note(title: "Week 3 — Gauss's law", body: "Flux through a closed surface is the charge inside over ε0.", courseID: c.id)]
+            func step() -> NextStep.Action? { NextStep.pick(course: c, data: d, hasMaterial: true, now: now)?.action }
+            check("nothing to study from → no step", NextStep.pick(course: c, data: d, hasMaterial: false, now: now) == nil)
+            check("notes and no cards → make flashcards", step() == .makeCards, "\(String(describing: step()))")
+            let deck = Deck(name: "PHY2049", courseID: c.id)
+            d.decks = [deck]
+            var card = Flashcard(deckID: deck.id, front: "Gauss's law?", back: "Φ = q/ε0"); card.due = now.addingTimeInterval(86_400)
+            d.flashcards = [card]
+            check("cards, never quizzed → a first quiz", step() == .quiz(focus: []))
+            d.topicResults = [TopicResult(courseID: c.id, topic: "Gauss's law", correct: true)]
+            c.syllabus = SyllabusItem(fileName: "s.pdf", filePath: "s.pdf")
+            c.syllabus?.objectives = [SyllabusObjective(text: "Apply Gauss's law", keys: ["gauss"]), SyllabusObjective(text: "Use flux", keys: ["flux"])]
+            check("an objective in the notes but never quizzed → quiz on it", step() == .quiz(focus: ["Use flux"]), "\(String(describing: step()))")
+            d.topicResults! += [false, false, true].map { TopicResult(courseID: c.id, topic: "Flux", correct: $0) }
+            check("a weak topic → quiz on it", step() == .quiz(focus: ["Flux"]), "\(String(describing: step()))")
+            d.flashcards[0].due = now.addingTimeInterval(-60)
+            check("cards due → review them", step() == .review)
+            d.assignments = [Assignment(title: "Midterm 2", courseID: c.id, due: now.addingTimeInterval(3 * 86_400))]
+            check("a midterm in three days → a practice exam", step() == .exam
+                  && NextStep.pick(course: c, data: d, hasMaterial: true, now: now)?.why.contains("in 3 days") == true)
+            d.assignments = [Assignment(title: "Quiz 4", courseID: c.id, due: now.addingTimeInterval(86_400))]
+            check("a quiz tomorrow → a practice quiz", step() == .quiz(focus: []))
+        }
+
         print(fail == 0 ? "STUDY SELFTEST: ALL PASS" : "STUDY SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }
@@ -1541,6 +1571,57 @@ enum TopicScores {
             Quiz.isCorrect(q, responses[q.id] ?? QuizResponse())
                 .map { TopicResult(courseID: course, topic: q.topic.isEmpty ? "Other" : q.topic, correct: $0) }
         }
+    }
+}
+
+// MARK: - What to do next
+
+/// The one thing Progress says to do now for a course, from what's on record: a test coming up,
+/// cards due, a weak topic, an objective the notes cover but no quiz has asked about, notes
+/// with no cards. No AI — it's the same each time it's asked, and there without an engine.
+enum NextStep {
+    enum Action: Equatable { case exam, quiz(focus: [String]), review, makeCards }
+    struct Pick: Equatable { let title: String; let why: String; let button: String; let action: Action }
+
+    static func pick(course: Course, data: AppData, hasMaterial: Bool, now: Date = .now) -> Pick? {
+        guard hasMaterial else { return nil }
+        let decks = Set(data.decks.filter { $0.courseID == course.id }.map(\.id))
+        let cards = data.flashcards.filter { decks.contains($0.deckID) }
+        let results = (data.topicResults ?? []).filter { $0.courseID == course.id }
+        let notes = data.notes.filter { $0.courseID == course.id }
+
+        // A test within the week: rehearse it — a quiz for a quiz, a timed exam for the rest.
+        let tests = data.assignments.filter { $0.courseID == course.id && $0.isOpen && ExamPlan.looksLikeExam($0.title) }
+            .compactMap { a in a.daysUntilDue(asOf: now).map { (a, $0) } }.filter { (0...7).contains($0.1) }
+        if let (test, days) = tests.min(by: { $0.1 < $1.1 }) {
+            let when = days == 0 ? "today" : days == 1 ? "tomorrow" : "in \(days) days"
+            if test.title.range(of: #"\bquiz\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return Pick(title: "Take a practice quiz", why: "\(test.title) is \(when).", button: "Start a quiz", action: .quiz(focus: []))
+            }
+            return Pick(title: "Sit a practice exam", why: "\(test.title) is \(when) — rehearse it under time.", button: "Practice exam", action: .exam)
+        }
+        let due = cards.filter { $0.due <= now }.count
+        if due > 0 {
+            return Pick(title: "Review \(due) flashcard\(due == 1 ? "" : "s") due", why: "About \(max(1, (due * 8 + 59) / 60)) min. Reviewing them on time is what makes them stick.",
+                        button: "Review", action: .review)
+        }
+        if let weak = TopicScores.of(course: course.id, in: results).first(where: { $0.total >= 3 && $0.ratio < 0.7 }) {
+            return Pick(title: "Quiz yourself on \(weak.topic)", why: "You got \(weak.right) of \(weak.total) right — your weakest topic.",
+                        button: "Quiz me", action: .quiz(focus: [weak.topic]))
+        }
+        if let objectives = course.syllabus?.objectives, !objectives.isEmpty,
+           let open = Coverage.rows(objectives, notes: notes, cards: cards, results: results).first(where: { $0.notes > 0 && $0.answered == 0 }) {
+            return Pick(title: "Quiz yourself on “\(open.objective.text)”", why: "Your notes cover it, but no quiz has asked about it yet.",
+                        button: "Quiz me", action: .quiz(focus: [open.objective.text]))
+        }
+        if cards.isEmpty && !notes.isEmpty {
+            return Pick(title: "Make flashcards from your notes", why: "\(notes.count) note\(notes.count == 1 ? "" : "s") and no flashcards yet.",
+                        button: "Make flashcards", action: .makeCards)
+        }
+        if results.isEmpty {
+            return Pick(title: "Take a first quiz", why: "It shows which topics you know and which you don't.", button: "Start a quiz", action: .quiz(focus: []))
+        }
+        return Pick(title: "Sit a practice exam", why: "No cards due and no weak topics — see how it goes under time.", button: "Practice exam", action: .exam)
     }
 }
 
