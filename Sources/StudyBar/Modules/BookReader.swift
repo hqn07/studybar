@@ -11,6 +11,8 @@ import SwiftUI
 struct BookReader: View {
     @EnvironmentObject var state: AppState
     let itemID: UUID
+    /// Open here instead of the page the student was on — a search hit's page.
+    var startPage: Int? = nil
     @StateObject private var reader = ReaderModel()
     @State private var page = 1
 
@@ -26,7 +28,7 @@ struct BookReader: View {
                     .help("Save the selected text to the book's highlights (⇧⌘H)")
             }
             Divider()
-            BookPDFView(url: BookText.pdfURL(itemID), start: max(1, idx.map { state.data.reading[$0].currentPage } ?? 1),
+            BookPDFView(url: BookText.pdfURL(itemID), start: max(1, startPage ?? idx.map { state.data.reading[$0].currentPage } ?? 1),
                         reader: reader, page: $page)
         }
         .studyFocus(.reading(itemID, page: page))

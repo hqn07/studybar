@@ -116,6 +116,8 @@ struct ReadingView: View {
             }
             .navigationDestination(isPresented: $goodreads) { GoodreadsImportView() }
             .navigationDestination(item: $openBookID) { ReadingDetailView(itemID: $0) }
+            .onAppear { if let p = state.pendingBook { openBookID = p.id; if p.page == nil { state.pendingBook = nil } } }
+            .onChange(of: state.pendingBook) { _, p in if let p { openBookID = p.id; if p.page == nil { state.pendingBook = nil } } }
         }
     }
 
@@ -308,6 +310,7 @@ struct ReadingDetailView: View {
     let itemID: UUID
     @State private var editing = false
     @State private var readingPDF = false
+    @State private var readerStart: Int?
     @State private var pageField = ""
     @State private var hlPage = ""
     @State private var hlText = ""
@@ -384,7 +387,11 @@ struct ReadingDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
         .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()) }
-        .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID) }
+        .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID, startPage: readerStart) }
+        // A search hit inside the book opens it at that page.
+        .onAppear {
+            if let p = state.pendingBook, p.id == itemID, let page = p.page { state.pendingBook = nil; readerStart = page; readingPDF = true }
+        }
     }
 
     private func compactHeader(_ item: ReadingItem) -> some View {
@@ -405,7 +412,7 @@ struct ReadingDetailView: View {
                 }.padding(.top, 2)
                 HStack(spacing: 6) {
                     if item.pdfPages != nil, FileManager.default.fileExists(atPath: BookText.pdfURL(item.id).path) {
-                        Button { readingPDF = true } label: { Label("Read", systemImage: "book.pages") }
+                        Button { readerStart = nil; readingPDF = true } label: { Label("Read", systemImage: "book.pages") }
                             .buttonStyle(.borderedProminent).controlSize(.small)
                             .help("Open the PDF here, at your page — select text to highlight it")
                     }

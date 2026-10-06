@@ -7,7 +7,7 @@ import Foundation
 /// above everything else in a store of a couple of hundred objects.
 enum PaletteSearch {
     struct Hit: Identifiable {
-        enum Kind: Equatable { case note(UUID), assignment(UUID), deck(UUID) }
+        enum Kind: Equatable { case note(UUID), assignment(UUID), deck(UUID), book(UUID, page: Int?), file(UUID) }
         let id = UUID()
         let kind: Kind
         let title: String
@@ -44,6 +44,18 @@ enum PaletteSearch {
         for d in data.decks {
             guard let s = FuzzyMatch.best(q, [d.name]) else { continue }
             out.append(Hit(kind: .deck(d.id), title: d.name, detail: "Deck", score: s * 0.9))
+        }
+        // A card's words find its deck; one row a deck.
+        var decked: Set<UUID> = Set(out.compactMap { if case .deck(let id) = $0.kind { return id }; return nil })
+        for c in data.flashcards where !decked.contains(c.deckID) {
+            guard let s = FuzzyMatch.best(q, [c.front, c.back]), s >= 100 else { continue }
+            decked.insert(c.deckID)
+            let deck = data.decks.first { $0.id == c.deckID }?.name ?? "Flashcards"
+            out.append(Hit(kind: .deck(c.deckID), title: String(c.front.prefix(60)), detail: "Card · \(deck)", score: s * 0.8))
+        }
+        for b in data.reading {
+            guard let s = FuzzyMatch.best(q, [b.title, b.author]) else { continue }
+            out.append(Hit(kind: .book(b.id, page: nil), title: b.title, detail: [courseCode(b.courseID), "Book"].compactMap { $0 }.joined(separator: " · "), score: s * 0.85))
         }
         return out.sorted { $0.score > $1.score }
     }
@@ -87,6 +99,16 @@ enum PaletteSearchSelfTest {
         done.assignments[0].status = .done
         check("finished assignments drop out",
               !PaletteSearch.hits("gauss", data: done, courseCode: code).contains { if case .assignment = $0.kind { return true }; return false })
+
+        // A card's words find its deck, once; a book by its title.
+        var more = data
+        more.flashcards = [Flashcard(deckID: more.decks[0].id, front: "What is a Gaussian surface?", back: "An imagined closed surface"),
+                           Flashcard(deckID: more.decks[0].id, front: "Gaussian surface shape?", back: "Follows the symmetry")]
+        more.decks[0].name = "Week 3"
+        more.reading = [ReadingItem(title: "Serway — Physics for Scientists")]
+        let found = PaletteSearch.hits("gaussian surface", data: more, courseCode: code)
+        check("a card's words find its deck, once", found.filter { if case .deck = $0.kind { return true }; return false }.count == 1)
+        check("a book by its title", PaletteSearch.hits("serway", data: more, courseCode: code).contains { if case .book = $0.kind { return true }; return false })
 
         check("one letter ranks nothing", PaletteSearch.hits("g", data: data, courseCode: code).isEmpty)
         check("nonsense finds nothing", PaletteSearch.hits("zzzzq", data: data, courseCode: code).isEmpty)

@@ -13,6 +13,8 @@ struct UnifiedSearchView: View {
         let subtitle: String
         var score: Double = 0
         var libraryTab: String? = nil   // when moduleID == "library", which shelf to open
+        /// Opens the thing itself — the note, the deck, the book at its page — not just its module.
+        var open: (() -> Void)? = nil
     }
 
     private var results: [Result] {
@@ -30,7 +32,8 @@ struct UnifiedSearchView: View {
         }
         for n in state.data.notes {
             add([n.title, n.body]) { .init(moduleID: "notes", symbol: "note.text",
-                title: n.title.isEmpty ? "Note" : n.title, subtitle: String(n.body.prefix(50)), score: $0) }
+                title: n.title.isEmpty ? "Note" : n.title, subtitle: String(n.body.prefix(50)), score: $0,
+                open: { state.pendingOpenNote = n.id }) }
         }
         for t in state.data.todos {   // legacy to-dos → route to Assignments for import
             add([t.text]) { .init(moduleID: "assignments", symbol: "checkmark.circle",
@@ -50,7 +53,20 @@ struct UnifiedSearchView: View {
         }
         for b in state.data.reading {
             add([b.title, b.author]) { .init(moduleID: "reading", symbol: "book",
-                title: b.title, subtitle: b.author.isEmpty ? "Reading" : b.author, score: $0) }
+                title: b.title, subtitle: b.author.isEmpty ? "Reading" : b.author, score: $0,
+                open: { state.pendingBook = .init(id: b.id, page: nil) }) }
+        }
+        // Inside the books and course files: the page, and the words around the match.
+        for h in MaterialSearch.hits(q, data: state.data) {
+            switch h.source {
+            case .book(let id, let page):
+                out.append(.init(moduleID: "reading", symbol: "book.pages", title: "\(h.title), \(h.locator)", subtitle: h.snippet, score: 70,
+                                 open: { state.pendingBook = .init(id: id, page: page) }))
+            case .file(let id):
+                let f = state.data.studyFiles?.first { $0.id == id }
+                out.append(.init(moduleID: "study", symbol: "doc.text", title: h.locator.isEmpty ? h.title : "\(h.title), \(h.locator)", subtitle: h.snippet, score: 68,
+                                 open: { if let f { NSWorkspace.shared.open(StudyMaterial.fileURL(f)) } }))
+            }
         }
         for c in state.data.references {
             add([c.title] + c.authors) { .init(moduleID: "citations", symbol: "quote.opening",
@@ -65,7 +81,7 @@ struct UnifiedSearchView: View {
         for card in state.data.flashcards {
             let deck = state.data.decks.first { $0.id == card.deckID }?.name ?? "Flashcards"
             add([card.front, card.back]) { .init(moduleID: "flashcards", symbol: "rectangle.on.rectangle.angled",
-                title: String(card.front.prefix(48)), subtitle: deck, score: $0) }
+                title: String(card.front.prefix(48)), subtitle: deck, score: $0, open: { state.pendingDeck = card.deckID }) }
         }
         for cl in state.data.classes {
             let cname = state.course(cl.courseID)?.name ?? ""
@@ -87,8 +103,9 @@ struct UnifiedSearchView: View {
                         ForEach(results) { r in
                             Button {
                                 if let t = r.libraryTab { UserDefaults.standard.set(t, forKey: "libraryTab") }
-                                state.selectedModuleID = r.moduleID
                                 state.globalSearch = ""
+                                r.open?()
+                                if r.moduleID != "study" || r.open == nil { state.selectedModuleID = r.moduleID }
                             } label: {
                                 HStack(spacing: 10) {
                                     Image(systemName: r.symbol).frame(width: 20).foregroundStyle(.tint)

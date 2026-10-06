@@ -145,6 +145,16 @@ enum NoteTitleConvention {
         return ""
     }
 
+    /// A transcript's topic, named by the AI: a raw transcript has no heading, and its first
+    /// line made titles like "Week 5 — Today, we look at capacitors, a capacitor stores charge on…".
+    static func aiTopic(_ transcript: String, provider: AIProvider) async -> String? {
+        let sys = "Name this lecture the way a student would title their notes: its main topic in 2 to 6 words, e.g. \"Gauss's law and electric flux\". Reply with ONLY the title — no quotes, no course code, no date."
+        guard let raw = try? await provider.completePlain(system: sys, messages: [AIMessage(role: .user, text: String(transcript.prefix(6_000)))]) else { return nil }
+        let t = clean(raw.components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”'"))
+        return t.isEmpty || t.count > 60 || t.split(separator: " ").count > 10 ? nil : t
+    }
+
     /// Trim the punctuation and markup a heading tends to carry, and keep it short enough to
     /// read in a list row.
     private static func clean(_ s: String) -> String {

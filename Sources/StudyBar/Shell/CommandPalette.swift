@@ -56,10 +56,17 @@ struct CommandPalette: View {
     /// the list, a mouse-only search field, then a click. This is the shortest path in the app
     /// and it should reach the thing, not the room it lives in.
     private var contentMatches: [Action] {
-        let hits = PaletteSearch.hits(query, data: state.data) { id in
+        var hits = PaletteSearch.hits(query, data: state.data) { id in
             state.course(id).map { $0.code.isEmpty ? $0.name : $0.code }
         }
-        return hits.prefix(6).map { hit in
+        // The words inside books and course files, after the closer matches.
+        hits += MaterialSearch.hits(query, data: state.data, perSource: 1, limit: 3).map { h in
+            switch h.source {
+            case .book(let id, let page): return .init(kind: .book(id, page: page), title: "\(h.title), \(h.locator)", detail: h.snippet, score: 0)
+            case .file(let id): return .init(kind: .file(id), title: h.locator.isEmpty ? h.title : "\(h.title), \(h.locator)", detail: h.snippet, score: 0)
+            }
+        }
+        return hits.prefix(8).map { hit in
             switch hit.kind {
             case .note(let id):
                 return .init(title: hit.title, subtitle: hit.detail, symbol: "note.text") {
@@ -71,9 +78,20 @@ struct CommandPalette: View {
                 }
             case .assignment:
                 return .init(title: hit.title, subtitle: hit.detail, symbol: "checklist") { go("assignments") }
-            case .deck:
+            case .deck(let id):
                 return .init(title: hit.title, subtitle: hit.detail, symbol: "rectangle.on.rectangle.angled") {
+                    state.pendingDeck = id
                     go("flashcards")
+                }
+            case .book(let id, let page):
+                return .init(title: hit.title, subtitle: hit.detail, symbol: page == nil ? "book" : "book.pages") {
+                    state.pendingBook = .init(id: id, page: page)
+                    go("reading")
+                }
+            case .file(let id):
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "doc.text") {
+                    isPresented = false
+                    if let f = state.data.studyFiles?.first(where: { $0.id == id }) { NSWorkspace.shared.open(StudyMaterial.fileURL(f)) }
                 }
             }
         }

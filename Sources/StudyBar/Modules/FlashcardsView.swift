@@ -39,6 +39,7 @@ struct FlashcardsView: View {
     @EnvironmentObject var state: AppState
     @State private var newDeck = ""
     @State private var making: MakeCardsView.Request?
+    @State private var path: [Deck] = []
     /// The course being worked in first, then the rest as they were.
     private var decks: [Deck] {
         let c = state.likelyCourseID
@@ -53,7 +54,7 @@ struct FlashcardsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ModulePane(title: "Flashcards") { EmptyView() } content: {
                 VStack(spacing: 0) {
                     HStack {
@@ -87,6 +88,15 @@ struct FlashcardsView: View {
             .navigationDestination(for: Deck.self) { DeckView(deck: $0) }
             .sheet(item: $making) { MakeCardsView(request: $0) }
         }
+        .onAppear(perform: openPending)
+        .onChange(of: state.pendingDeck) { _, _ in openPending() }
+    }
+
+    /// A deck a search result or a card's source link asked for.
+    private func openPending() {
+        guard let id = state.pendingDeck else { return }
+        state.pendingDeck = nil
+        if let d = state.data.decks.first(where: { $0.id == id }) { path = [d] }
     }
 
     private func deckRow(_ deck: Deck) -> some View {

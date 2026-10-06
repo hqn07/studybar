@@ -36,6 +36,10 @@ final class AppState: ObservableObject {
     /// Record was asked for from outside Voice Note (shortcut, menu bar) over unsaved work —
     /// Voice Note asks what to do with it.
     @Published var recordRequested = false
+    /// A deck, or a book (at a page), a search result asked to open — consumed by its module.
+    @Published var pendingDeck: UUID?
+    struct PendingBook: Equatable { let id: UUID; let page: Int? }
+    @Published var pendingBook: PendingBook?
     /// Toggled by the global hotkey to request the command palette.
     @Published var paletteRequested = false
     /// Distraction-free writing: the module rail, the window header, the notes list and the

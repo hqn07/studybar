@@ -1080,6 +1080,37 @@ enum StudySelfTest {
                   && blocks.count == 2 && blocks[1].front == "Unit of capacitance?", "\(lines) \(blocks)")
         }
 
+        // Search inside books and course files: the page, and the words around the match.
+        if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sb-material-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let pdf = dir.appendingPathComponent("book.pdf")
+            var box = CGRect(x: 0, y: 0, width: 400, height: 300)
+            if let ctx = CGContext(pdf as CFURL, mediaBox: &box, nil) {
+                for line in ["Chapter one is about vectors and their components.", "In equilibrium the field inside a conductor is zero and charge sits on its surface."] {
+                    ctx.beginPDFPage(nil)
+                    NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                    (line as NSString).draw(in: box.insetBy(dx: 20, dy: 20), withAttributes: [.font: NSFont.systemFont(ofSize: 16)])
+                    NSGraphicsContext.restoreGraphicsState(); ctx.endPDFPage()
+                }
+                ctx.closePDF()
+            }
+            var data = AppData()
+            var book = ReadingItem(title: "Serway")
+            book.pdfPages = BookText.attach(pdf, to: book.id)
+            data.reading = [book]
+            let note = dir.appendingPathComponent("handout.txt")
+            try? "Kirchhoff's loop rule: the voltages around any closed loop sum to zero.".write(to: note, atomically: true, encoding: .utf8)
+            if let f = StudyMaterial.attach(note, courseID: nil) { data.studyFiles = [f] }
+            defer { BookText.remove(book.id); data.studyFiles?.forEach(StudyMaterial.remove) }
+            let hits = MaterialSearch.hits("inside a conductor", data: data)
+            check("a book is searched by page", hits.first?.source == .book(book.id, page: 2) && hits.first?.locator == "p. 2"
+                  && hits.first?.snippet.contains("field inside a conductor is zero") == true, "\(hits)")
+            check("a course file is searched too", MaterialSearch.hits("closed loop", data: data).first?.title == "handout.txt")
+            check("two letters search nothing", MaterialSearch.hits("in", data: data).isEmpty)
+        }
+
         // Answer settings: nothing by default; each choice becomes one plain instruction.
         if let d = UserDefaults(suiteName: "studybar-selftest-answers") {
             defer { d.removePersistentDomain(forName: "studybar-selftest-answers") }
@@ -1166,6 +1197,11 @@ enum StudyRun {
                 AIMessage(role: .user, text: action.user(units.map(\.text).joined(separator: "\n\n"), sources: refs))], temperature: action.temperature) { _ in }
             print("--- \(took()) · \(action.label) ---\n\(out ?? "FAILED")")
             return out == nil ? 1 : 0
+        case "title":
+            // `title <transcript>`: the topic a saved lecture is named by.
+            let t = await NoteTitleConvention.aiTopic(units.map(\.text).joined(separator: " "), provider: provider)
+            print("--- \(took()) ---\n\(t ?? "FAILED")")
+            return t == nil ? 1 : 0
         case "make-cards":
             // `make-cards <file> [--count N] [--focus "…"]`: the Make flashcards prompt.
             let n = args.firstIndex(of: "--count").flatMap { Int(args[$0 + 1]) } ?? 10

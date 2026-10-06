@@ -176,6 +176,12 @@ enum StudyMaterial {
         return out
     }
 
+    /// A file's text as it was read in, by page, slide or part.
+    static func units(_ file: StudyFile) -> [(locator: String, text: String)] {
+        guard let raw = try? Data(contentsOf: unitsURL(file.id)), let units = try? JSONDecoder().decode([Unit].self, from: raw) else { return [] }
+        return units.map { ($0.locator, $0.text) }
+    }
+
     /// A deck's slides by number, from what was read in when it was added: a PDF's pages
     /// ("p. 3") or a PowerPoint's slides ("slide 3").
     static func slideOutline(_ file: StudyFile) -> [(number: Int, text: String)] {
@@ -271,6 +277,53 @@ enum StudyMaterial {
     static func spread<T>(_ items: [T], count: Int) -> [T] {
         guard items.count > count, count > 0 else { return items }
         return (0..<count).map { items[$0 * items.count / count] }
+    }
+}
+
+// MARK: - Search in books and course files
+
+/// Words inside the course's books and files, for the search boxes: which page, and the words
+/// around them. The text is read from disk once and kept — a search runs on every keystroke.
+enum MaterialSearch {
+    enum Source: Hashable { case book(UUID, page: Int), file(UUID) }
+    struct Hit: Hashable { let source: Source; let title: String; let locator: String; let snippet: String }
+
+    @MainActor private static var cache: [String: [(locator: String, page: Int, text: String)]] = [:]
+
+    @MainActor
+    private static func text(_ key: String, _ load: () -> [(locator: String, page: Int, text: String)]) -> [(locator: String, page: Int, text: String)] {
+        if let c = cache[key] { return c }
+        let c = load(); cache[key] = c; return c
+    }
+
+    /// At most `perSource` hits a book or file, `limit` in all, for queries of three letters or more.
+    @MainActor
+    static func hits(_ query: String, data: AppData, perSource: Int = 2, limit: Int = 8) -> [Hit] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 3 else { return [] }
+        var out: [Hit] = []
+        func scan(_ title: String, _ units: [(locator: String, page: Int, text: String)], _ source: (Int) -> Source) {
+            var n = 0
+            for u in units where n < perSource && out.count < limit {
+                guard let r = u.text.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) else { continue }
+                out.append(Hit(source: source(u.page), title: title, locator: u.locator, snippet: snippet(u.text, around: r)))
+                n += 1
+            }
+        }
+        for b in data.reading where (b.pdfPages ?? 0) > 0 && out.count < limit {
+            scan(b.title, text("b\(b.id)-\(b.pdfPages ?? 0)") { BookText.chunks(b.id).map { ("p. \($0.page)", $0.page, $0.text) } }) { .book(b.id, page: $0) }
+        }
+        for f in data.studyFiles ?? [] where out.count < limit {
+            scan(f.name, text("f\(f.id)") { StudyMaterial.units(f).map { ($0.locator, Int($0.locator.filter(\.isNumber)) ?? 0, $0.text) } }) { _ in .file(f.id) }
+        }
+        return out
+    }
+
+    static func snippet(_ text: String, around r: Range<String.Index>) -> String {
+        let start = text.index(r.lowerBound, offsetBy: -50, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(r.upperBound, offsetBy: 70, limitedBy: text.endIndex) ?? text.endIndex
+        let s = text[start..<end].replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        return (start > text.startIndex ? "…" : "") + s + (end < text.endIndex ? "…" : "")
     }
 }
 

@@ -572,8 +572,13 @@ struct VoiceBody: View {
                     messages: [AIMessage(role: .user, text: String(text.prefix(CourseGuess.sampleChars)))])) ?? ""
                 course = CourseGuess.match(reply, courses: codes)
             }
+            // A transcript with no heading gets its topic named, rather than its first sentence.
+            var topic: String?
+            if !text.hasPrefix("# "), !text.contains("\n# "), !words.isEmpty, let p = AIService.makeProvider(for: .judge), AIConfig.isReady(for: .judge) {
+                topic = await NoteTitleConvention.aiTopic(text, provider: p)
+            }
             naming = false
-            finishSave(text: text, course: course, open: open)
+            finishSave(text: text, course: course, open: open, topic: topic)
             next?()
         }
     }
@@ -595,11 +600,11 @@ struct VoiceBody: View {
         }
     }
 
-    private func finishSave(text: String, course: UUID?, open: Bool = true) {
+    private func finishSave(text: String, course: UUID?, open: Bool = true, topic: String? = nil) {
         let code = state.course(course).map { $0.code.isEmpty ? $0.name : $0.code }
         let siblings = state.data.notes.filter { $0.courseID == course }.map(\.title)
         let shape = NoteTitleConvention.detect(titles: siblings, courseCode: code)
-        let title = NoteTitleConvention.title(topic: NoteTitleConvention.topic(fromNoteBody: text),
+        let title = NoteTitleConvention.title(topic: topic ?? NoteTitleConvention.topic(fromNoteBody: text),
                                               shape: shape, existing: siblings,
                                               date: voice.lastRecordingStart ?? .now,
                                               termStart: state.data.termStart)
