@@ -504,9 +504,20 @@ final class VoiceService: ObservableObject {
         segmentID &+= 1                                  // ignore the rotated-out task's late callback
         old?.cancel()
         guard restart, wantsRecording, capturing else { finish(); return }
-        if emptyStreak >= 4 {
+        // Empty segments mean a broken engine only if it has never written a word this take. After
+        // it has, they are a quiet room — "no speech detected" every few seconds — and stopping
+        // there ended a 20-minute lecture at its first long silence, blaming Apple Speech.
+        if emptyStreak >= 4 && !everGotResult {
             status = .unavailable("Apple Speech isn't producing any text on this Mac — switch to Whisper (menu, top-right), which runs fully offline.")
             finish(); return
+        }
+        // An engine failing at once, over and over, would spin: a second between empty tries.
+        if emptyStreak > 0 && Date().timeIntervalSince(segmentStart) < 1 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, self.status == .recording, self.wantsRecording, self.capturing, self.task == nil else { return }
+                self.startSegment()
+            }
+            return
         }
         startSegment()
     }
