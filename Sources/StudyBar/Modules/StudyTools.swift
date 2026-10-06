@@ -15,11 +15,26 @@ struct MakeCardsView: View {
 
     struct Card: Identifiable { let id = UUID(); var front: String; var back: String; var include = true }
 
+    /// What kind of cards to write. Mixed is what this always wrote.
+    enum Kind: String, CaseIterable, Identifiable {
+        case mixed = "Mixed", terms = "Terms", blanks = "Fill in the blank"
+        var id: String { rawValue }
+        var help: String {
+            switch self {
+            case .mixed: return "Definitions, key-concept questions and a few why or how questions"
+            case .terms: return "A term, name or formula on the front; what it means on the back"
+            case .blanks: return "A sentence with the key word hidden — you recall it"
+            }
+        }
+    }
+
     @State private var course: UUID?
     @State private var picked: Set<UUID> = []
     @State private var search = ""
     @State private var selection = ""
     @AppStorage("cardsCount") private var count = 10
+    @AppStorage("cardsKind") private var kind: Kind = .mixed
+    @AppStorage("cardsLevel") private var level: Difficulty = .standard
     @State private var focus = ""
     @State private var deck: UUID?
     @State private var loading = false
@@ -61,6 +76,12 @@ struct MakeCardsView: View {
                         Picker("How many", selection: $count) { ForEach([5, 10, 20, 30], id: \.self) { Text("\($0)").tag($0) } }
                             .pickerStyle(.segmented).frame(width: 260)
                         TextField("Focus — optional, e.g. definitions, formulas, dates", text: $focus).textFieldStyle(.roundedBorder)
+                    }
+                    HStack(spacing: 16) {
+                        Picker("Cards", selection: $kind) { ForEach(Kind.allCases) { Text($0.rawValue).tag($0) } }
+                            .pickerStyle(.segmented).fixedSize().help(kind.help)
+                        Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
+                            .pickerStyle(.segmented).fixedSize()
                     }
                     Button { generate() } label: { Label(loading ? "Writing cards…" : cards.isEmpty ? "Write cards" : "Write again", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(loading || source.count < 20 || !AIConfig.isReady(for: .ask))
@@ -150,7 +171,10 @@ struct MakeCardsView: View {
                     }.buttonStyle(.plain).padding(.top, 3)
                     VStack(spacing: 4) {
                         TextField("Front", text: $c.front).textFieldStyle(.roundedBorder)
-                        TextField("Back", text: $c.back).textFieldStyle(.roundedBorder)
+                        // A fill-in-the-blank card's answer is the word in {{…}}; it has no back.
+                        if !(c.front.contains("{{") && c.back.isEmpty) {
+                            TextField("Back", text: $c.back).textFieldStyle(.roundedBorder)
+                        }
                     }
                 }.opacity(c.include ? 1 : 0.5)
             }
@@ -170,9 +194,19 @@ struct MakeCardsView: View {
             ?? state.data.decks.first { name != nil && $0.name.caseInsensitiveCompare(name!) == .orderedSame })?.id
     }
 
-    static func system(count: Int, focus: String) -> String {
+    static func system(count: Int, focus: String, kind: Kind = .mixed, level: Difficulty = .standard) -> String {
         let f = focus.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "You create study flashcards from a student's own material. Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` Write about \(count) cards — fewer only if the material runs out — covering the key terms, definitions, formulas, facts and methods across ALL of it, not just the start. Vary them: plain definitions, key-concept questions, and a few 'why' or application questions. Keep each back to 1–2 sentences. Write any math as LaTeX in $…$."
+        let spread = "Write about \(count) cards — fewer only if the material runs out — covering the key terms, definitions, formulas, facts and methods across ALL of it, not just the start."
+        let shape: String
+        switch kind {
+        case .mixed:
+            shape = "Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. Example: `What is present worth? / A method that discounts future cash flows to the present using the MARR.` \(spread) Vary them: plain definitions, key-concept questions, and a few 'why' or application questions. Keep each back to 1–2 sentences."
+        case .terms:
+            shape = "Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. The front is a single key term, name, symbol or formula from the material; the back says what it means in one sentence. Example: `MARR / The minimum rate of return a project must earn to be accepted.` \(spread)"
+        case .blanks:
+            shape = "Output ONE card per line: a sentence that states one key fact from the material, with the word or short phrase the student must recall wrapped in double braces. Example: `The {{MARR}} is the minimum rate of return a project must earn to be accepted.` One blank per card, and never a formula inside the braces. \(spread)"
+        }
+        return "You create study flashcards from a student's own material. " + shape + " Write any math as LaTeX in $…$." + level.forCards
             + (f.isEmpty ? "" : " The student wants the cards to focus on: \(f).")
             + " Use only what's in the material — do not invent. No numbering, no preamble, no other text."
     }
@@ -182,7 +216,7 @@ struct MakeCardsView: View {
         let text = String(source.prefix(LectureNotes.readChars(for: AIConfig.engine(for: .ask))))
         guard text.count >= 20 else { return }
         loading = true; raw = ""; cards = []; failed = false
-        let sys = Self.system(count: count, focus: focus)
+        let sys = Self.system(count: count, focus: focus, kind: kind, level: level)
         task?.cancel()
         task = Task {
             let out = try? await provider.streamPlain(system: sys, messages: [AIMessage(role: .user, text: text)]) { p in raw = p }
@@ -229,6 +263,13 @@ struct MakeCardsView: View {
                 .trimmingCharacters(in: .whitespaces)
         }
 
+        // 0) Fill-in-the-blank: most lines hide a word in {{…}} — each is a cloze card, no back.
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let cloze = lines.filter { $0.range(of: #"\{\{[^{}]+\}\}"#, options: .regularExpression) != nil }
+        if cloze.count >= 2, cloze.count * 2 >= lines.count {
+            return cloze.map { (clean($0.replacingOccurrences(of: "`", with: "")), "") }
+        }
+
         // 1) Delimiter per line. Space-padded " / " and " | " so mid-content slashes/pipes
         //    ("benefit/cost") don't split; `::` and tab are unambiguous.
         for d in ["::", " / ", " | ", "\t"] {
@@ -258,7 +299,6 @@ struct MakeCardsView: View {
         }
 
         // 3) Last resort: pair up consecutive non-empty lines.
-        let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         var out: [(String, String)] = [], i = 0
         while i + 1 < lines.count {
             let f = clean(lines[i]), b = clean(lines[i + 1])

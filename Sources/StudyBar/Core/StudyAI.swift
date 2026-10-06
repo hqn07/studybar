@@ -36,8 +36,32 @@ struct QuizResponse: Hashable {
     var answered: Bool { choice != nil || bool != nil || !text.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
+/// How hard a quiz's questions or a batch of flashcards are. Standard adds nothing: the prompts
+/// as they always were.
+enum Difficulty: String, CaseIterable, Identifiable {
+    case easier = "Easier", standard = "Standard", harder = "Harder"
+    var id: String { rawValue }
+    /// The one picked last, which Quiz me and study packs use too.
+    static var chosen: Difficulty { Difficulty(rawValue: UserDefaults.standard.string(forKey: "quizLevel") ?? "") ?? .standard }
+
+    var forQuiz: String {
+        switch self {
+        case .easier: return " Keep them approachable, for a first pass over the material: definitions, key facts and one-step questions, with no trick options."
+        case .standard: return ""
+        case .harder: return " Make them hard: multi-step application and calculation, questions that connect or compare ideas, and wrong options built on the mistakes students really make. Few plain-recall questions."
+        }
+    }
+    var forCards: String {
+        switch self {
+        case .easier: return " Stick to the essentials a student must know first — the main terms and facts, one idea per card."
+        case .standard: return ""
+        case .harder: return " Aim them at what is hard to remember and easy to confuse: the less obvious terms, conditions and exceptions, and why things are so. Skip the obvious."
+        }
+    }
+}
+
 enum Quiz {
-    static func system(count: Int, exam: Bool, weak: [String] = []) -> String {
+    static func system(count: Int, exam: Bool, weak: [String] = [], level: Difficulty = .standard) -> String {
         let lean = weak.isEmpty ? "" : " The student is weakest on \(weak.joined(separator: ", ")): where this material covers those, make about a third of the questions about them."
         return """
         You write practice questions for a student from their own course material.
@@ -46,7 +70,7 @@ enum Quiz {
         definitions, results and how to apply them — not trivia about where something appears. Mix \
         the types: multiple choice (4 options, exactly one correct, the wrong ones plausible), \
         true/false, fill in the blank (a short phrase or number, the blank written ___), and short \
-        answer (1–3 sentences).\(exam ? " Make them exam-level: include calculation and application questions wherever the material has them." : "")\(lean) \
+        answer (1–3 sentences).\(exam ? " Make them exam-level: include calculation and application questions wherever the material has them." : "")\(level.forQuiz)\(lean) \
         Use only what the material says or directly implies. Write math as LaTeX in $…$.
 
         Reply with ONLY a JSON object:
@@ -65,7 +89,8 @@ enum Quiz {
 
     /// Questions from the whole of the material: it is packed into request-sized groups and a
     /// share of the questions is asked of groups spread across it. nil if every request failed.
-    static func generate(from passages: [StudyPassage], count: Int, exam: Bool, weak: [String] = [], provider: AIProvider, mode: AIMode,
+    static func generate(from passages: [StudyPassage], count: Int, exam: Bool, weak: [String] = [], level: Difficulty = .standard,
+                         provider: AIProvider, mode: AIMode,
                          progress: @escaping @MainActor (_ part: Int, _ total: Int) -> Void) async -> [QuizQuestion]? {
         let local = mode == .ollama || mode == .onDevice
         let groups = StudyMaterial.groups(passages, maxChars: LectureNotes.readChars(for: mode))
@@ -79,7 +104,7 @@ enum Quiz {
             guard !Task.isCancelled else { return nil }
             await progress(i + 1, picked.count)
             let block = StudyMaterial.block(g)
-            guard let raw = try? await provider.complete(system: system(count: ask, exam: exam, weak: weak),
+            guard let raw = try? await provider.complete(system: system(count: ask, exam: exam, weak: weak, level: level),
                                                          messages: [AIMessage(role: .user, text: user(block, count: ask))])
             else { continue }
             anyOK = true
@@ -1154,7 +1179,25 @@ enum StudySelfTest {
             let blocks = MakeCardsView.parse("Q: What is flux?\nA: Field through an area.\n\nQ: Unit of capacitance?\nA: The farad.")
             check("cards read from lines and from Q/A blocks", lines.count == 2 && lines[0].front == "What is flux?" && lines[1].back == "The farad."
                   && blocks.count == 2 && blocks[1].front == "Unit of capacitance?", "\(lines) \(blocks)")
+
+            // Type and difficulty: Mixed at Standard is the prompt as it was; the others say what they want.
+            let mixed = MakeCardsView.system(count: 10, focus: "")
+            check("Mixed at Standard is the prompt as it was", mixed.contains("Vary them") && mixed.contains("`Front / Back`")
+                  && !mixed.contains("Stick to") && !mixed.contains("Aim them") && !mixed.contains("{{"))
+            let blanks = MakeCardsView.system(count: 10, focus: "", kind: .blanks, level: .harder)
+            check("fill-in-the-blank cards are asked for in braces, harder ones for the easy-to-confuse",
+                  blanks.contains("{{") && blanks.contains("easy to confuse") && !blanks.contains("Front / Back"))
+            check("term cards put the term on the front", MakeCardsView.system(count: 10, focus: "", kind: .terms).contains("key term"))
+            let cloze = MakeCardsView.parse("1. The {{MARR}} is the minimum rate a project must earn.\n2. Capacitance is measured in {{farads}}.")
+            check("fill-in-the-blank replies become cloze cards", cloze.count == 2 && cloze[0].front == "The {{MARR}} is the minimum rate a project must earn."
+                  && cloze[1].back.isEmpty, "\(cloze)")
         }
+
+        // Quiz difficulty: Standard leaves the prompt as it was.
+        check("a Standard quiz prompt is the old one; Easier and Harder each add their line",
+              !Quiz.system(count: 5, exam: false).contains("approachable") && !Quiz.system(count: 5, exam: false).contains("multi-step")
+              && Quiz.system(count: 5, exam: false, level: .harder).contains("multi-step")
+              && Quiz.system(count: 5, exam: true, level: .easier).contains("first pass"))
 
         // A card finds its note, and the moment in that note's lecture, by its words.
         if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {
@@ -1245,7 +1288,9 @@ enum StudyRun {
         func took() -> String { "\(Int(Date().timeIntervalSince(t0)))s" }
         switch kind {
         case "quiz", "exam":
-            let qs = await Quiz.generate(from: passages, count: 8, exam: kind == "exam", provider: provider, mode: mode) { p, t in
+            // `--level Easier|Standard|Harder`
+            let level = args.firstIndex(of: "--level").flatMap { Difficulty(rawValue: args[$0 + 1]) } ?? .standard
+            let qs = await Quiz.generate(from: passages, count: 8, exam: kind == "exam", level: level, provider: provider, mode: mode) { p, t in
                 FileHandle.standardError.write("\rpart \(p)/\(t)".data(using: .utf8)!)
             }
             print("\n--- \(took()) · \(qs?.count ?? 0) questions ---")
@@ -1300,10 +1345,12 @@ enum StudyRun {
             print("--- \(took()) ---\n\(t ?? "FAILED")")
             return t == nil ? 1 : 0
         case "make-cards":
-            // `make-cards <file> [--count N] [--focus "…"]`: the Make flashcards prompt.
+            // `make-cards <file> [--count N] [--focus "…"] [--kind Mixed|Terms|…] [--level Harder]`: the Make flashcards prompt.
             let n = args.firstIndex(of: "--count").flatMap { Int(args[$0 + 1]) } ?? 10
             let focus = args.firstIndex(of: "--focus").map { args[$0 + 1] } ?? ""
-            let raw = (try? await provider.completePlain(system: MakeCardsView.system(count: n, focus: focus), messages: [
+            let cardKind = args.firstIndex(of: "--kind").flatMap { MakeCardsView.Kind(rawValue: args[$0 + 1]) } ?? .mixed
+            let level = args.firstIndex(of: "--level").flatMap { Difficulty(rawValue: args[$0 + 1]) } ?? .standard
+            let raw = (try? await provider.completePlain(system: MakeCardsView.system(count: n, focus: focus, kind: cardKind, level: level), messages: [
                 AIMessage(role: .user, text: String(units.map(\.text).joined(separator: "\n\n").prefix(LectureNotes.readChars(for: mode))))])) ?? ""
             let cards = MakeCardsView.parse(raw)
             print("--- \(took()) · \(cards.count) cards (asked \(n)) ---")
@@ -1431,7 +1478,7 @@ enum StudyPack {
     private static func fill(_ quiz: QuizModel, from passages: [StudyPassage], provider: AIProvider, engine: AIMode) async -> Int {
         guard quiz.phase == .setup || quiz.phase == .done, !passages.isEmpty else { return 0 }
         quiz.phase = .generating; quiz.progress = (0, 0); quiz.error = nil
-        let qs = await Quiz.generate(from: passages, count: 10, exam: false, provider: provider, mode: engine) { p, t in
+        let qs = await Quiz.generate(from: passages, count: 10, exam: false, level: .chosen, provider: provider, mode: engine) { p, t in
             quiz.progress = (p, t)
         }
         guard quiz.phase == .generating else { return 0 }

@@ -600,6 +600,7 @@ private struct QuizPane: View {
 
     @State private var count = 10
     @State private var minutes = 30
+    @AppStorage("quizLevel") private var level: Difficulty = .standard
 
     var body: some View {
         Group { phases }.onChange(of: m.phase) { _, p in if p == .done { record() } }
@@ -635,6 +636,9 @@ private struct QuizPane: View {
             Picker("Questions", selection: $count) {
                 ForEach(exam ? [10, 20, 30] : [5, 10, 15, 20], id: \.self) { Text("\($0)").tag($0) }
             }.fixedSize()
+            Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
+                .pickerStyle(.segmented).fixedSize()
+                .help("Easier for a first pass; Harder for multi-step problems and the usual traps")
             if exam {
                 Picker("Time", selection: $minutes) {
                     ForEach([15, 30, 45, 60, 90], id: \.self) { Text("\($0) min").tag($0) }
@@ -667,12 +671,12 @@ private struct QuizPane: View {
         guard !passages.isEmpty else { m.error = "Tick at least one source with some text in it."; return }
         guard let provider = AIService.makeProvider(for: .ask) else { return }
         m.error = nil; m.phase = .generating; m.progress = (0, 0)
-        let n = count, isExam = exam, m = m
+        let n = count, isExam = exam, m = m, level = level
         let job = Jobs.shared.begin("\(isExam ? "Practice exam" : "Quiz") · \(course.map { $0.code.isEmpty ? $0.name : $0.code } ?? "Study")",
                                     module: "study")
         m.job = job
         m.task = Task {
-            let qs = await Quiz.generate(from: passages, count: n, exam: isExam, weak: weak, provider: provider,
+            let qs = await Quiz.generate(from: passages, count: n, exam: isExam, weak: weak, level: level, provider: provider,
                                          mode: AIConfig.engine(for: .ask)) { p, t in
                 m.progress = (p, t)
                 if t > 1 { Jobs.shared.update(job, "part \(p) of \(t)") }
