@@ -318,6 +318,7 @@ struct ReadingDetailView: View {
     @State private var bulkCount = ""
     // PDF content layer: attach a PDF → extract text on-device → search inside the book.
     @State private var pdfBusy = false
+    @State private var confirmRemovePDF = false
     @State private var pdfError: String?
     @State private var bookQuery = ""
     @State private var bookHits: [BookText.Hit] = []
@@ -629,7 +630,7 @@ struct ReadingDetailView: View {
                 Spacer()
                 if item.pdfPages != nil {
                     Menu {
-                        Button(role: .destructive) { removePDF() } label: { Label("Remove PDF", systemImage: "trash") }
+                        Button(role: .destructive) { confirmRemovePDF = true } label: { Label("Remove PDF…", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis.circle") }.buttonStyle(.borderless)
                 }
             }
@@ -708,6 +709,11 @@ struct ReadingDetailView: View {
                 Text("Adds a private, on-device text layer so you can search the book — and ask AI about it. Scanned PDFs are handled with OCR.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
+        }
+        .confirmationDialog("Remove the PDF from “\(item.title)”?", isPresented: $confirmRemovePDF) {
+            Button("Remove PDF", role: .destructive) { removePDF() }
+        } message: {
+            Text("Search inside the book and the reader stop working for it. Your highlights, notes and cards stay. The PDF goes to the Trash, where you can get it back.")
         }
     }
 
@@ -849,7 +855,7 @@ struct ReadingDetailView: View {
     }
 
     private func removePDF() {
-        BookText.remove(itemID)
+        BookText.trash(itemID, as: idx.map { state.data.reading[$0].title } ?? "")
         if let i = idx { state.data.reading[i].pdfPages = nil }
         bookQuery = ""; bookHits = []; pdfError = nil; ocrURL = nil; clearAsk()
     }

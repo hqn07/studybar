@@ -126,7 +126,7 @@ struct LinkEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader("Link") {
-                Button("Delete", role: .destructive) { state.data.links.removeAll { $0.id == draft.id }; dismiss() }
+                Button("Delete", role: .destructive) { delete(); dismiss() }
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
@@ -157,10 +157,15 @@ struct LinkEditor: View {
         .navigationTitle("")
         .toolbar(.hidden, for: .windowToolbar)
     }
+    /// Undoable, and kept in the Trash — unless it was a new link never saved.
+    private func delete() {
+        guard state.data.links.contains(where: { $0.id == draft.id }) else { return }
+        state.withUndo("Deleted link") { state.data.links.removeAll { $0.id == draft.id } }
+    }
     private func save() {
         draft.url = CleanURL.strip(draft.url)
         if draft.url.trimmingCharacters(in: .whitespaces).isEmpty {
-            state.data.links.removeAll { $0.id == draft.id }
+            delete()
         } else if let i = state.data.links.firstIndex(where: { $0.id == draft.id }) {
             state.data.links[i] = draft
         } else {

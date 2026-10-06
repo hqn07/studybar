@@ -94,7 +94,7 @@ struct ReadingListRow: View {
             CoursePicker(courseID: Binding(
                 get: { item.courseID },
                 set: { v in if let i = state.data.readingList.firstIndex(where: { $0.id == item.id }) { state.data.readingList[i].courseID = v } }))
-            Button { state.data.readingList.removeAll { $0.id == item.id } } label: {
+            Button { state.withUndo("Removed from Read later") { state.data.readingList.removeAll { $0.id == item.id } } } label: {
                 Image(systemName: "xmark")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }

@@ -80,8 +80,25 @@ final class ShelfStore: ObservableObject {
         return items.count > before
     }
 
-    func remove(_ item: ShelfItem) { items.removeAll { $0.id == item.id } }
-    func clear() { items.removeAll() }
+    /// What the last Remove or Clear took away, for a few seconds of Undo. A text clip on the
+    /// Shelf lives nowhere else, and Clear is one click.
+    struct Removal: Identifiable { let id = UUID(); let label: String; let before: [ShelfItem] }
+    @Published private(set) var removal: Removal?
+
+    func remove(_ item: ShelfItem) { took("Removed \(item.name)") { items.removeAll { $0.id == item.id } } }
+    func clear() { took("Cleared the Shelf") { items.removeAll() } }
+    func undoRemoval() { if let r = removal { items = r.before }; removal = nil }
+    func dismissRemoval() { removal = nil }
+
+    private func took(_ label: String, _ change: () -> Void) {
+        let r = Removal(label: label, before: items)
+        change()
+        removal = r
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            if self?.removal?.id == r.id { self?.removal = nil }
+        }
+    }
 
     /// What dragging the item out hands over.
     func provider(_ item: ShelfItem) -> NSItemProvider {
@@ -178,6 +195,13 @@ private struct ShelfView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if let r = store.removal {
+                UndoToast(label: r.label, onUndo: { store.undoRemoval() }, onDismiss: { store.dismissRemoval() })
+                    .padding(8).transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3), value: store.removal?.id)
         .background(targeted ? Color.accentColor.opacity(0.1) : Color.clear)
         .onDrop(of: [.fileURL, .url, .image, .plainText], isTargeted: $targeted) { providers in
             store.add(from: NSPasteboard(name: .drag))

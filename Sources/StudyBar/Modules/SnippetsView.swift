@@ -250,9 +250,7 @@ struct SnippetEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader("Snippet") {
-                Button("Delete", role: .destructive) {
-                    state.data.snippets.removeAll { $0.id == draft.id }; dismiss()
-                }
+                Button("Delete", role: .destructive) { delete(); dismiss() }
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
@@ -278,12 +276,17 @@ struct SnippetEditor: View {
         .toolbar(.hidden, for: .windowToolbar)
     }
 
+    /// Undoable, and kept in the Trash — unless it was a new snippet never saved.
+    private func delete() {
+        guard state.data.snippets.contains(where: { $0.id == draft.id }) else { return }
+        state.withUndo("Deleted snippet") { state.data.snippets.removeAll { $0.id == draft.id } }
+    }
     private func save() {
         draft.category = draft.category.trimmingCharacters(in: .whitespaces)
         let empty = draft.title.trimmingCharacters(in: .whitespaces).isEmpty
             && draft.body.trimmingCharacters(in: .whitespaces).isEmpty
         if empty {
-            state.data.snippets.removeAll { $0.id == draft.id }
+            delete()
         } else if let i = state.data.snippets.firstIndex(where: { $0.id == draft.id }) {
             state.data.snippets[i] = draft
         } else {

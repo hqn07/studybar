@@ -249,9 +249,9 @@ struct ReferenceRow: View {
                     .buttonStyle(.borderless).help("Copy in-text \(CitationFormatter.inText(reference))")
                 Button(action: onEdit) { Image(systemName: "pencil") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
-                Button { state.data.references.removeAll { $0.id == reference.id } } label: {
+                Button { state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == reference.id } } } label: {
                     Image(systemName: "trash")
-                }.buttonStyle(.borderless).foregroundStyle(.secondary)
+                }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Delete — undo, or find it in the Trash")
             }.font(.caption)
         }
         .padding(DS.Space.m)

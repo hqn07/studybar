@@ -104,7 +104,9 @@ struct ReferenceEditor: View {
         draft.authors = parseAuthors()
         draft.url = CleanURL.strip(draft.url)
         if draft.title.trimmingCharacters(in: .whitespaces).isEmpty {
-            state.data.references.removeAll { $0.id == draft.id }
+            if state.data.references.contains(where: { $0.id == draft.id }) {
+                state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == draft.id } }
+            }
         } else if let i = state.data.references.firstIndex(where: { $0.id == draft.id }) {
             state.data.references[i] = draft
         } else {

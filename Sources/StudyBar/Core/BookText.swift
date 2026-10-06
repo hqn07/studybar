@@ -108,6 +108,20 @@ enum BookText {
         try? FileManager.default.removeItem(at: pdfURL(id))
     }
 
+    /// Remove PDF, from the book's page: the copy goes to the Finder's Trash under the book's
+    /// name, so a mis-click can be dragged back out. The text read from it is rebuilt on re-attach.
+    static func trash(_ id: UUID, as name: String) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: chunksURL(id))
+        let pdf = pdfURL(id)
+        guard fm.fileExists(atPath: pdf.path) else { return }
+        let safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+        let named = dir.appendingPathComponent((safe.isEmpty ? "Book" : String(safe.prefix(120))) + ".pdf")
+        if (try? fm.moveItem(at: pdf, to: named)) != nil { try? fm.trashItem(at: named, resultingItemURL: nil) }
+        else { try? fm.trashItem(at: pdf, resultingItemURL: nil) }
+    }
+
     /// Keyword search across the book's pages — ranked, one snippet per matching page.
     static func search(_ id: UUID, query: String, limit: Int = 15) -> [Hit] {
         let terms = tokenize(query)
