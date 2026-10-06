@@ -1191,6 +1191,13 @@ enum StudySelfTest {
             let cloze = MakeCardsView.parse("1. The {{MARR}} is the minimum rate a project must earn.\n2. Capacitance is measured in {{farads}}.")
             check("fill-in-the-blank replies become cloze cards", cloze.count == 2 && cloze[0].front == "The {{MARR}} is the minimum rate a project must earn."
                   && cloze[1].back.isEmpty, "\(cloze)")
+            // What luna did: braces in two of six sentences. Those two are the cards; the rest aren't paired up.
+            let sparse = MakeCardsView.parse("U is a {{state function}}.\nThe first law is ΔU = Q − W.\nW = ∫p dV.\nWork is the {{area under the curve}}.\nIsochoric: W = 0.\nAdiabatic: Q = 0.", kind: .blanks)
+            let phrase = Cloze.parse("Work is the {{area under the curve}}.")
+            check("a phrase blank survives the card editor", phrase.plain == "Work is the area under the curve." && phrase.blanks == [3, 4, 5, 6]
+                  && Cloze.build(plain: phrase.plain, blanks: phrase.blanks) == "Work is the {{area under the curve}}."
+                  && Cloze.build(plain: "a b c", blanks: [0, 2]) == "{{a}} b {{c}}", "\(phrase)")
+            check("asked for blanks, only lines with a blank are cards", sparse.count == 2 && sparse.allSatisfy { $0.front.contains("{{") && $0.back.isEmpty }, "\(sparse)")
         }
 
         // Quiz difficulty: Standard leaves the prompt as it was.
@@ -1382,7 +1389,7 @@ enum StudyRun {
             let level = args.firstIndex(of: "--level").flatMap { Difficulty(rawValue: args[$0 + 1]) } ?? .standard
             let raw = (try? await provider.completePlain(system: MakeCardsView.system(count: n, focus: focus, kind: cardKind, level: level), messages: [
                 AIMessage(role: .user, text: String(units.map(\.text).joined(separator: "\n\n").prefix(LectureNotes.readChars(for: mode))))])) ?? ""
-            let cards = MakeCardsView.parse(raw)
+            let cards = MakeCardsView.parse(raw, kind: cardKind)
             print("--- \(took()) · \(cards.count) cards (asked \(n)) ---")
             for c in cards { print("Q: \(c.front)\nA: \(c.back)\n") }
             return cards.isEmpty ? 1 : 0

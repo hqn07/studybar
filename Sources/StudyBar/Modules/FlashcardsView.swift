@@ -15,22 +15,33 @@ enum Cloze {
     static func words(_ plain: String) -> [String] {
         plain.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
     }
-    /// Existing stored front → plain text (no braces) + the set of blanked word indices.
+    /// Existing stored front → plain text (no braces) + the set of blanked word indices. A blank
+    /// can be a phrase — "{{area under the curve}}." — so every word up to its `}}` is blanked.
     static func parse(_ front: String) -> (plain: String, blanks: Set<Int>) {
-        var blanks = Set<Int>(); var plain: [String] = []
+        var blanks = Set<Int>(); var plain: [String] = []; var open = false
         for (i, w) in front.split(separator: " ", omittingEmptySubsequences: false).enumerated() {
-            var s = String(w); var isBlank = false
-            if s.hasPrefix("{{") { s.removeFirst(2); isBlank = true }
-            if s.hasSuffix("}}") { s.removeLast(2); isBlank = true }
-            if isBlank { blanks.insert(i) }
+            var s = String(w)
+            if s.hasPrefix("{{") { s.removeFirst(2); open = true }
+            let closes = s.contains("}}")
+            if closes { s = s.replacingOccurrences(of: "}}", with: "") }
+            if open || closes { blanks.insert(i) }
+            if closes { open = false }
             plain.append(s)
         }
         return (plain.joined(separator: " "), blanks)
     }
-    /// Plain text + blanked indices → stored front with `{{ }}` around blanks.
+    /// Plain text + blanked indices → stored front with `{{ }}` around blanks. Neighbouring blanked
+    /// words are one blank, and a full stop after it stays outside: "the {{area under the curve}}."
     static func build(plain: String, blanks: Set<Int>) -> String {
-        plain.split(separator: " ", omittingEmptySubsequences: false).enumerated().map { i, w in
-            (blanks.contains(i) && !w.isEmpty) ? "{{\(w)}}" : String(w)
+        let words = plain.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        func on(_ i: Int) -> Bool { words.indices.contains(i) && blanks.contains(i) && !words[i].isEmpty }
+        return words.indices.map { i in
+            guard on(i) else { return words[i] }
+            let w = words[i], start = on(i - 1) ? "" : "{{"
+            guard !on(i + 1) else { return start + w }
+            let trail = String(w.reversed().prefix { ".,;:!?)".contains($0) }.reversed())
+            let core = String(w.dropLast(trail.count))
+            return core.isEmpty ? start + w + "}}" : start + core + "}}" + trail
         }.joined(separator: " ")
     }
 }

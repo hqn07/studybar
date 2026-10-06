@@ -203,7 +203,7 @@ struct MakeCardsView: View {
         case .terms:
             shape = "Output ONE flashcard per line as `Front / Back` — the front, then a space, a slash, a space, then the back. The front is a single key term, name, symbol or formula from the material; the back says what it means in one sentence. Example: `MARR / The minimum rate of return a project must earn to be accepted.` \(spread)"
         case .blanks:
-            shape = "Output ONE card per line: a sentence that states one key fact from the material, with the word or short phrase the student must recall wrapped in double braces. Example: `The {{MARR}} is the minimum rate of return a project must earn to be accepted.` One blank per card, and never a formula inside the braces. \(spread)"
+            shape = "Output ONE card per line: a sentence that states one key fact from the material, with the word or short phrase the student must recall wrapped in double braces. EVERY line needs its {{…}} — a line without one is not a card. Examples: `The {{MARR}} is the minimum rate of return a project must earn to be accepted.` and `Work done by a gas at constant pressure is the pressure times the {{change in volume}}.` One blank per card, and never a formula inside the braces. \(spread)"
         }
         return "You create study flashcards from a student's own material. " + shape + " Write any math as LaTeX in $…$." + level.forCards
             + (f.isEmpty ? "" : " The student wants the cards to focus on: \(f).")
@@ -222,7 +222,7 @@ struct MakeCardsView: View {
             loading = false
             // Stopped: the cards written so far, less the one cut off mid-line.
             let written = Task.isCancelled ? String(raw[..<(raw.lastIndex(of: "\n") ?? raw.startIndex)]) : (out ?? raw)
-            cards = Self.parse(written).map { Card(front: $0.front, back: $0.back) }
+            cards = Self.parse(written, kind: kind).map { Card(front: $0.front, back: $0.back) }
             failed = cards.isEmpty && !Task.isCancelled
         }
     }
@@ -251,7 +251,7 @@ struct MakeCardsView: View {
     /// obey the format. Tries, in order: a `::`/`/`/`|`/tab delimiter per line; then
     /// blank-line-separated blocks (first line = front, rest = back — the common Q?/A layout);
     /// then consecutive line pairs. Strips numbering and Q:/A:/Front:/Back: prefixes.
-    static func parse(_ s: String) -> [(front: String, back: String)] {
+    static func parse(_ s: String, kind: Kind = .mixed) -> [(front: String, back: String)] {
         let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
 
@@ -265,7 +265,9 @@ struct MakeCardsView: View {
         // 0) Fill-in-the-blank: most lines hide a word in {{…}} — each is a cloze card, no back.
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let cloze = lines.filter { $0.range(of: #"\{\{[^{}]+\}\}"#, options: .regularExpression) != nil }
-        if cloze.count >= 2, cloze.count * 2 >= lines.count {
+        // Asked for blanks, a sentence without one is a fact with nothing to recall — never a card,
+        // and never paired with the next line as if it were its back.
+        if kind == .blanks || (cloze.count >= 2 && cloze.count * 2 >= lines.count) {
             return cloze.map { (clean($0.replacingOccurrences(of: "`", with: "")), "") }
         }
 
