@@ -2,8 +2,8 @@ import Foundation
 
 /// Ranked, typo-tolerant matching for every search box — offline, pure, no dependency.
 /// `score(query, text)` returns nil for no match, or a relevance score where higher is
-/// better, so results sort by how well they match instead of by data order. Four tiers,
-/// strongest first: exact substring · subsequence (gaps allowed) · fuzzy word (edit
+/// better, so results sort by how well they match instead of by data order. Three tiers,
+/// strongest first: exact substring · subsequence (small gaps allowed) · fuzzy word (edit
 /// distance, catches typos like "assignmnet" → "Assignment").
 enum FuzzyMatch {
     /// Best match score of `query` against `text`, or nil if it doesn't match at all.
@@ -38,25 +38,35 @@ enum FuzzyMatch {
 
     // MARK: - Subsequence
 
+    /// The query's letters in order, in the tightest stretch of the text that holds them — and
+    /// only while that stretch stays short. A whole note body holds "o…h…m" somewhere in nearly
+    /// every paragraph, so with the letters allowed to spread anywhere, "ohm" found every note.
     private static func subsequenceScore(_ q: [Character], _ t: [Character]) -> Double? {
-        var qi = 0, prev = -2
-        var s = 60.0, run = 0
-        for (ti, ch) in t.enumerated() {
-            guard qi < q.count else { break }
-            if ch == q[qi] {
-                if ti == prev + 1 { run += 1; s += 4 + Double(run) } else { run = 0 }       // reward contiguity
-                if ti == 0 || t[ti - 1] == " " { s += 8 }                                    // word-start bonus
-                s -= Double(ti) * 0.05                                                        // earlier is better
-                prev = ti; qi += 1
+        let limit = q.count * 2                                   // "mp2" in "MAP2302", not "o… h… m"
+        var best: (start: Int, span: Int)?
+        for start in t.indices where t[start] == q[0] {
+            var qi = 1, ti = start + 1
+            while qi < q.count, ti < t.count, ti - start < limit {
+                if t[ti] == q[qi] { qi += 1 }
+                ti += 1
             }
+            guard qi == q.count else { continue }
+            let span = ti - start
+            if best == nil || span < best!.span { best = (start, span) }
+            if span == q.count { break }
         }
-        return qi == q.count ? max(1, s) : nil
+        guard let best else { return nil }
+        var s = 60.0 - Double(best.span - q.count) * 3                                       // tighter is better
+        if best.start == 0 || t[best.start - 1] == " " { s += 8 }                           // word-start bonus
+        s -= Double(best.start) * 0.05                                                       // earlier is better
+        return max(1, s)
     }
 
     // MARK: - Fuzzy word (bounded edit distance)
 
     private static func fuzzyWordScore(_ q: String, _ t: String) -> Double? {
-        guard q.count >= 3 else { return nil }                    // too short to fuzzy safely
+        // Three letters is too short to forgive: one edit from "ohm" is "oh", "om", "ohs"…
+        guard q.count >= 4 else { return nil }
         let words = t.split { $0 == " " || $0 == "-" || $0 == "/" || $0 == "," }.map(String.init)
         var best: Double? = nil
         for w in words {
@@ -108,6 +118,13 @@ enum SearchSelfTest {
         check("empty query no match", FuzzyMatch.score("", "x") == nil)
         check("whole-string exact ranks highest",
               s("essay", "essay") > s("essay", "essay outline for chem"))
+        // A long body holds most letters somewhere; scattered ones must not count as a match.
+        let body = "Today we look at how the current through a resistor changes with the voltage. One more thing: homework is due on Monday."
+        check("scattered letters in a long body don't match (ohm)", FuzzyMatch.score("ohm", body) == nil)
+        check("the word itself still matches", s("ohm", "Ohm's law: V = IR") > 0)
+        check("a close-together subsequence still matches", s("ohmlaw", "Ohm's law") > 0)
+        check("three letters aren't forgiven a typo", FuzzyMatch.score("ohm", "oh, and the om") == nil)
+        check("a tight match beats a looser one", s("mp2", "MAP2302") > s("mp2", "M a p 2"))
         check("best-of fields picks the match",
               (FuzzyMatch.best("chem", ["Lab report", "CHEM2045"]) ?? -1) > 0)
 
