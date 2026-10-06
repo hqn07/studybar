@@ -5,6 +5,18 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Record from anywhere** — start, pause, resume and stop a lecture from the menu bar, or with a shortcut (⌃⌥R by default, in Settings ▸ Shortcuts with the others). If there's an unsaved recording, Voice Note opens and asks first.
+
+- **Note a moment without stopping** — while recording, type a note ("on the exam", "ask about step 3") in Voice Note or from the recording bar on any screen. It goes into the transcript right where the lecture is, marked 📝, plays back from that moment, and study notes keep it word for word.
+
+- **Transcribe a file, easy to find** — *Transcribe a file…* is on the Voice Note screen, whichever engine you use.
+
+- **Lectures titled by topic** — a lecture saved straight from its transcript is named for what it's about ("Week 5 — Capacitors and Stored Energy"), not by its first sentence.
+
+- **Search inside your books and course files** — the search box and ⌘K find words inside your textbooks and course files, showing the page and the words around them; a result opens the book at that page. Search results now open the note, deck or book itself rather than just its section, and ⌘K finds flashcards and books too.
+
+- **Flashcards that know where they came from** — a card made from a note remembers the note and the moment in the lecture; from a book, its page. The card list shows it, and in review, after the answer, one click opens the note and plays the lecturer saying it. A note's footer counts the cards made from it and opens their deck.
+
 - **Flashcards from your notes, where you'd look** — every note has *Flashcards* (and *Quiz me*) beside *Ask*; right-click a selection for *Make Flashcards from Selection*; and Flashcards opens with *Make cards from notes*. Pick the notes (a lecture, a week, the whole course), say how many and what to focus on, check and edit the cards, and add them to the course's deck — with Undo.
 
 - **Study notes your way** — *Make study notes* now asks how: Brief, Standard or Full; as Notes, an Outline, Cornell notes or Q&A; with nothing, a little or a lot filled in by the AI; and anything to stress, like "formulas" or "what's on the exam". It remembers your choices, and *Rewrite* writes them again from the original transcript. A transcript you've already saved can be turned into study notes from its note.
