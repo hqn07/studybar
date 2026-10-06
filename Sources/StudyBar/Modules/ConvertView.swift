@@ -258,7 +258,7 @@ struct ConvertView: View {
                 : StudyMaterial.extract(u).map { "[\($0.locator)]\n\($0.text)" }.joined(separator: "\n\n")
             guard !text.isEmpty else { throw Converter.Failure.nothingFound }
             guard let notes = await LectureNotes.run(text, job: .slides, provider: provider,
-                                                     mode: AIConfig.engine(for: .transcript), progress: { _, _, _ in }) else {
+                                                     mode: AIConfig.engine(for: .transcript), style: .saved, progress: { _, _, _ in }) else {
                 throw Converter.Failure.app("The AI didn't return notes — try again, or a stronger engine in Settings ▸ Intelligence.")
             }
             var note = Note(title: u.deletingPathExtension().lastPathComponent, body: notes)

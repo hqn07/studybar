@@ -135,8 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // `--slides <deck.pdf|pptx>`: the deck the lecture was given from.
                 let slides = args.firstIndex(of: "--slides").map { StudyMaterial.extract(URL(fileURLWithPath: args[$0 + 1])) }?
                     .compactMap { u in Int(u.locator.filter(\.isNumber)).map { (number: $0, text: u.text) } } ?? []
+                // `--detail brief|standard|full --shape notes|outline|cornell|qa --fill none|light|thorough --focus "…"`
+                func opt(_ k: String) -> String? { args.firstIndex(of: k).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
+                var style = LectureNotes.Style()
+                if let v = opt("--detail") { style.detail = LectureNotes.Style.Detail.allCases.first { $0.rawValue.lowercased() == v } ?? style.detail }
+                if let v = opt("--shape") { style.shape = LectureNotes.Style.Shape.allCases.first { $0.rawValue.lowercased().replacingOccurrences(of: "&", with: "") == v } ?? style.shape }
+                if let v = opt("--fill") { style.fillIn = LectureNotes.Style.FillIn.allCases.first { $0.rawValue.lowercased() == v } ?? style.fillIn }
+                style.focus = opt("--focus") ?? ""
                 let out = await LectureNotes.run(text, job: args.contains("--complete") ? .complete : .lecture,
-                                                 provider: provider, mode: mode, slides: slides) { _, part, total in
+                                                 provider: provider, mode: mode, slides: slides, style: style) { _, part, total in
                     FileHandle.standardError.write("\rpart \(part)/\(total)".data(using: .utf8)!)
                 }
                 print("\n--- \(Int(Date().timeIntervalSince(t0)))s ---\n" + (out ?? "FAILED"))

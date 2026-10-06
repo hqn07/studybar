@@ -54,7 +54,60 @@ enum LectureNotes {
         h.firstMatch(of: /^\s*#*\s*[Ss]lides?\s+(\d+)/).flatMap { Int($0.output.1) }
     }
 
-    static func system(_ job: Job, part: Int, of total: Int, slides: Bool = false) -> String {
+    /// How the student wants their notes: how much of the lecture, in what shape, how much the AI
+    /// fills in, and what to stress. The defaults are the notes this always wrote.
+    struct Style: Equatable {
+        enum Detail: String, CaseIterable, Identifiable { case brief = "Brief", standard = "Standard", full = "Full"; var id: String { rawValue } }
+        enum Shape: String, CaseIterable, Identifiable { case notes = "Notes", outline = "Outline", cornell = "Cornell", qa = "Q&A"; var id: String { rawValue } }
+        enum FillIn: String, CaseIterable, Identifiable { case none = "None", light = "Light", thorough = "Thorough"; var id: String { rawValue } }
+        var detail = Detail.full
+        var shape = Shape.notes
+        var fillIn = FillIn.thorough
+        var focus = ""
+
+        /// The student's last choices (Voice, a note's Study notes, Convert all share them).
+        static var saved: Style {
+            let d = UserDefaults.standard
+            return Style(detail: Detail(rawValue: d.string(forKey: "notesDetail") ?? "") ?? .full,
+                         shape: Shape(rawValue: d.string(forKey: "notesShape") ?? "") ?? .notes,
+                         fillIn: FillIn(rawValue: d.string(forKey: "notesFillIn") ?? "") ?? .thorough)
+        }
+
+        /// What the notes keep of the lecture, in what form.
+        func keep(slidesGiven: Bool) -> String {
+            let order = slidesGiven ? "under a `## Slide N — <short title>` heading per slide, in slide order" : "under `##` headings in lecture order"
+            let amount: String
+            switch detail {
+            case .full: amount = "Keep everything that was said. Keep every definition, fact, number, date and example — the detail is the point, don't compress it away."
+            case .standard: amount = "Keep every definition, formula, number and example, and say the rest once and plainly: one bullet per idea, no repetition, no filler."
+            case .brief: amount = "Condense it to what to learn: the main ideas, every definition and formula, and one example per topic — about a page."
+            }
+            let form: String
+            switch shape {
+            case .notes: form = "Organize it \(order), with **bold** key terms, bullet points, and a table when things are compared."
+            case .outline: form = "Write it as a numbered outline \(order): topics, their points, and sub-points, each one line, **bold** key terms."
+            case .cornell: form = "Use the Cornell layout \(order): each section opens with a `**Cues:**` line of 2–4 questions it answers, then its notes as bullets, and ends with a one-line `**Summary:**`."
+            case .qa: form = "Write it as questions and answers \(order): each point a `**Q:**` line followed by its answer, so the notes quiz the reader."
+            }
+            return amount + " " + form
+        }
+
+        /// The instruction on adding what the lecture left out.
+        func fillIn(_ thorough: String) -> String {
+            switch fillIn {
+            case .thorough: return thorough
+            case .light: return "Fill in only what a student can't follow without: a term used with no definition, a step that is skipped. Put each addition on its own line starting with `\(LectureNotes.addedPrefix)` — a few in all, not one per section."
+            case .none: return "Add nothing that wasn't said — no definitions, examples or background of your own."
+            }
+        }
+
+        var stress: String {
+            let f = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+            return f.isEmpty ? "" : "\n\nThe student asked the notes to stress: \(f). Give that the most room and care; keep the rest shorter."
+        }
+    }
+
+    static func system(_ job: Job, part: Int, of total: Int, slides: Bool = false, style: Style = Style()) -> String {
         let fillIn = """
         Fill in what a student needs to learn it: define terms that are used without a definition, \
         finish explanations that stop short, add a short worked example where a method is named but \
@@ -80,18 +133,22 @@ enum LectureNotes {
                     + (part == 1 ? "Start with a `#` title for the lecture. " : "Do not write a `#` title. ")
                     + "Do not write a summary or review section — the parts are joined afterwards."
             }
-            let keep = job == .slides
+            // The default style is word for word what these prompts always said; any other choice
+            // swaps in its own instruction (`Style.keep`).
+            let keep = style.detail == .full && style.shape == .notes ? (job == .slides
                 ? "Slides are terse: turn each slide's points into full explanations, under a `##` heading per slide or topic, in slide order. Keep every definition, fact, number, formula and example on them."
                 : slides
                 ? "The lecture follows the SLIDES given with it. Organize the notes by slide, in order: a `## Slide N — <short title>` heading for each slide \(total > 1 ? "this part of the lecture talks about" : "the lecture talks about"), holding what was said about it together with what the slide shows. Keep everything that was said, with **bold** key terms and bullet points — every definition, fact, number, date and example. Where the transcription clearly misheard a term, the slide usually has it right."
-                : "Keep everything that was said. Organize it under `##` headings in lecture order, with **bold** key terms, bullet points, and a table when things are compared. Keep every definition, fact, number, date and example — the detail is the point, don't compress it away. Where the transcription clearly misheard a term, write the right one."
+                : "Keep everything that was said. Organize it under `##` headings in lecture order, with **bold** key terms, bullet points, and a table when things are compared. Keep every definition, fact, number, date and example — the detail is the point, don't compress it away. Where the transcription clearly misheard a term, write the right one.")
+                : (job == .slides ? "Slides are terse: explain each slide's points. " : slides ? "The lecture follows the SLIDES given with it; where the transcription misheard a term, the slide usually has it right. " : "Where the transcription clearly misheard a term, write the right one. ")
+                    + style.keep(slidesGiven: slides || job == .slides)
             return """
             You turn \(job == .slides ? "the text of a student's lecture slides" : "a student's lecture transcript") into complete study notes they can learn from.
 
             \(scope)
 
             1. \(keep)
-            2. \(fillIn)\(job == .lecture ? "\n3. A sentence starting with ⭐ was starred by the student while listening: it matters. Give it a prominent place in **bold**, keep the ⭐, and make it a likely exam question in the review." : "")
+            2. \(style.fillIn(fillIn))\(job == .lecture ? "\n3. A sentence starting with ⭐ was starred by the student while listening: it matters. Give it a prominent place in **bold**, keep the ⭐, and make it a likely exam question in the review." : "")\(style.stress)
 
             \(format)
             """
@@ -120,7 +177,7 @@ enum LectureNotes {
     /// The user turn repeats the one instruction that matters. Small local models weight the
     /// last user message far above the system prompt: on qwen2.5:7b, with it only in the
     /// system prompt, a full lecture came back with no additions at all.
-    static func user(_ job: Job, _ text: String, material: String = "", slides: String = "") -> String {
+    static func user(_ job: Job, _ text: String, material: String = "", slides: String = "", style: Style = Style()) -> String {
         // The course's own pages, when there are any, so an addition comes from the textbook
         // the exam is set from rather than from general knowledge — and says which page.
         let course = material.isEmpty ? "" : "COURSE MATERIAL — the student's own textbook, slides and notes. "
@@ -128,9 +185,14 @@ enum LectureNotes {
             + "e.g. [Serway, p. 12]:\n\"\"\"\n\(material)\n\"\"\"\n\n"
         switch job {
         case .lecture:
+            // The default ask is word for word what it always was; other styles say their own.
+            let ask = style == Style()
+                ? "Write the study notes for this lecture transcript, keeping every detail\(slides.isEmpty ? "" : ", under a `## Slide N — …` heading per slide"), and fill in what it leaves out on lines starting with `\(addedPrefix)`."
+                : "Write \(style.detail == .brief ? "brief" : style.detail == .standard ? "concise" : "full") study notes for this lecture transcript\(style.shape == .notes ? "" : " as \(style.shape == .qa ? "questions and answers" : style.shape == .cornell ? "Cornell notes" : "an outline")")"
+                    + (style.fillIn == .none ? ", adding nothing that wasn't said." : ", filling in \(style.fillIn == .light ? "only what can't be followed without" : "what it leaves out") on lines starting with `\(addedPrefix)`.")
+                    + (style.focus.isEmpty ? "" : " Stress: \(style.focus).")
             return course + (slides.isEmpty ? "" : "SLIDES — the deck this lecture was given from:\n\"\"\"\n\(slides)\n\"\"\"\n\n")
-                + "Write the study notes for this lecture transcript, keeping every detail\(slides.isEmpty ? "" : ", under a `## Slide N — …` heading per slide"), and fill in "
-                + "what it leaves out on lines starting with `\(addedPrefix)`.\n\nTRANSCRIPT:\n\"\"\"\n\(text)\n\"\"\""
+                + ask + "\n\nTRANSCRIPT:\n\"\"\"\n\(text)\n\"\"\""
         case .slides:
             return course + "Write the study notes these lecture slides outline, keeping every point on them, and fill in "
                 + "what they leave out on lines starting with `\(addedPrefix)`.\n\nSLIDES:\n\"\"\"\n\(text)\n\"\"\""
@@ -195,7 +257,7 @@ enum LectureNotes {
 
     /// `slides`: the deck the lecture was given from, which the notes are then organized by.
     static func run(_ text: String, job: Job, provider: AIProvider, mode: AIMode,
-                    material: [StudyPassage] = [], slides: [(number: Int, text: String)] = [],
+                    material: [StudyPassage] = [], slides: [(number: Int, text: String)] = [], style: Style = Style(),
                     progress: @escaping @MainActor (_ notes: String, _ part: Int, _ total: Int) -> Void) async -> String? {
         let limit = chunkChars(for: mode)
         let budget = material.isEmpty ? 0 : materialChars(for: mode)
@@ -206,8 +268,8 @@ enum LectureNotes {
             guard !Task.isCancelled else { return nil }
             let prior = done
             let out = try? await provider.streamPlain(
-                system: system(job, part: i + 1, of: parts.count, slides: !deck.isEmpty),
-                messages: [AIMessage(role: .user, text: user(job, part, material: relevant(material, to: part, budget: budget), slides: deck))],
+                system: system(job, part: i + 1, of: parts.count, slides: !deck.isEmpty, style: style),
+                messages: [AIMessage(role: .user, text: user(job, part, material: relevant(material, to: part, budget: budget), slides: deck, style: style))],
                 temperature: 0.3) { partial in
                     progress(stitch(prior + [partial]), i + 1, parts.count)
                 }
@@ -401,6 +463,21 @@ enum LectureNotesSelfTest {
         check("unknown anchor → nil", LectureNotes.insertionPoint(after: "Nothing like this", in: original) == nil)
 
         check("echoed fences are stripped", LectureNotes.unfenced("\"\"\"\n# A\n- b\n\"\"\"") == "# A\n- b")
+        // The student's choices: the default is the prompt as it always was; each choice says its own.
+        do {
+            let plain = LectureNotes.system(.lecture, part: 1, of: 1), user = LectureNotes.user(.lecture, "T")
+            check("default style keeps the old notes", plain.contains("Keep everything that was said") && plain.contains("aim for \nat least one in every section".replacingOccurrences(of: "\n", with: ""))
+                  && user.contains("keeping every detail, and fill in what it leaves out"))
+            var brief = LectureNotes.Style(); brief.detail = .brief; brief.shape = .cornell; brief.fillIn = .none; brief.focus = "formulas"
+            let b = LectureNotes.system(.lecture, part: 1, of: 1, style: brief), bu = LectureNotes.user(.lecture, "T", style: brief)
+            check("brief, Cornell, nothing added, a focus", b.contains("Condense it") && b.contains("**Cues:**") && b.contains("Add nothing that wasn't said")
+                  && b.contains("stress: formulas") && !b.contains("Keep everything that was said") && bu.contains("brief study notes") && bu.contains("Cornell")
+                  && bu.contains("adding nothing") && bu.contains("Stress: formulas"))
+            var light = LectureNotes.Style(); light.fillIn = .light; light.shape = .qa
+            let l = LectureNotes.system(.lecture, part: 1, of: 1, slides: true, style: light)
+            check("light fill-in, Q&A, by slide", l.contains("a few in all") && l.contains("**Q:**") && l.contains("## Slide N") && !l.contains("aim for at least one"))
+        }
+
         print(fail == 0 ? "LECTURE SELFTEST: ALL PASS" : "LECTURE SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }

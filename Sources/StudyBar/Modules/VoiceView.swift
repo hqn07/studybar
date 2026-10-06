@@ -29,6 +29,9 @@ struct VoiceBody: View {
     @State private var draftAvailable = false
     /// What a new take or an imported file would replace, waiting for the student's word.
     @State private var replacing: Replace?
+    /// "Make study notes" asks how first: detail, shape, how much filled in, a focus.
+    @State private var choosingStyle = false
+    @State private var notesFocus = ""
     @State private var confirmDiscard = false
     enum Replace: Identifiable {
         case record, transcribe(URL)
@@ -364,14 +367,30 @@ struct VoiceBody: View {
                         }
                         .disabled(naming)
                             .buttonStyle(.borderedProminent)
+                        if AIConfig.isReady {
+                            Button { choosingStyle = true } label: {
+                                Label(voice.rawBeforeOrganize == nil ? "Make study notes…" : "Rewrite…", systemImage: "sparkles")
+                            }
+                            .buttonStyle(.bordered)
+                            .help(voice.rawBeforeOrganize == nil
+                                  ? "Turn the lecture into study notes — choose how detailed, what shape, and how much the AI fills in. The transcript is kept."
+                                  : "Write the notes again from the original transcript, another way")
+                            .popover(isPresented: $choosingStyle, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(voice.rawBeforeOrganize == nil ? "Study notes from this lecture" : "Write the notes again").font(.headline)
+                                    NotesStyleForm(focus: $notesFocus)
+                                    HStack {
+                                        Spacer()
+                                        Button("Cancel") { choosingStyle = false }
+                                        Button("Write notes") { choosingStyle = false; organize() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                                    }
+                                }.padding(16).frame(width: 520)
+                            }
+                        }
                         if let raw = voice.rawBeforeOrganize {
                             Button { voice.transcript = raw; voice.rawBeforeOrganize = nil; voice.organizeError = nil } label: {
                                 Label("Revert to raw", systemImage: "arrow.uturn.backward")
                             }.buttonStyle(.bordered).help("Undo AI organize — restore the original transcript")
-                        } else if AIConfig.isReady {
-                            Button { organize() } label: { Label("Make study notes", systemImage: "sparkles") }
-                                .buttonStyle(.bordered)
-                                .help("Organize the lecture into detailed notes, with definitions, examples and a review filled in and marked as added — the original is kept, revertible")
                         }
                         Button("Discard") { confirmDiscard = true }
                             .buttonStyle(.bordered)
@@ -434,7 +453,9 @@ struct VoiceBody: View {
     }
 
     private func organize() {
-        let raw = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A rewrite starts from the transcript as it was said, not from the last notes.
+        let raw = (voice.rawBeforeOrganize ?? voice.transcript).trimmingCharacters(in: .whitespacesAndNewlines)
+        let style = NotesStyleForm.style(focus: notesFocus)
         guard !raw.isEmpty, AIConfig.isReady, let provider = AIService.makeProvider(for: .transcript) else { return }
         voice.organizeError = nil; voice.organizeStream = ""; voice.organizeStart = Date(); voice.organizePart = (1, 1)
         voice.organizing = true
@@ -446,7 +467,7 @@ struct VoiceBody: View {
             let text = await LectureNotes.run(voice.timeline.marking(raw), job: .lecture, provider: provider,
                                               mode: AIConfig.engine(for: .transcript),
                                               material: StudyMaterial.coursePassages(course, in: state.data),
-                                              slides: voice.slides.map(StudyMaterial.slideOutline) ?? []) { notes, part, total in
+                                              slides: voice.slides.map(StudyMaterial.slideOutline) ?? [], style: style) { notes, part, total in
                 voice.organizeStream = notes; voice.organizePart = (part, total)
                 if total > 1 { Jobs.shared.update(job, "part \(part) of \(total)") }
             }
@@ -578,6 +599,7 @@ struct VoiceBody: View {
         // being the name you wanted.
         state.pendingOpenNote = note.id
         state.pendingTitleFocus = true
+        if note.audioPath != nil { state.justSavedLecture = note.id }   // the note offers what to do next
         state.selectedModuleID = "notes"
     }
 }
