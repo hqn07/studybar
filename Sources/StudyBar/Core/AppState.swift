@@ -28,6 +28,11 @@ final class AppState: ObservableObject {
     /// Open that note with its title selected — set when the app named the note for you, so
     /// disagreeing with the name costs one keystroke.
     @Published var pendingTitleFocus = false
+    /// The course of the note the student last opened. Study and Make flashcards start there,
+    /// rather than at the first course in the list — which, on a new store, is the sample one.
+    @Published var workingCourseID: UUID?
+    /// A note just saved from a recording: it offers the next steps (study notes, cards, a quiz).
+    @Published var justSavedLecture: UUID?
     /// Toggled by the global hotkey to request the command palette.
     @Published var paletteRequested = false
     /// Distraction-free writing: the module rail, the window header, the notes list and the
@@ -685,6 +690,14 @@ final class AppState: ObservableObject {
             $0.meets(on: wd) && minute >= $0.startMinutes - 10 && minute <= $0.endMinutes + 20
         }
         return inSession?.courseID
+    }
+
+    /// Where a study tool should start: the course being worked in, else the class in session,
+    /// else the course last written in.
+    var likelyCourseID: UUID? {
+        if let w = workingCourseID, data.courses.contains(where: { $0.id == w }) { return w }
+        if let now = courseID(at: .now) { return now }
+        return data.notes.filter { $0.courseID != nil }.max { $0.updatedAt < $1.updatedAt }?.courseID
     }
 
     var currentCourseID: UUID? {

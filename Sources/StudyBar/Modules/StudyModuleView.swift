@@ -53,6 +53,9 @@ final class GuideModel: ObservableObject {
 struct StudyModuleView: View {
     @EnvironmentObject var state: AppState
     @AppStorage("studyCourse") private var courseRaw = ""
+    /// The working course Study last followed (`AppState.workingCourseID`), so it follows each new
+    /// one once and a course picked here by hand stays picked until the student moves on.
+    @AppStorage("studyFollowed") private var followed = ""
     @State private var excluded: Set<StudySource> = []
     /// Remembered, so a study pack can leave Study open on the quiz it wrote.
     @AppStorage("studyTab") private var tab: Tab = .tutor
@@ -65,7 +68,11 @@ struct StudyModuleView: View {
     }
 
     private var course: Course? {
-        state.data.courses.first { $0.id.uuidString == courseRaw } ?? state.data.courses.first
+        state.data.courses.first { $0.id.uuidString == courseRaw } ?? state.course(state.likelyCourseID) ?? state.data.courses.first
+    }
+    private func follow() {
+        guard let w = state.workingCourseID?.uuidString, w != followed else { return }
+        followed = w; courseRaw = w; excluded = []
     }
     private var sources: [(source: StudySource, title: String, detail: String)] {
         StudyMaterial.sources(course: course?.id, in: state.data)
@@ -116,6 +123,8 @@ struct StudyModuleView: View {
                 .studyFocus(course.map { .course($0.id) })
             }
         }
+        .onAppear(perform: follow)
+        .onChange(of: state.workingCourseID) { _, _ in follow() }
     }
 
     // MARK: Sources
