@@ -99,8 +99,15 @@ struct StudyModuleView: View {
                     sourceColumn.frame(width: 250)
                     Divider()
                     VStack(spacing: 0) {
-                        Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
-                            .pickerStyle(.segmented).labelsHidden().padding(10)
+                        // Six tabs need ~520 pt; at the window's default size there are ~480, and a
+                        // segmented control that doesn't fit pushed the whole pane off the right edge.
+                        ViewThatFits(in: .horizontal) {
+                            Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                            Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                                .pickerStyle(.menu).labelsHidden().fixedSize()
+                        }
+                        .frame(maxWidth: .infinity).padding(10)
                         Divider()
                         if !AIConfig.isReady(for: .ask) {
                             EmptyState(symbol: "sparkles", title: "Pick an AI engine",
