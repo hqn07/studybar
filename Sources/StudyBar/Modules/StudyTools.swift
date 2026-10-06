@@ -77,12 +77,11 @@ struct MakeCardsView: View {
                             .pickerStyle(.segmented).frame(width: 260)
                         TextField("Focus — optional, e.g. definitions, formulas, dates", text: $focus).textFieldStyle(.roundedBorder)
                     }
-                    HStack(spacing: 16) {
-                        Picker("Cards", selection: $kind) { ForEach(Kind.allCases) { Text($0.rawValue).tag($0) } }
-                            .pickerStyle(.segmented).fixedSize().help(kind.help)
-                        Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
-                            .pickerStyle(.segmented).fixedSize()
-                    }
+                    // One row each: side by side they don't fit the sheet.
+                    Picker("Cards", selection: $kind) { ForEach(Kind.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).fixedSize().help(kind.help)
+                    Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).fixedSize()
                     Button { generate() } label: { Label(loading ? "Writing cards…" : cards.isEmpty ? "Write cards" : "Write again", systemImage: "sparkles") }
                         .buttonStyle(.borderedProminent).disabled(loading || source.count < 20 || !AIConfig.isReady(for: .ask))
                     if !AIConfig.isReady(for: .ask) {
