@@ -48,6 +48,10 @@ final class RichTextController: ObservableObject {
     var onExplain: ((String) -> Void)?
     /// Right-click ▸ Make Flashcards from Selection.
     var onMakeCards: ((String) -> Void)?
+    /// Right-click ▸ Ask About…, Summarize Selection, Fix … in Every Note. Nil hides each.
+    var onAsk: ((String) -> Void)?
+    var onSummarize: (() -> Void)?
+    var onFixWord: ((String) -> Void)?
     /// The caret moved — to this character.
     var onCaret: ((Int) -> Void)?
 
@@ -1118,22 +1122,43 @@ final class FoldingTextView: NSTextView {
             menu.insertItem(item, at: 0)
             menu.insertItem(.separator(), at: 1)
         }
+        // A selection's own actions, at the top: what the student does with a passage — explain,
+        // ask, summarize, cards, highlight — and fixing a misheard word everywhere.
         let picked = (string as NSString).substring(with: selectedRange()).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !picked.isEmpty, mathController?.onExplain != nil, AIConfig.isReady(for: .ask) {
+        if !picked.isEmpty, let c = mathController {
             explainText = picked
             let shown = picked.count > 30 ? picked.prefix(30) + "…" : Substring(picked)
-            let it = NSMenuItem(title: "Explain “\(shown)”", action: #selector(explainSelection), keyEquivalent: "")
-            it.target = self
-            menu.insertItem(it, at: 0)
-            if mathController?.onMakeCards != nil {
-                let cards = NSMenuItem(title: "Make Flashcards from Selection…", action: #selector(makeCardsFromSelection), keyEquivalent: "")
-                cards.target = self
-                menu.insertItem(cards, at: 1)
+            var items: [NSMenuItem] = []
+            func item(_ title: String, _ sel: Selector) {
+                let it = NSMenuItem(title: title, action: sel, keyEquivalent: ""); it.target = self; items.append(it)
             }
-            menu.insertItem(.separator(), at: menu.items.firstIndex { $0.action == #selector(makeCardsFromSelection) }.map { $0 + 1 } ?? 1)
+            if AIConfig.isReady(for: .ask) {
+                if c.onExplain != nil { item("Explain “\(shown)”", #selector(explainSelection)) }
+                if c.onAsk != nil { item("Ask About “\(shown)”…", #selector(askSelection)) }
+                if c.onSummarize != nil, picked.count >= 120 { item("Summarize Selection", #selector(summarizeSelection)) }
+                if c.onMakeCards != nil { item("Make Flashcards from Selection…", #selector(makeCardsFromSelection)) }
+            }
+            if c.onExplain != nil { item(selectionHighlighted ? "Remove Highlight" : "Highlight", #selector(toggleHighlight)) }
+            if c.onFixWord != nil, !picked.contains("\n"), picked.split(separator: " ").count <= 4 {
+                item("Fix “\(shown)” in Every Note of the Course…", #selector(fixWordSelection))
+            }
+            for (i, it) in items.enumerated() { menu.insertItem(it, at: i) }
+            if !items.isEmpty { menu.insertItem(.separator(), at: items.count) }
         }
         return menu
     }
+    /// Whether the selection is already highlighted — so the item says Remove instead.
+    private var selectionHighlighted: Bool {
+        let r = selectedRange()
+        guard let ts = textStorage, r.length > 0, r.location < ts.length else { return false }
+        return ts.attribute(.backgroundColor, at: r.location, effectiveRange: nil) != nil
+    }
+    @objc private func toggleHighlight() {
+        mathController?.setHighlight(selectionHighlighted ? nil : NSColor.systemYellow.withAlphaComponent(0.35))
+    }
+    @objc private func askSelection() { mathController?.onAsk?(explainText) }
+    @objc private func summarizeSelection() { mathController?.onSummarize?() }
+    @objc private func fixWordSelection() { mathController?.onFixWord?(explainText) }
     @objc private func makeCardsFromSelection() { mathController?.onMakeCards?(explainText) }
     private var explainText = ""
     @objc private func explainSelection() { mathController?.onExplain?(explainText) }

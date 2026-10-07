@@ -500,3 +500,116 @@ struct AnnouncedSheet: View {
     }
 }
 
+
+// MARK: - Fix a misheard word
+
+/// Misheard → should be, how many places it's in, and whether the course's recordings should
+/// expect the right word from now on. Voice uses it on a transcript; Notes on a whole course.
+struct FixWordFields: View {
+    @Binding var find: String
+    @Binding var replace: String
+    @Binding var learn: Bool
+    let count: Int
+    /// "in the transcript", "in 3 notes".
+    let place: String
+    let course: String?
+    /// The sheet keeps Replace All in its footer instead.
+    var inlineButton = true
+    let apply: () -> Void
+
+    static func ready(count: Int, replace: String) -> Bool { count > 0 && !replace.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var ready: Bool { Self.ready(count: count, replace: replace) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Heard as — e.g. ferrets", text: $find).textFieldStyle(.roundedBorder)
+            TextField("Should be — e.g. farads", text: $replace).textFieldStyle(.roundedBorder)
+                .onSubmit { if ready { apply() } }
+            Text(find.trimmingCharacters(in: .whitespaces).isEmpty ? " " : count == 0 ? "Not found \(place)." : "\(count) place\(count == 1 ? "" : "s") \(place).")
+                .font(.caption).foregroundStyle(.secondary)
+            if let course {
+                Toggle(replace.trimmingCharacters(in: .whitespaces).isEmpty ? "Expect the right word in \(course) recordings from now on"
+                       : "Expect “\(replace)” in \(course) recordings from now on", isOn: $learn)
+                    .toggleStyle(.checkbox).font(.caption)
+            }
+            if inlineButton {
+                HStack {
+                    Spacer()
+                    Button("Replace All", action: apply).buttonStyle(.borderedProminent).disabled(!ready)
+                }
+            }
+        }
+    }
+}
+
+/// A word fixed in every note of a course — the title, the text and its formatting — with Undo.
+struct FixWordSheet: View {
+    struct Request: Identifiable { let id = UUID(); var find = ""; var course: UUID? }
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let request: Request
+    @State private var find = ""
+    @State private var replace = ""
+    @State private var course: UUID?
+    @State private var learn = true
+
+    private var hits: [(note: Note, count: Int)] {
+        guard !find.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        return state.data.notes.filter { $0.courseID == course }.compactMap { n in
+            let c = TermFix.count(n.body, find) + TermFix.count(n.title, find)
+            return c > 0 ? (n, c) : nil
+        }
+    }
+
+    var body: some View {
+        let hits = hits
+        VStack(spacing: 0) {
+            HStack {
+                Text("Fix a word in every note").font(.headline)
+                Spacer()
+                CoursePicker(courseID: $course).fixedSize()
+            }.padding(14)
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                FixWordFields(find: $find, replace: $replace, learn: $learn, count: hits.map(\.count).reduce(0, +),
+                              place: "in \(hits.count) note\(hits.count == 1 ? "" : "s")",
+                              course: state.course(course).map { $0.code.isEmpty ? $0.name : $0.code }, inlineButton: false, apply: apply)
+                if !hits.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(hits, id: \.note.id) { h in
+                                HStack {
+                                    Text(h.note.title.isEmpty ? "Untitled note" : h.note.title).lineLimit(1)
+                                    Spacer()
+                                    Text("\(h.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                }.font(.callout)
+                            }
+                        }
+                    }.frame(maxHeight: 160)
+                }
+                Text("Whole words, any case; a capital stays a capital. The recording's own transcript keeps the words as they were heard.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }.padding(14)
+            Spacer(minLength: 0)
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Replace All", action: apply).buttonStyle(.borderedProminent)
+                    .disabled(!FixWordFields.ready(count: hits.map(\.count).reduce(0, +), replace: replace))
+            }.padding(12)
+        }
+        .frame(width: 460, height: 440)
+        .onAppear { find = request.find; course = request.course }
+    }
+
+    private func apply() {
+        let fixes = hits.compactMap { TermFix.fixed($0.note, find, with: replace) }
+        let total = fixes.map(\.count).reduce(0, +), shown = find.trimmingCharacters(in: .whitespaces)
+        state.withUndo("Fixed “\(shown)” in \(fixes.count) note\(fixes.count == 1 ? "" : "s") (\(total))", rewritesNotes: true) {
+            for f in fixes { if let i = state.data.notes.firstIndex(where: { $0.id == f.note.id }) { state.data.notes[i] = f.note } }
+            if learn { TermFix.learn(replace, course: course, in: &state.data) }
+        }
+        dismiss()
+    }
+}

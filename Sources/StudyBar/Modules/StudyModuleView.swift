@@ -1303,6 +1303,7 @@ enum StudySnapshot {
         save(MakeCardsView(request: .init(notes: state.data.notes.map(\.id), course: course.id)), "make-cards.png", CGSize(width: 640, height: 560))
         save(AnnouncedSheet(note: Note(title: "Week 7 — Capacitors", body: "### Announced\n- Problem set 4 — due Friday\n- Read chapter 26 — before next lecture\n- Quiz 3: October 16",
                                        courseID: course.id)), "announced.png", CGSize(width: 520, height: 420))
+        save(FixWordSheet(request: .init(find: "flux", course: course.id)), "fix-word.png", CGSize(width: 460, height: 440))
         save(VStack(spacing: 16) {
             QuestionCard(q: mcq, response: .constant(QuizResponse(choice: 1)), revealed: true, feedback: nil, check: {})
             QuestionCard(q: tf, response: .constant(QuizResponse(bool: true)), revealed: false, feedback: nil, check: {})

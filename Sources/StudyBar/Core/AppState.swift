@@ -77,19 +77,24 @@ final class AppState: ObservableObject {
 
     // MARK: Undo — Gmail-style one-level undo for destructive actions.
     struct UndoEntry: Identifiable, Equatable {
-        let id = UUID(); let label: String; let snapshot: AppData
+        let id = UUID(); let label: String; let snapshot: AppData; var rewritesNotes = false
         static func == (l: UndoEntry, r: UndoEntry) -> Bool { l.id == r.id }
     }
     @Published var undo: UndoEntry? = nil
+    /// Bumped when notes are rewritten from outside their editor — a word fixed in every note of
+    /// a course, or undoing that — so an open note shows the change instead of saving its old
+    /// text over it when it closes.
+    @Published var notesRewritten = 0
     private var undoClearTask: Task<Void, Never>?
 
     /// Run a destructive mutation with one-level undo: snapshots `data` first,
     /// then shows an undo banner for ~6s.
-    func withUndo(_ label: String, _ mutation: () -> Void) {
+    func withUndo(_ label: String, rewritesNotes: Bool = false, _ mutation: () -> Void) {
         let snapshot = data
         mutation()
         captureDeletions(from: snapshot)
-        let entry = UndoEntry(label: label, snapshot: snapshot)
+        let entry = UndoEntry(label: label, snapshot: snapshot, rewritesNotes: rewritesNotes)
+        if rewritesNotes { notesRewritten += 1 }
         undo = entry
         undoClearTask?.cancel()
         undoClearTask = Task { [weak self] in
@@ -100,6 +105,7 @@ final class AppState: ObservableObject {
     func performUndo() {
         guard let u = undo else { return }
         data = u.snapshot
+        if u.rewritesNotes { notesRewritten += 1 }
         undo = nil
         undoClearTask?.cancel()
     }

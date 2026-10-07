@@ -19,6 +19,7 @@ struct Course: Identifiable, Codable, Hashable {
     var term: String = ""           // e.g. "Fall 2026"; empty = current term (decode-safe)
     var syllabus: SyllabusItem? = nil   // attached syllabus + AI-extracted details (decode-safe)
     var announcements: [CanvasAnnouncement]? = nil   // the latest few from Canvas sync; decode-safe
+    var words: [String]? = nil      // terms the student corrected in a transcript, for recognition to expect; decode-safe
     var createdAt: Date = .now
 
     var color: Color { Color(hex: colorHex) ?? .accentColor }

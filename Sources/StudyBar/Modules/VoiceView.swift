@@ -18,6 +18,10 @@ struct VoiceBody: View {
     /// module — this view just observes and drives it.
     @ObservedObject var voice: VoiceService
     @State private var courseID: UUID?
+    @State private var fixing = false
+    @State private var fixFind = ""
+    @State private var fixReplace = ""
+    @State private var fixLearn = true
     @AppStorage("voiceLocale") private var voiceLocale = "en-US"
     @AppStorage("voiceEngine") private var voiceEngine = "apple"
     @AppStorage("voiceSource") private var voiceSource = "mic"
@@ -145,6 +149,15 @@ struct VoiceBody: View {
                 Text("The transcript and its audio go to the Trash, where you can still put them back.")
             }
         }
+    }
+
+    /// The course this lecture files under, as saving decides it.
+    private var lectureCourse: UUID? { courseID ?? state.courseID(at: voice.lastRecordingStart ?? .now) }
+
+    private func fixWord() {
+        voice.fixWord(fixFind, with: fixReplace.trimmingCharacters(in: .whitespaces))
+        if fixLearn { TermFix.learn(fixReplace, course: lectureCourse, in: &state.data); updateVocab() }
+        fixing = false; fixFind = ""; fixReplace = ""
     }
 
     /// Bias recognition toward the course's vocabulary: the picked course, else the one in
@@ -345,10 +358,23 @@ struct VoiceBody: View {
                 }
                 .frame(maxHeight: voice.rawBeforeOrganize == nil ? 260 : 380)
 
-                if !voice.lastEngine.isEmpty {
-                    Label("Transcribed by \(voice.lastEngine)",
-                          systemImage: voice.lastEngine.hasPrefix("Whisper") ? "cpu" : "waveform")
-                        .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    if !voice.lastEngine.isEmpty {
+                        Label("Transcribed by \(voice.lastEngine)",
+                              systemImage: voice.lastEngine.hasPrefix("Whisper") ? "cpu" : "waveform")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if idle && !voice.transcript.isEmpty && !voice.organizing {
+                        Button { fixing = true } label: { Label("Fix a word…", systemImage: "character.cursor.ibeam") }
+                            .buttonStyle(.borderless).font(.caption)
+                            .help("A term it misheard — fix it everywhere in the transcript, and teach the course to expect it")
+                            .popover(isPresented: $fixing, arrowEdge: .bottom) {
+                                FixWordFields(find: $fixFind, replace: $fixReplace, learn: $fixLearn,
+                                              count: TermFix.count(voice.transcript, fixFind), place: "in the transcript",
+                                              course: state.course(lectureCourse).map { $0.code.isEmpty ? $0.name : $0.code }, apply: fixWord)
+                                    .frame(width: 320).padding(14)
+                            }
+                    }
                 }
 
                 if let err = voice.organizeError {

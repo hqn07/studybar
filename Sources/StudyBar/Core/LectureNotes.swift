@@ -540,6 +540,32 @@ enum LectureNotesSelfTest {
             check("light fill-in, Q&A, by slide", l.contains("a few in all") && l.contains("**Q:**") && l.contains("## Slide N") && !l.contains("aim for at least one"))
         }
 
+        // Fixing a misheard word: whole words, any case, capitals kept, formatting kept.
+        do {
+            let t = TermFix.replace("Ferrets store charge. Two ferrets in series; a ferretsville isn't one.", "ferrets", with: "farads")
+            check("fix a word: every whole word, any case, a capital kept",
+                  t.count == 2 && t.text == "Farads store charge. Two farads in series; a ferretsville isn't one.", t.text)
+            check("fix a phrase", TermFix.replace("the I can value of A", "I can value", with: "eigenvalue").text == "the eigenvalue of A")
+            let rich = NSMutableAttributedString(string: "Unit: ", attributes: [:])
+            rich.append(NSAttributedString(string: "ferrets", attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]))
+            TermFix.replace(in: rich, "ferrets", with: "farads")
+            check("rich text keeps its formatting", rich.string == "Unit: farads"
+                  && (rich.attribute(.font, at: 7, effectiveRange: nil) as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) == true)
+            var note = Note(title: "Ferrets and capacitors", body: "ferrets ferrets")
+            note.rich = NSAttributedString(string: "ferrets ferrets").rtfdData()
+            let fixed = TermFix.fixed(note, "ferrets", with: "farads")
+            check("a note: title, text and rich text together",
+                  fixed?.count == 3 && fixed?.note.title == "Farads and capacitors" && fixed?.note.body == "farads farads"
+                  && fixed?.note.rich.flatMap(NSAttributedString.fromRTFD)?.string == "farads farads")
+            check("a note that never says it is left alone", TermFix.fixed(Note(title: "x", body: "y"), "ferrets", with: "farads") == nil)
+            var data = AppData()
+            let c = Course(name: "Physics 2", code: "PHY2049")
+            data.courses = [c]
+            TermFix.learn("farads", course: c.id, in: &data); TermFix.learn("Farads", course: c.id, in: &data)
+            check("the course learns the word once, and recognition expects it",
+                  data.courses[0].words == ["farads"] && CourseVocabulary.terms(course: data.courses[0], data: data).contains("farads"))
+        }
+
         // Announced: read from every Announced list, dated from the lecture's day, offered once.
         do {
             let wed = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 7, hour: 10))!   // a Wednesday

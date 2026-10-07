@@ -60,6 +60,16 @@ final class VoiceService: ObservableObject {
     @Published var rawBeforeOrganize: String?
     @Published var organizeError: String?
     @Published var organizePart = (1, 1)      // which part of a long lecture is being written
+    /// A misheard term fixed before saving — in what's shown, the original kept for Revert, and
+    /// the timed lines, so playing a sentence shows it right too. Returns how many were fixed.
+    @discardableResult
+    func fixWord(_ find: String, with new: String) -> Int {
+        let shown = TermFix.replace(transcript, find, with: new)
+        transcript = shown.text
+        if let raw = rawBeforeOrganize { rawBeforeOrganize = TermFix.replace(raw, find, with: new).text }
+        for i in timeline.lines.indices { timeline.lines[i].text = TermFix.replace(timeline.lines[i].text, find, with: new).text }
+        return shown.count
+    }
     var organizeTask: Task<Void, Never>?
     var organizeJob: UUID?
     /// Stop writing notes: the transcript was never touched, so there's nothing to put back.

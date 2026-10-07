@@ -3,7 +3,8 @@ import Foundation
 /// The words a course actually uses, for speech recognition to expect: the course's own name
 /// and code, the slide titles of this lecture's deck, then every bold term and heading already
 /// written in its notes (newest first), its `term :: definition` lines, its flashcards' terms,
-/// its syllabus objectives' key words and its other decks' slide titles. Read, not guessed —
+/// its syllabus objectives' key words and its other decks' slide titles — and, before all of
+/// those, any word the student fixed in a transcript (`TermFix.learn`). Read, not guessed —
 /// these are where a lecture's jargon is already spelled correctly. "Farads" came out as
 /// "ferrets" when only bold words and headings counted, because no note had it in bold.
 enum CourseVocabulary {
@@ -22,6 +23,7 @@ enum CourseVocabulary {
             }
         }
         add(Substring(course.name)); add(Substring(course.code))
+        for w in course.words ?? [] { add(Substring(w)) }          // ones the student corrected: never miss them again
         if let slides { titles(slides) }
         let notes = data.notes.filter { $0.courseID == course.id }.sorted { $0.createdAt > $1.createdAt }
         for note in notes {

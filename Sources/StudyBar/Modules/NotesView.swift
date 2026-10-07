@@ -566,6 +566,7 @@ struct NoteEditor: View {
     @State private var makingCards: MakeCardsView.Request?
     @State private var writingNotes = false
     @State private var announcing = false
+    @State private var fixingWord: FixWordSheet.Request?
     @State private var aiText = ""
     @State private var aiDone = false
     @State private var asking = false
@@ -699,6 +700,9 @@ struct NoteEditor: View {
             editor.onExplain = { picked in openAsk(); ask("Explain this part of the note, in the context of the rest: “\(picked)”") }
             editor.onCaret = { loc in if showSlides, let n = slideAt(loc) { slidePage = n } }
             editor.onMakeCards = { picked in makingCards = .init(text: picked, course: draft.courseID, note: draft.id) }
+            editor.onAsk = { picked in openAsk(); askQuestion = "About “\(picked.prefix(200))”: " }
+            editor.onSummarize = { runAI(.summarize) }
+            editor.onFixWord = { picked in persist(); fixingWord = .init(find: picked, course: draft.courseID) }
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
@@ -711,6 +715,8 @@ struct NoteEditor: View {
         .onChange(of: draft.courseID)      { _, c in scheduleAutosave(); if let c { state.workingCourseID = c } }
         .sheet(item: $makingCards) { MakeCardsView(request: $0) }
         .sheet(isPresented: $announcing) { AnnouncedSheet(note: draft) }
+        .sheet(item: $fixingWord) { FixWordSheet(request: $0) }
+        .onChange(of: state.notesRewritten) { _, _ in reloadFromStore() }
         .sheet(isPresented: $writingNotes) {
             StudyNotesSheet(text: draft.body, course: draft.courseID) { replaceBody($0) }
         }
@@ -1904,6 +1910,10 @@ struct NoteEditor: View {
                     Button { exportNote(as: "rtf") } label: { Label("Export as Rich Text", systemImage: "arrow.down.doc") }
                     Button { exportSlides() } label: { Label("Export as Slides (.pptx)", systemImage: "rectangle.on.rectangle") }
                     Divider()
+                    Button { persist(); fixingWord = .init(course: draft.courseID) } label: {
+                        Label("Fix a Word in Every Note of the Course…", systemImage: "character.cursor.ibeam")
+                    }
+                    Divider()
                     Button { attachSlides() } label: {
                         Label(deck == nil ? "Add the lecture's slides…" : "Change the slides…", systemImage: "rectangle.on.rectangle")
                     }
@@ -2119,6 +2129,16 @@ struct NoteEditor: View {
     private func save() { saveTask?.cancel(); persist(); dismiss() }
 
     /// Write the draft to the store without leaving the editor (used by ✨ actions).
+    /// The note was rewritten outside the editor — a word fixed in every note of its course, or
+    /// that undone: show it, rather than save the old text over it on close.
+    private func reloadFromStore() {
+        guard let n = state.data.notes.first(where: { $0.id == draft.id }), n.body != draft.body || n.title != draft.title else { return }
+        draft = n
+        editor.load(n.rich.flatMap(NSAttributedString.fromRTFD) ?? NSAttributedString(string: n.body,
+            attributes: [.font: RichTextController.baseFont, .foregroundColor: NSColor.labelColor,
+                         .paragraphStyle: RichTextController.bodyParagraph]))
+    }
+
     /// Back to an earlier version. The version being replaced is kept too (a restore is a large
     /// change), so a restore can itself be undone from History.
     private func restore(_ v: NoteHistory.Version) {
