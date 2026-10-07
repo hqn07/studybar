@@ -1737,7 +1737,7 @@ final class MathAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { latex = ""; display = false; color = .labelColor; userColored = false; super.init(coder: coder) }
 
     private func render() {
-        var mi = MathImage(latex: latex, fontSize: display ? 19 : 15,
+        var mi = MathImage(latex: MathSupport.native(latex), fontSize: display ? 19 : 15,
                            textColor: color, labelMode: display ? .display : .text)
         let (_, img, layout) = mi.asImage()
         guard let img else { return }
@@ -1748,6 +1748,19 @@ final class MathAttachment: NSTextAttachment {
 }
 
 enum MathSupport {
+    /// What SwiftMath can't parse, as what it can — for drawing only; the note keeps its source.
+    /// \dfrac and \tfrac are \frac at another size, \operatorname a roman name, \boxed a frame.
+    /// The editor has no fallback for an expression SwiftMath refuses: models write \dfrac all
+    /// the time (a lecture's Formulas list was full of it), and each one was a blank in the note.
+    static func native(_ latex: String) -> String {
+        var s = latex
+        for (from, to) in [(#"\\[dt]frac(?![A-Za-z])"#, #"\\frac"#), (#"\\[dt]binom(?![A-Za-z])"#, #"\\binom"#),
+                           (#"\\operatorname(?![A-Za-z])"#, #"\\mathrm"#), (#"\\boxed(?![A-Za-z])"#, "")] {
+            s = s.replacingOccurrences(of: from, with: to, options: .regularExpression)
+        }
+        return s
+    }
+
     static let displayRE = try! NSRegularExpression(pattern: #"\$\$(.+?)\$\$"#, options: [.dotMatchesLineSeparators])
     // Money-safe: opening `$` not after a digit/backslash and followed by a non-space;
     // closing `$` not followed by a digit. So "$5 and $10" isn't read as math, but
@@ -1857,6 +1870,19 @@ enum MathSelfTest {
               MathMarkdown.hasMath(#"- **Gauss**: $ \Phi_E=\dfrac{Q}{\varepsilon_0} $"#) ? "yes" : "no", "yes")
         check("padded prices are not detected",
               MathMarkdown.hasMath("I paid $ 5 and $ 10 today") ? "yes" : "no", "no")
+        check("unsupported commands drawn as their equivalents, source kept",
+              MathSupport.native(#"\dfrac{a}{b} + \tfrac12 + \dbinom{n}{k} + \operatorname{tr} + \boxed{x} + \dfracx"#),
+              #"\frac{a}{b} + \frac12 + \binom{n}{k} + \mathrm{tr} + {x} + \dfracx"#)
+
+        // What models write, drawn natively — the editor has no fallback, so a refusal is a blank.
+        for l in [#"U = \tfrac12 CV^2"#, #"U = \tfrac{1}{2} CV^2"#, #"U = \dfrac{1}{2} CV^2"#, #"U = \frac12 CV^2"#,
+                  #"U=\frac{1}{2}CV^2"#, #"C=\dfrac{\varepsilon_0 A}{d}"#, #"\mu\mathrm{F}"#, #"10^{-6}\ \mathrm{F}"#, #"\text{eq}"#,
+                  #"\displaystyle \sum_{i=1}^n i"#, #"\dbinom{n}{k}"#, #"\binom{n}{k}"#, #"\operatorname{tr}(A)"#, #"\left( x \right)"#,
+                  #"\oint \vec E \cdot d\vec A"#, #"\hat{x}"#, #"\boxed{x=2}"#, #"\Delta U = Q - W"#, #"\ln(V_2/V_1)"#,
+                  #"\mathbf{F} = m\mathbf{a}"#, #"\bar{x}"#, #"\approx"#, #"\le \ge \neq"#, #"\tfrac{a}{b}"#, #"x \,\text{m}"#,
+                  #"\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}"#, #"\mathrm{J/m^3}"#, #"\varepsilon_0"#, #"\overline{AB}"#] {
+            check("draws natively: \(l)", SwiftMathRender.image(l, display: false, color: .black, size: 14) == nil ? "fails" : "draws", "draws")
+        }
 
         check("two inline spans", MathSupport.normalized(#"\(a\) and \(b\)"#), "$a$ and $b$")
         check("dollars untouched", MathSupport.normalized("$E=mc^2$ and $$y$$"), "$E=mc^2$ and $$y$$")

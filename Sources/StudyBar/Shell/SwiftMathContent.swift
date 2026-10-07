@@ -10,7 +10,7 @@ import SwiftMath
 enum SwiftMathRender {
     /// A single LaTeX expression → an image, or nil if SwiftMath can't render it.
     static func image(_ latex: String, display: Bool, color: NSColor, size: CGFloat) -> NSImage? {
-        let l = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        let l = MathSupport.native(latex.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !l.isEmpty else { return nil }
         var mi = MathImage(latex: l, fontSize: size, textColor: color, labelMode: display ? .display : .text)
         let (err, img, _) = mi.asImage()
