@@ -404,8 +404,11 @@ struct Flashcard: Identifiable, Codable, Hashable {
     /// Where it was made from — a note and the moment in its lecture, or a book's page — so it can
     /// open its source. Optional, so older stores decode.
     var source: CardSource? = nil
+    /// Paused: kept in its deck, but never offered for review until resumed — a card that's wrong,
+    /// or not on this exam. Optional, so older stores decode.
+    var paused: Bool? = nil
 
-    var isDue: Bool { due <= .now }
+    var isDue: Bool { due <= .now && paused != true }
     /// Its source, counting a `term :: definition` card's note.
     var origin: CardSource? { source ?? noteID.map { CardSource(noteID: $0) } }
     /// A card whose front uses Anki-style {{cloze}} syntax.

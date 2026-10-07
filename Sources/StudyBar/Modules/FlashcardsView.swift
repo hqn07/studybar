@@ -51,6 +51,17 @@ struct FlashcardsView: View {
     @State private var newDeck = ""
     @State private var making: MakeCardsView.Request?
     @State private var path: [Deck] = []
+    @State private var search = ""
+    @State private var editing: Flashcard?
+    /// Every card, across decks, whose front, back or tags say it.
+    private var found: [Flashcard] {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { return [] }
+        return state.data.flashcards.filter {
+            Cloze.answer($0.front).localizedCaseInsensitiveContains(q) || $0.back.localizedCaseInsensitiveContains(q)
+                || $0.tags.contains { $0.localizedCaseInsensitiveContains(q) }
+        }
+    }
     /// The course being worked in first, then the rest as they were.
     private var decks: [Deck] {
         let c = state.likelyCourseID
@@ -76,8 +87,13 @@ struct FlashcardsView: View {
                             .textFieldStyle(.roundedBorder)
                         Button("Add", action: addDeck).disabled(newDeck.isEmpty)
                     }.padding(10)
+                    if !state.data.flashcards.isEmpty {
+                        SearchField(text: $search, prompt: "Search every card").padding(.horizontal, 10).padding(.bottom, 8)
+                    }
                     Divider()
-                    if state.data.decks.isEmpty {
+                    if search.trimmingCharacters(in: .whitespaces).count >= 2 {
+                        searchResults
+                    } else if state.data.decks.isEmpty {
                         // Most students arrive here with notes and no cards: that's the way in.
                         EmptyState(symbol: "rectangle.on.rectangle.angled", title: "No decks yet",
                                    subtitle: state.data.notes.isEmpty
@@ -97,6 +113,7 @@ struct FlashcardsView: View {
                 }
             }
             .navigationDestination(for: Deck.self) { DeckView(deck: $0) }
+            .navigationDestination(item: $editing) { CardEditor(card: $0) }
             .sheet(item: $making) { MakeCardsView(request: $0) }
         }
         .onAppear(perform: openPending)
@@ -108,6 +125,41 @@ struct FlashcardsView: View {
         guard let id = state.pendingDeck else { return }
         state.pendingDeck = nil
         if let d = state.data.decks.first(where: { $0.id == id }) { path = [d] }
+    }
+
+    /// Cards from every deck that match the search — open one to edit, pause or check its source.
+    @ViewBuilder private var searchResults: some View {
+        let cards = found
+        if cards.isEmpty {
+            EmptyState(symbol: "magnifyingglass", title: "No card says “\(search.trimmingCharacters(in: .whitespaces))”",
+                       subtitle: "Fronts, backs and tags of every deck are searched.")
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 5) {
+                    Text("\(cards.count) card\(cards.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                    ForEach(cards.prefix(200)) { card in
+                        Button { editing = card } label: {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(card.isCloze ? Cloze.answer(card.front) : card.front).fontWeight(.medium).lineLimit(2)
+                                    if !card.back.isEmpty { Text(card.back).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                }
+                                Spacer()
+                                if card.paused == true { Image(systemName: "pause.circle").foregroundStyle(.secondary).help("Paused") }
+                                Text(state.data.decks.first { $0.id == card.deckID }?.name ?? "Deck")
+                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .padding(DS.Space.m).contentShape(Rectangle())
+                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(card.paused == true ? "Resume Card" : "Pause Card") { Flashcard.togglePaused(card.id, in: state) }
+                        }
+                    }
+                }.padding(10)
+            }
+        }
     }
 
     private func deckRow(_ deck: Deck) -> some View {
@@ -236,6 +288,8 @@ struct DeckView: View {
             statPill("\(newCards.count)", "new", .blue)
             statPill("\(cards.count)", "total", .secondary)
             if let r = retention { statPill("\(r)%", "retention", r >= 80 ? .dsDone : .dsWeek) }
+            let paused = cards.filter { $0.paused == true }.count
+            if paused > 0 { statPill("\(paused)", "paused", .secondary) }
         }.padding(.vertical, 6)
     }
     private func statPill(_ v: String, _ l: String, _ c: Color) -> some View {
@@ -304,13 +358,22 @@ struct DeckView: View {
                     }
                 }
                 Spacer()
-                Text(card.isDue ? "due" : card.due.dayMonth)
-                    .font(.caption2).foregroundStyle(card.isDue ? .orange : .secondary)
+                if card.paused == true {
+                    Label("paused", systemImage: "pause.circle").font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Text(card.isDue ? "due" : card.due.dayMonth)
+                        .font(.caption2).foregroundStyle(card.isDue ? .orange : .secondary)
+                }
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(DS.Space.m).contentShape(Rectangle())
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        }.buttonStyle(.plain)
+            .opacity(card.paused == true ? 0.6 : 1)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(card.paused == true ? "Resume Card" : "Pause Card") { Flashcard.togglePaused(card.id, in: state) }
+        }
     }
 
     @ViewBuilder private var studyButton: some View {
@@ -618,6 +681,9 @@ struct CardEditor: View {
                             ForEach(state.data.decks) { Text($0.name.isEmpty ? "Deck" : $0.name).tag($0.id) }
                         }.labelsHidden()
                     }
+                    Toggle("Paused — it stays in the deck, but won't come up for review", isOn: Binding(
+                        get: { draft.paused == true }, set: { draft.paused = $0 ? true : nil }))
+                        .toggleStyle(.checkbox).font(.caption)
                     Text("Due \(draft.due.formatted(date: .abbreviated, time: .omitted)) · \(draft.reviews) reviews · \(draft.lapses) lapses")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding(14)
@@ -831,7 +897,7 @@ struct StudyView: View {
         .onAppear {
             if queue.isEmpty {
                 queue = state.data.flashcards
-                    .filter { (deckID == nil || $0.deckID == deckID) && (practiceAll || $0.isDue) }
+                    .filter { (deckID == nil || $0.deckID == deckID) && $0.paused != true && (practiceAll || $0.isDue) }
                     .map(\.id).shuffled()
                 initialCount = queue.count
             }
@@ -1101,5 +1167,13 @@ struct TestView: View {
             return Q(front: Cloze.parse(c.front).plain, answer: c.back, options: opts.shuffled())
         }
         idx = 0; score = 0; picked = nil
+    }
+}
+
+extension Flashcard {
+    /// Pause a card, or bring it back: kept in its deck either way, offered for review only when not paused.
+    @MainActor static func togglePaused(_ id: UUID, in state: AppState) {
+        guard let i = state.data.flashcards.firstIndex(where: { $0.id == id }) else { return }
+        state.data.flashcards[i].paused = state.data.flashcards[i].paused == true ? nil : true
     }
 }

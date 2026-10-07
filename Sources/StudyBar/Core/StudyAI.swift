@@ -1290,6 +1290,15 @@ enum StudySelfTest {
             check("a weak topic → quiz on it", step() == .quiz(focus: ["Flux"]), "\(String(describing: step()))")
             d.flashcards[0].due = now.addingTimeInterval(-60)
             check("cards due → review them", step() == .review)
+            d.flashcards[0].paused = true
+            check("a paused card isn't due, and isn't counted", !d.flashcards[0].isDue && step() != .review)
+            let round = try? JSONDecoder.studybar.decode(Flashcard.self, from: JSONEncoder.studybar.encode(d.flashcards[0]))
+            // A card saved before pausing existed has no "paused" key at all.
+            let unpaused = (try? JSONEncoder.studybar.encode(Flashcard(deckID: deck.id, front: "a", back: "b"))).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let old = try? JSONDecoder.studybar.decode(Flashcard.self, from: Data(unpaused.utf8))
+            check("paused survives a save; an older card decodes unpaused",
+                  round?.paused == true && !unpaused.contains("paused") && old != nil && old?.paused == nil, "\(String(describing: round?.paused)) \(unpaused.prefix(80))")
+            d.flashcards[0].paused = nil
             d.assignments = [Assignment(title: "Midterm 2", courseID: c.id, due: now.addingTimeInterval(3 * 86_400))]
             check("a midterm in three days → a practice exam", step() == .exam
                   && NextStep.pick(course: c, data: d, hasMaterial: true, now: now)?.why.contains("in 3 days") == true)
@@ -1607,7 +1616,7 @@ enum NextStep {
             }
             return Pick(title: "Sit a practice exam", why: "\(test.title) is \(when) — rehearse it under time.", button: "Practice exam", action: .exam)
         }
-        let due = cards.filter { $0.due <= now }.count
+        let due = cards.filter { $0.due <= now && $0.paused != true }.count
         if due > 0 {
             return Pick(title: "Review \(due) flashcard\(due == 1 ? "" : "s") due", why: "About \(max(1, (due * 8 + 59) / 60)) min. Reviewing them on time is what makes them stick.",
                         button: "Review", action: .review)

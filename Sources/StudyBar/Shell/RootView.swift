@@ -646,10 +646,11 @@ struct SidebarRow: View {
 /// Rounded search field used in the header.
 struct SearchField: View {
     @Binding var text: String
+    var prompt = "Search"
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-            TextField("Search", text: $text).textFieldStyle(.plain).font(.callout)
+            TextField(prompt, text: $text).textFieldStyle(.plain).font(.callout)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
