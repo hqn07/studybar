@@ -5,6 +5,22 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **Homework and deadlines from a lecture, into Assignments** — study notes from a lecture now end with what the lecturer announced (problem sets, readings, quizzes, exams) and a list of every formula with what its symbols mean. The note offers *Deadlines*: each announced item as an assignment, dated from what was said ("due next Wednesday at midnight", counted from the lecture's day), to check and add.
+
+- **Fix a misheard word everywhere** — in Voice Note, *Fix a word…* corrects a term the transcription got wrong ("ferrets" → "farads") throughout the transcript before you save. In Notes, *Fix a Word in Every Note of the Course…* (in the note's menu, or right-click the word) does it across a whole course, with Undo. Either can teach the course to expect the right word in future recordings.
+
+- **Recording expects the course's words** — speech recognition is now also told the slide titles of the lecture's deck, your `term :: definition` lines, your flashcard terms and the syllabus's key words — and a recording started from the menu bar or ⌃⌥R gets them too.
+
+- **More for a selected passage** — right-click a selection in a note for *Ask About…*, *Summarize Selection* and *Highlight*, beside *Explain* and *Make Flashcards*.
+
+- **Search every card, and pause one** — the Flashcards screen searches every deck's cards at once. *Pause Card* keeps a card in its deck but out of review until you resume it.
+
+- **Deadlines in Calendar** — Assignments can add your open deadlines to Calendar, or save them as a file for Google Calendar or Outlook. End-of-day deadlines show as all-day events, each with a reminder the day before.
+
+- **A slide's cards** — beside a lecture's note, each slide shows the flashcards made from it, and *Make cards* writes more from what the notes say about that slide.
+
+- **Fixed: quiz sources** — a question's source read "the [notes, part 1] source"; it now reads as the source.
+
 - **Progress says what to do next** — Study's Progress tab opens with one next step and the button that does it: sit a practice exam when a test is this week, review the flashcards that are due, quiz yourself on your weakest topic or on a syllabus objective your notes cover but no quiz has asked about, make flashcards from notes that have none, or take a first quiz.
 
 - **Quizzes as hard as you want** — Quiz and Practice exam have Easier, Standard and Harder. Easier sticks to definitions and one-step questions for a first pass; Harder asks multi-step problems and builds the wrong answers from the mistakes students really make. *Quiz me* on a note uses the last one you picked.
