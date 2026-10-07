@@ -559,6 +559,9 @@ struct NoteEditor: View {
     /// The lecture's slides beside the note, and the one showing.
     @State private var showSlides = false
     @State private var slidePage = 1
+    /// This note's cards by slide, worked out when the slides open or the cards change — not per keystroke.
+    @State private var slideCards: [Int: [Flashcard]] = [:]
+    private var slideCardsKey: Int { state.data.flashcards.filter { $0.origin?.noteID == draft.id }.count }
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
     @State private var aiAction: NoteAI?
@@ -1043,7 +1046,15 @@ struct NoteEditor: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         if showSlides, let deck {
                             Divider()
-                            SlidesPane(file: deck, page: $slidePage).frame(width: min(420, geo.size.width * 0.42))
+                            SlidesPane(file: deck, page: $slidePage, cards: slideCards,
+                                       openCard: { c in persist(); state.pendingDeck = c.deckID; state.selectedModuleID = "flashcards" },
+                                       makeCards: { n in
+                                           persist()
+                                           let section = SlideCards.sections(draft.body)[n] ?? ""
+                                           makingCards = .init(text: section, course: draft.courseID, note: draft.id)
+                                       })
+                                .frame(width: min(420, geo.size.width * 0.42))
+                                .task(id: slideCardsKey) { slideCards = SlideCards.bySlide(draft, cards: state.data.flashcards) }
                         }
                     }
                     if asking && !side {

@@ -7,6 +7,12 @@ import SwiftUI
 struct SlidesPane: View {
     let file: StudyFile
     @Binding var page: Int
+    /// The note's cards by slide (`SlideCards`); with these, a slide lists its own.
+    var cards: [Int: [Flashcard]] = [:]
+    var openCard: ((Flashcard) -> Void)?
+    /// Make cards from this slide's part of the note.
+    var makeCards: ((Int) -> Void)?
+    @State private var showCards = false
 
     private var url: URL { StudyMaterial.fileURL(file) }
     private var isPDF: Bool { url.pathExtension.lowercased() == "pdf" }
@@ -48,8 +54,40 @@ struct SlidesPane: View {
                     .onAppear { proxy.scrollTo(page, anchor: .top) }
                 }
             }
+            if openCard != nil || makeCards != nil { slideCards }
         }
         .background(.sbSurface.opacity(0.35))
+    }
+
+    /// This slide's cards, and a way to make some from it.
+    private var slideCards: some View {
+        let mine = cards[page] ?? []
+        return VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            HStack(spacing: 8) {
+                Button { showCards.toggle() } label: {
+                    Label(mine.isEmpty ? "No cards from this slide" : "\(mine.count) card\(mine.count == 1 ? "" : "s") from this slide",
+                          systemImage: showCards && !mine.isEmpty ? "chevron.down" : "rectangle.on.rectangle.angled")
+                }
+                .buttonStyle(.borderless).disabled(mine.isEmpty)
+                Spacer()
+                if let makeCards {
+                    Button("Make cards") { makeCards(page) }.buttonStyle(.borderless)
+                        .help("Flashcards from what the notes say about this slide")
+                }
+            }
+            .font(.caption).padding(.horizontal, 10)
+            if showCards {
+                ForEach(mine) { c in
+                    Button { openCard?(c) } label: {
+                        Text(c.isCloze ? Cloze.answer(c.front) : c.front).font(.callout).lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).padding(.horizontal, 10)
+                }
+            }
+        }
+        .padding(.bottom, 8)
     }
 }
 

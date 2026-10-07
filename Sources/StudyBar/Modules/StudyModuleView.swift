@@ -1343,7 +1343,9 @@ enum StudySnapshot {
             var lecture = Note(title: "Week 3 — Gauss's Law", body: "## Slide 1 — Electric flux\nFlux is the field through a surface.\n\n## Slide 2 — Gauss's law\nThe net flux through a closed surface is the charge inside over ε₀.\n\n## Slide 3 — Conductors\nNo field inside.", courseID: course.id)
             lecture.slidesID = deckFile.id
             state.data.notes.append(lecture)
-            save(SlidesPane(file: deckFile, page: .constant(2)), "slides-pane.png", CGSize(width: 380, height: 300))
+            let slideCard = Flashcard(deckID: UUID(), front: "What does Gauss's law relate?", back: "Flux through a closed surface to the charge inside")
+            save(SlidesPane(file: deckFile, page: .constant(2), cards: [2: [slideCard]], openCard: { _ in }, makeCards: { _ in }),
+                 "slides-pane.png", CGSize(width: 380, height: 340))
             save(NoteEditor(note: lecture, embedded: true), "note-with-slides.png", CGSize(width: 1100, height: 560))
         }
         let cardNote = Note(title: "Week 3 — Gauss's Law", body: "Flux :: the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$", courseID: course.id)

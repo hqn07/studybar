@@ -344,6 +344,40 @@ enum LectureNotes {
     }
 }
 
+// MARK: - A slide's cards
+
+/// Notes made with the slides are written under `## Slide N` headings; a card made from such a
+/// note belongs to the slide whose section its words match best — so a slide can list its cards.
+enum SlideCards {
+    /// Each slide's section of the note: from its heading to the next heading at its level or above.
+    static func sections(_ body: String) -> [Int: String] {
+        var out: [Int: String] = [:], current: Int?, level = 0
+        for line in body.components(separatedBy: .newlines) {
+            let hashes = line.prefix { $0 == "#" }.count
+            if hashes > 0, let n = LectureNotes.slideNumber(inHeading: line) {
+                current = n; level = hashes; out[n, default: ""] += line + "\n"; continue
+            }
+            if hashes > 0, hashes <= level { current = nil }
+            if let c = current { out[c, default: ""] += line + "\n" }
+        }
+        return out
+    }
+
+    /// The note's cards, each under the slide its words match best.
+    static func bySlide(_ note: Note, cards: [Flashcard]) -> [Int: [Flashcard]] {
+        let secs = sections(note.body)
+        guard !secs.isEmpty else { return [:] }
+        let passages = secs.map { StudyPassage(title: "\($0.key)", locator: "", text: $0.value) }
+        var out: [Int: [Flashcard]] = [:]
+        for c in cards where c.origin?.noteID == note.id {
+            if let n = StudyIndex.search(c.front + " " + c.back, in: passages, k: 1, meaning: false).first.flatMap({ Int($0.title) }) {
+                out[n, default: []].append(c)
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Announced in a lecture
 
 /// Homework, readings and deadlines the lecturer announced, read from the notes' `### Announced`
@@ -538,6 +572,30 @@ enum LectureNotesSelfTest {
             var light = LectureNotes.Style(); light.fillIn = .light; light.shape = .qa
             let l = LectureNotes.system(.lecture, part: 1, of: 1, slides: true, style: light)
             check("light fill-in, Q&A, by slide", l.contains("a few in all") && l.contains("**Q:**") && l.contains("## Slide N") && !l.contains("aim for at least one"))
+        }
+
+        // A slide's cards: each card under the slide its words match.
+        do {
+            let note = Note(title: "Week 7", body: """
+            # Capacitors
+            ## Slide 1 — Capacitance
+            - **Capacitance** C = Q/V, measured in farads
+            ## Slide 2 — Energy
+            - Stored energy U = ½CV²
+            ### Example
+            - A 2 µF capacitor at 10 V stores 100 µJ
+            ## Review
+            - takeaways
+            """)
+            let secs = SlideCards.sections(note.body)
+            check("slide sections run to the next slide or a heading above them",
+                  secs.keys.sorted() == [1, 2] && secs[2]?.contains("100 µJ") == true && secs[2]?.contains("takeaways") == false, "\(secs)")
+            var a = Flashcard(deckID: UUID(), front: "Unit of capacitance?", back: "The farad"); a.source = CardSource(noteID: note.id)
+            var b = Flashcard(deckID: UUID(), front: "Energy stored in a capacitor?", back: "U = ½CV²"); b.source = CardSource(noteID: note.id)
+            let other = Flashcard(deckID: UUID(), front: "Energy stored?", back: "x")
+            let map = SlideCards.bySlide(note, cards: [a, b, other])
+            check("each card under its slide; another note's cards left out",
+                  map[1]?.map(\.id) == [a.id] && map[2]?.map(\.id) == [b.id], "\(map.mapValues { $0.map(\.front) })")
         }
 
         // Fixing a misheard word: whole words, any case, capitals kept, formatting kept.
