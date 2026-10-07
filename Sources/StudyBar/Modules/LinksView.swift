@@ -28,9 +28,9 @@ struct LinksView: View {
             ModulePane(title: "Library") {
                 HStack(spacing: 8) {
                     LibraryTabPicker()
-                    Button { addCurrentTab() } label: { Image(systemName: "safari") }
+                    Button { addCurrentTab() } label: { Image(systemName: "safari").accessibilityLabel("Add current browser tab") }
                         .help("Add current browser tab")
-                    Button { editing = QuickLink(title: "", url: "") } label: { Image(systemName: "plus") }
+                    Button { editing = QuickLink(title: "", url: "") } label: { Image(systemName: "plus").accessibilityLabel("New link") }
                 }
             } content: {
                 if state.data.links.isEmpty {
@@ -102,7 +102,7 @@ struct LinkRow: View {
             }.buttonStyle(.plain)
             Spacer()
             if link.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
-            Button(action: onEdit) { Image(systemName: "pencil") }
+            Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit link") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
@@ -145,6 +145,7 @@ struct LinkEditor: View {
                             Image(systemName: s).frame(width: 24, height: 24)
                                 .background(draft.symbol == s ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.clear),
                                             in: RoundedRectangle(cornerRadius: 5))
+                                            .accessibilityLabel("Icon: " + s.replacingOccurrences(of: ".", with: " "))
                         }.buttonStyle(.plain)
                     }
                 }

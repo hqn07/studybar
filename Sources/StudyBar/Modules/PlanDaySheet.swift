@@ -67,9 +67,9 @@ struct PlanDaySheet: View {
                 Stepper(value: d.minutes, in: 15...120, step: 15) {
                     Text("\(draft.minutes) min").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }.fixedSize()
-                Button { accept(draft) } label: { Image(systemName: "checkmark.circle.fill") }
+                Button { accept(draft) } label: { Image(systemName: "checkmark.circle.fill").accessibilityLabel("Add this block") }
                     .buttonStyle(.borderless).foregroundStyle(.green).help("Add this block to \(heading)")
-                Button { withAnimation { drafts.removeAll { $0.id == draft.id } } } label: { Image(systemName: "xmark") }
+                Button { withAnimation { drafts.removeAll { $0.id == draft.id } } } label: { Image(systemName: "xmark").accessibilityLabel("Skip") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary).help("Skip")
             }
             if !draft.why.isEmpty {

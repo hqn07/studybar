@@ -111,6 +111,7 @@ struct AssignmentEditor: View {
                     TextField("Step", text: $item.text)
                     Button { draft.checklist.removeAll { $0.id == item.id } } label: {
                         Image(systemName: "minus.circle")
+                        .accessibilityLabel("Remove step")
                     }.buttonStyle(.borderless).foregroundStyle(.secondary)
                 }
             }
@@ -140,7 +141,7 @@ struct AssignmentEditor: View {
                 Spacer()
                 Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
                 if !stepsLoading {
-                    Button { cancelSteps() } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { cancelSteps() } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Dismiss the steps") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
             }

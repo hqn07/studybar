@@ -43,6 +43,7 @@ struct SubHeader<Trailing: View>: View {
         HStack(spacing: 8) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left").fontWeight(.semibold)
+                .accessibilityLabel("Back")
             }.buttonStyle(.borderless).help("Back").keyboardShortcut("[", modifiers: .command)
             Text(title).font(.headline)
             Spacer()

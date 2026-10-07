@@ -205,6 +205,7 @@ struct RootView: View {
         HStack(spacing: 8) {
             Button { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } } label: {
                 Image(systemName: "sidebar.leading").font(.system(size: 14))
+                .accessibilityLabel("Toggle sidebar")
             }
             .buttonStyle(.borderless).controlSize(.small)
             .help(sidebarCollapsed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
@@ -219,6 +220,7 @@ struct RootView: View {
                 Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis.circle")
+                .accessibilityLabel("Menu")
             }.menuStyle(.borderlessButton).controlSize(.small).fixedSize().help("Menu")
         }
         // 78pt of leading room: the header now shares the titlebar strip with the traffic
@@ -290,10 +292,10 @@ struct RootView: View {
             .menuStyle(.borderlessButton).fixedSize()
             Spacer()
             if right != WindowModel.chat {
-                Button { let l = win.moduleID; win.moduleID = right; win.rightID = l } label: { Image(systemName: "arrow.left.arrow.right") }
+                Button { let l = win.moduleID; win.moduleID = right; win.rightID = l } label: { Image(systemName: "arrow.left.arrow.right").accessibilityLabel("Swap sides") }
                     .buttonStyle(.borderless).help("Swap sides")
             }
-            Button { win.rightID = nil } label: { Image(systemName: "xmark") }
+            Button { win.rightID = nil } label: { Image(systemName: "xmark").accessibilityLabel("Close this side") }
                 .buttonStyle(.borderless).help("Close this side (⌘J for chat)")
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
@@ -366,6 +368,7 @@ struct RootView: View {
                 }
             } label: {
                 Image(systemName: "square.grid.2x2")
+                .accessibilityLabel("Modules")
             }
             .menuStyle(.borderlessButton).controlSize(.small).fixedSize()
             .help("Open a module in the window")
@@ -377,6 +380,7 @@ struct RootView: View {
                 Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis.circle")
+                .accessibilityLabel("Menu")
             }
             .menuStyle(.borderlessButton).controlSize(.small).fixedSize().help("Menu")
         }
@@ -652,7 +656,7 @@ struct SearchField: View {
             Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
             TextField(prompt, text: $text).textFieldStyle(.plain).font(.callout)
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Clear search") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
         }
@@ -673,7 +677,7 @@ struct UndoToast: View {
             Text(label).font(.callout).lineLimit(1)
             Spacer(minLength: DS.Space.m)
             Button("Undo", action: onUndo).buttonStyle(.borderedProminent).controlSize(.small)
-            Button { onDismiss() } label: { Image(systemName: "xmark") }
+            Button { onDismiss() } label: { Image(systemName: "xmark").accessibilityLabel("Dismiss") }
                 .buttonStyle(.borderless).font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)

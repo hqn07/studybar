@@ -253,7 +253,7 @@ struct DeckView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold).accessibilityLabel("Back") }
                 .buttonStyle(.borderless).help("Back").keyboardShortcut("[", modifiers: .command)
             Text(deck.name.isEmpty ? "Deck" : deck.name).font(.headline).lineLimit(1)
             CoursePicker(courseID: courseBinding)
@@ -277,7 +277,7 @@ struct DeckView: View {
                 Divider()
                 Button { resetProgress() } label: { Label("Reset study progress", systemImage: "arrow.counterclockwise") }
                 Button(role: .destructive) { deleteDeck() } label: { Label("Delete deck", systemImage: "trash") }
-            } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize()
+            } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Deck actions") }.menuStyle(.borderlessButton).fixedSize()
             studyButton
         }.padding(12)
     }
@@ -573,7 +573,7 @@ struct TagChips: View {
                 Image(systemName: "tag").font(.caption2).foregroundStyle(.secondary)
                 TextField("Add tag…", text: $newTag).textFieldStyle(.plain).font(.caption).onSubmit(addNew)
                 if !newTag.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Button(action: addNew) { Image(systemName: "plus.circle.fill") }
+                    Button(action: addNew) { Image(systemName: "plus.circle.fill").accessibilityLabel("Add tag") }
                         .buttonStyle(.borderless).font(.caption)
                 }
             }
@@ -834,7 +834,7 @@ struct StudyView: View {
                 }
                 Spacer()
                 if let c = currentCard {
-                    Button { editingCard = c } label: { Image(systemName: "pencil") }.buttonStyle(.borderless)
+                    Button { editingCard = c } label: { Image(systemName: "pencil").accessibilityLabel("Edit card") }.buttonStyle(.borderless)
                 }
                 Text("\(queue.count) left").font(.caption).foregroundStyle(.secondary)
             }.padding(12)
@@ -967,7 +967,7 @@ struct MatchView: View {
 
     private var header: some View {
         HStack(spacing: DS.Space.m) {
-            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold).accessibilityLabel("Back") }
                 .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
             Text("Match").font(.headline)
             Spacer()
@@ -978,7 +978,7 @@ struct MatchView: View {
                 }
                 Text("\(gone.count / 2)/\(pairCount)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Button { build() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless).help("Shuffle")
+            Button { build() } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Shuffle") }.buttonStyle(.borderless).help("Shuffle")
         }.padding(12)
     }
 
@@ -1089,7 +1089,7 @@ struct TestView: View {
 
     private var header: some View {
         HStack(spacing: DS.Space.m) {
-            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+            Button { dismiss() } label: { Image(systemName: "chevron.left").fontWeight(.semibold).accessibilityLabel("Back") }
                 .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
             Text("Test").font(.headline)
             Spacer()

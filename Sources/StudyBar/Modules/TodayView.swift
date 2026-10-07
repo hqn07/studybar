@@ -295,10 +295,10 @@ struct TodayView: View {
                         guard press.modifiers.contains(.option) else { return .ignored }
                         addAsNote(); return .handled
                     }
-                Button { addTask() } label: { Image(systemName: "plus.circle.fill") }
+                Button { addTask() } label: { Image(systemName: "plus.circle.fill").accessibilityLabel("Add as a task") }
                     .buttonStyle(.borderless).disabled(quickTask.isEmpty)
                     .help("Add as a task (↩)")
-                Button { addAsNote() } label: { Image(systemName: "note.text.badge.plus") }
+                Button { addAsNote() } label: { Image(systemName: "note.text.badge.plus").accessibilityLabel("Add as a note") }
                     .buttonStyle(.borderless).help("Add as a note (⌥↩)")
             }
             if showParsePreview { parsePreview }
@@ -401,9 +401,9 @@ struct TodayView: View {
                 Stepper(value: d.minutes, in: 15...120, step: 15) {
                     Text("\(draft.minutes) min").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }.fixedSize()
-                Button { acceptPlan(draft) } label: { Image(systemName: "checkmark.circle.fill") }
+                Button { acceptPlan(draft) } label: { Image(systemName: "checkmark.circle.fill").accessibilityLabel("Add this block to today") }
                     .buttonStyle(.borderless).foregroundStyle(.green).help("Add this block to today")
-                Button { withAnimation { planDrafts.removeAll { $0.id == draft.id } } } label: { Image(systemName: "xmark") }
+                Button { withAnimation { planDrafts.removeAll { $0.id == draft.id } } } label: { Image(systemName: "xmark").accessibilityLabel("Skip") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary).help("Skip")
             }
             if !draft.why.isEmpty {
@@ -487,9 +487,9 @@ struct TodayView: View {
                 Text("\(b.startString) – \(b.endString)").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: DS.Space.s)
-            Button { withAnimation { markBlockDone(b) } } label: { Image(systemName: "checkmark.circle.fill") }
+            Button { withAnimation { markBlockDone(b) } } label: { Image(systemName: "checkmark.circle.fill").accessibilityLabel("Mark done") }
                 .buttonStyle(.borderless).foregroundStyle(.green).help("Mark done — it counts toward your day")
-            Button { withAnimation { rollForward(b) } } label: { Image(systemName: "arrow.uturn.forward") }
+            Button { withAnimation { rollForward(b) } } label: { Image(systemName: "arrow.uturn.forward").accessibilityLabel("Move to tomorrow") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).help("Move this block to tomorrow")
         }
         .padding(DS.Space.s)

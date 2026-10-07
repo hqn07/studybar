@@ -174,7 +174,7 @@ struct CalculatorPanelView: View {
                     ForEach(MathEval.AngleMode.allCases, id: \.self) { Text($0.short).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 108)
-                Button { close() } label: { Image(systemName: "xmark") }
+                Button { close() } label: { Image(systemName: "xmark").accessibilityLabel("Close") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
             .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.m)

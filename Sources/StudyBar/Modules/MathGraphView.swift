@@ -245,11 +245,11 @@ struct MathGraphView: View {
 
     private var zoomControls: some View {
         HStack(spacing: DS.Space.xs) {
-            Button { model.viewport = model.viewport.zoomed(by: 1 / 1.4) } label: { Image(systemName: "plus.magnifyingglass") }
+            Button { model.viewport = model.viewport.zoomed(by: 1 / 1.4) } label: { Image(systemName: "plus.magnifyingglass").accessibilityLabel("Zoom in") }
                 .help("Zoom in")
-            Button { model.viewport = model.viewport.zoomed(by: 1.4) } label: { Image(systemName: "minus.magnifyingglass") }
+            Button { model.viewport = model.viewport.zoomed(by: 1.4) } label: { Image(systemName: "minus.magnifyingglass").accessibilityLabel("Zoom out") }
                 .help("Zoom out")
-            Button { model.resetViewport() } label: { Image(systemName: "scope") }
+            Button { model.resetViewport() } label: { Image(systemName: "scope").accessibilityLabel("Reset the view") }
                 .help("Back to the default window")
         }
         .buttonStyle(.borderless)
@@ -333,7 +333,7 @@ struct MathGraphView: View {
                     if let e = curve.error, !curve.source.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(e).font(.caption2).foregroundStyle(.orange).lineLimit(1)
                     }
-                    Button { model.remove(curve.id) } label: { Image(systemName: "minus.circle") }
+                    Button { model.remove(curve.id) } label: { Image(systemName: "minus.circle").accessibilityLabel("Remove curve") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary)
                         .help("Remove")
                 }

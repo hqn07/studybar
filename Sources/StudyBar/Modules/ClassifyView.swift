@@ -118,6 +118,7 @@ struct ClassifyView: View {
                 }
             } label: {
                 Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.secondary)
+                .accessibilityLabel("More")
             }.menuStyle(.borderlessButton).fixedSize()
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, 6)

@@ -32,9 +32,9 @@ struct CitationsView: View {
                     Picker("", selection: $styleRaw) {
                         ForEach(CiteStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
                     }.labelsHidden().fixedSize()
-                    Button { importFile() } label: { Image(systemName: "square.and.arrow.down") }
+                    Button { importFile() } label: { Image(systemName: "square.and.arrow.down").accessibilityLabel("Import a library") }
                         .help("Import a library — BibTeX (.bib), RIS (.ris) or CSL-JSON, from Zotero, Mendeley, EndNote or Google Scholar")
-                    Button { addManual() } label: { Image(systemName: "plus") }
+                    Button { addManual() } label: { Image(systemName: "plus").accessibilityLabel("Add a citation") }
                 }
             } content: {
                 VStack(spacing: 0) {
@@ -74,6 +74,7 @@ struct CitationsView: View {
                 // Straight from the clipboard, so a pasted RIS record keeps the lines it needs.
                 Button { if let s = NSPasteboard.general.string(forType: .string), !importText(s) { grabText = s; grab() } } label: {
                     Image(systemName: "doc.on.clipboard")
+                    .accessibilityLabel("Paste and grab from the clipboard")
                 }.buttonStyle(.borderless).help("Paste & grab from clipboard")
                 if fetching {
                     ProgressView().controlSize(.small)
@@ -243,14 +244,15 @@ struct ReferenceRow: View {
             }
             Spacer()
             VStack(spacing: 6) {
-                Button { copy(rendered) } label: { Image(systemName: "doc.on.doc") }
+                Button { copy(rendered) } label: { Image(systemName: "doc.on.doc").accessibilityLabel("Copy citation") }
                     .buttonStyle(.borderless).help("Copy full \(style.rawValue) citation")
-                Button { copy(CitationFormatter.inText(reference)) } label: { Image(systemName: "text.quote") }
+                Button { copy(CitationFormatter.inText(reference)) } label: { Image(systemName: "text.quote").accessibilityLabel("Copy in-text citation") }
                     .buttonStyle(.borderless).help("Copy in-text \(CitationFormatter.inText(reference))")
-                Button(action: onEdit) { Image(systemName: "pencil") }
+                Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit citation") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
                 Button { state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == reference.id } } } label: {
                     Image(systemName: "trash")
+                    .accessibilityLabel("Delete citation")
                 }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Delete — undo, or find it in the Trash")
             }.font(.caption)
         }

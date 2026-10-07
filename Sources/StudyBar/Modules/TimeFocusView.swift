@@ -46,6 +46,7 @@ struct TimeFocusView: View {
             HStack(spacing: DS.Space.s) {
                 Button { withAnimation { showHistory.toggle() } } label: {
                     Image(systemName: showHistory ? "chevron.left" : "clock.arrow.circlepath")
+                    .accessibilityLabel(showHistory ? "Back to timer" : "Session history")
                 }.help(showHistory ? "Back to timer" : "Session history")
                 AmbientButton()
             }
@@ -150,6 +151,7 @@ struct TimeFocusView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Button { withAnimation { showPomoSettings.toggle() } } label: {
                     Image(systemName: "gearshape").font(.caption)
+                    .accessibilityLabel("Timer settings")
                 }.buttonStyle(.borderless).help("Timer settings")
             }
             if showPomoSettings {
@@ -544,6 +546,7 @@ private struct AmbientButton: View {
             }
         } label: {
             Image(systemName: kind == .none ? "speaker.slash" : "speaker.wave.2.fill")
+            .accessibilityLabel("Focus sound")
         }
         .help(kind == .none ? "Play ambient noise" : "Mute ambient noise")
         .foregroundStyle(kind == .none ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
@@ -649,7 +652,7 @@ private struct SessionsSection: View {
             Menu {
                 Button("Rename") { renaming = e; newLabel = e.label }
                 Button("Delete", role: .destructive) { state.withUndo("Deleted session") { state.data.timeEntries.removeAll { $0.id == e.id } } }
-            } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
+            } label: { Image(systemName: "ellipsis").accessibilityLabel("Session actions") }.menuStyle(.borderlessButton).fixedSize()
         }
         .padding(DS.Space.m).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .padding(.horizontal, DS.Space.l)

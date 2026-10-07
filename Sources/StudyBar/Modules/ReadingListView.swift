@@ -19,7 +19,7 @@ struct ReadingListView: View {
             HStack(spacing: 8) {
                 LibraryTabPicker()
                 Toggle("Unread", isOn: $hideRead).toggleStyle(.switch).controlSize(.mini)
-                Button { addCurrentTab() } label: { Image(systemName: "safari") }
+                Button { addCurrentTab() } label: { Image(systemName: "safari").accessibilityLabel("Add current browser tab") }
                     .help("Add current browser tab")
             }
         } content: {
@@ -82,6 +82,7 @@ struct ReadingListRow: View {
             Button { toggle() } label: {
                 Image(systemName: item.read ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(item.read ? AnyShapeStyle(Color.dsDone) : AnyShapeStyle(.secondary))
+                    .accessibilityLabel(item.read ? "Mark unread" : "Mark read")
             }.buttonStyle(.plain)
             FaviconView(urlString: item.url, fallbackSymbol: "doc.text", size: 16)
             Button { open() } label: {
@@ -96,6 +97,7 @@ struct ReadingListRow: View {
                 set: { v in if let i = state.data.readingList.firstIndex(where: { $0.id == item.id }) { state.data.readingList[i].courseID = v } }))
             Button { state.withUndo("Removed from Read later") { state.data.readingList.removeAll { $0.id == item.id } } } label: {
                 Image(systemName: "xmark")
+                .accessibilityLabel("Remove from Read later")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
         .padding(DS.Space.m).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))

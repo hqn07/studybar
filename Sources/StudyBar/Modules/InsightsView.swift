@@ -191,6 +191,7 @@ struct InsightsView: View {
                 Spacer(minLength: DS.Space.s)
                 Menu { WeeklyGoalMenu(goalMinutes: $goalMinutes) } label: {
                     Image(systemName: "slider.horizontal.3")
+                    .accessibilityLabel("Change your weekly goal")
                 }.menuStyle(.borderlessButton).fixedSize().help("Change your weekly goal")
             } else {
                 Image(systemName: "target").font(.title2).foregroundStyle(.tint)

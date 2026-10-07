@@ -36,17 +36,18 @@ struct RSSView: View {
                 HStack(spacing: 8) {
                     LibraryTabPicker()
                     if unreadCount > 0 {
-                        Button { markAllRead() } label: { Image(systemName: "checkmark.circle") }
+                        Button { markAllRead() } label: { Image(systemName: "checkmark.circle").accessibilityLabel("Mark all as read") }
                             .help("Mark all as read")
                     }
                     Button { unreadOnly.toggle() } label: {
                         Image(systemName: unreadOnly ? "circle.fill" : "circle.dashed")
+                            .accessibilityLabel(unreadOnly ? "Show all articles" : "Show unread only")
                     }
                     .foregroundStyle(unreadOnly ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     .help(unreadOnly ? "Showing unread — tap for all" : "Show unread only")
-                    Button { Task { await refresh() } } label: { Image(systemName: "arrow.clockwise") }
+                    Button { Task { await refresh() } } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Refresh") }
                         .disabled(loading || state.rssFeeds.isEmpty)
-                    Button { managing = true } label: { Image(systemName: "list.bullet") }.help("Manage feeds")
+                    Button { managing = true } label: { Image(systemName: "list.bullet").accessibilityLabel("Manage feeds") }.help("Manage feeds")
                 }
             } content: {
                 Group {
@@ -128,7 +129,7 @@ struct RSSView: View {
                         Spacer()
                         Button {
                             state.data.readingList.append(ReadingListItem(title: a.title, url: a.link))
-                        } label: { Image(systemName: "books.vertical") }
+                        } label: { Image(systemName: "books.vertical").accessibilityLabel("Read later") }
                             .buttonStyle(.borderless).font(.caption2).help("Read later")
                     }
                 }
@@ -154,7 +155,7 @@ struct RSSView: View {
                     Button { importOPML() } label: { Label("Import OPML…", systemImage: "square.and.arrow.down") }
                     Button { exportOPML() } label: { Label("Export OPML…", systemImage: "square.and.arrow.up") }
                         .disabled(state.rssFeeds.isEmpty)
-                } label: { Image(systemName: "ellipsis.circle") }
+                } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Feed actions") }
             }
             Divider()
             List {
@@ -202,7 +203,7 @@ struct RSSView: View {
                 Label(f.folder.isEmpty ? "Folder" : f.folder, systemImage: "folder")
                     .font(.caption2)
             }.menuStyle(.borderlessButton).fixedSize()
-            Button(role: .destructive) { remove(f) } label: { Image(systemName: "trash") }
+            Button(role: .destructive) { remove(f) } label: { Image(systemName: "trash").accessibilityLabel("Delete feed") }
                 .buttonStyle(.borderless)
         }
     }
@@ -289,6 +290,7 @@ struct ArticleReader: View {
             SubHeader("Article") {
                 Button { state.data.readingList.append(ReadingListItem(title: article.title, url: article.link)) } label: {
                     Image(systemName: "books.vertical")
+                    .accessibilityLabel("Read later")
                 }.help("Read later")
             }
             Divider()

@@ -79,7 +79,7 @@ struct VoiceBody: View {
                             }
                             Divider()
                             Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
-                        } label: { Image(systemName: whisper ? "cpu" : "waveform") }
+                        } label: { Image(systemName: whisper ? "cpu" : "waveform").accessibilityLabel("Transcription engine") }
                             .help("Transcription engine")
                         if voiceEngine == "apple" {
                             Menu {
@@ -88,7 +88,7 @@ struct VoiceBody: View {
                                         Label(loc.label, systemImage: voiceLocale == loc.id ? "checkmark" : "globe")
                                     }
                                 }
-                            } label: { Image(systemName: "globe") }.help("Dictation language")
+                            } label: { Image(systemName: "globe").accessibilityLabel("Dictation language") }.help("Dictation language")
                         }
                     }
                     if !voice.transcript.isEmpty && idle {

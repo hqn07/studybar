@@ -16,7 +16,7 @@ struct KanbanView: View {
         NavigationStack {
             ModulePane(title: "Board") {
                 HStack(spacing: 8) {
-                    Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet") }
+                    Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet").accessibilityLabel("List view") }
                         .help("List view — same assignments")
                     Text("\(state.data.assignments.filter { !$0.isArchived }.count) tasks").font(.caption).foregroundStyle(.secondary)
                 }
@@ -102,7 +102,7 @@ struct DropColumn<Content: View>: View {
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(.sbSurface2, in: Capsule())
                 Spacer()
-                Button(action: add) { Image(systemName: "plus") }.buttonStyle(.borderless).font(.caption)
+                Button(action: add) { Image(systemName: "plus").accessibilityLabel("Add an assignment") }.buttonStyle(.borderless).font(.caption)
             }.padding(.horizontal, 4)
             ScrollView {
                 VStack(spacing: 6) { content() }

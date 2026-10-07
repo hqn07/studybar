@@ -167,6 +167,7 @@ struct MakeCardsView: View {
                     Button { c.include.toggle() } label: {
                         Image(systemName: c.include ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(c.include ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .accessibilityLabel(c.include ? "Leave out this card" : "Include this card")
                     }.buttonStyle(.plain).padding(.top, 3)
                     VStack(spacing: 4) {
                         TextField("Front", text: $c.front).textFieldStyle(.roundedBorder)
@@ -475,6 +476,7 @@ struct AnnouncedSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Add \(chosen) to Assignments") { add() }.buttonStyle(.borderedProminent).disabled(chosen == 0)
+                    .keyboardShortcut(.defaultAction)
             }.padding(12)
         }
         .frame(minWidth: 500, minHeight: 360)
@@ -597,6 +599,7 @@ struct FixWordSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Replace All", action: apply).buttonStyle(.borderedProminent)
                     .disabled(!FixWordFields.ready(count: hits.map(\.count).reduce(0, +), replace: replace))
+                    .keyboardShortcut(.defaultAction)
             }.padding(12)
         }
         .frame(width: 460, height: 440)

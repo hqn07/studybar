@@ -104,11 +104,11 @@ struct AssignmentsView: View {
                             Label("\(unsortedImports)", systemImage: "tray.and.arrow.down")
                         }.help("Sort \(unsortedImports) imported Canvas items into courses")
                     }
-                    Button { state.selectedModuleID = "board" } label: { Image(systemName: "rectangle.split.3x1") }
+                    Button { state.selectedModuleID = "board" } label: { Image(systemName: "rectangle.split.3x1").accessibilityLabel("Board view") }
                         .help("Board view — same assignments")
-                    Button { deduping = true } label: { Image(systemName: "square.on.square") }
+                    Button { deduping = true } label: { Image(systemName: "square.on.square").accessibilityLabel("Find duplicate assignments") }
                         .help("Find duplicate assignments")
-                    Button { triaging = true } label: { Image(systemName: "tray.2") }
+                    Button { triaging = true } label: { Image(systemName: "tray.2").accessibilityLabel("Sort imported items") }
                         .help(triagedCount == 0
                               ? "Sort imported items into work, attendance and admin"
                               : "Sort the \(state.data.assignments.filter { $0.isOpen && $0.kind == nil }.count) unsorted items")
@@ -119,17 +119,17 @@ struct AssignmentsView: View {
                                     Label(s.rawValue, systemImage: sortMode == s ? "checkmark" : "arrow.up.arrow.down")
                                 }
                             }
-                        } label: { Image(systemName: "arrow.up.arrow.down.circle") }
+                        } label: { Image(systemName: "arrow.up.arrow.down.circle").accessibilityLabel("Sort assignments") }
                         .help("Sort assignments")
                     }
                     Menu {
                         Button { exportDeadlines(open: true) } label: { Label("Add Deadlines to Calendar…", systemImage: "calendar.badge.plus") }
                         Button { exportDeadlines(open: false) } label: { Label("Save Deadlines as .ics…", systemImage: "square.and.arrow.down") }
-                    } label: { Image(systemName: "calendar.badge.plus") }
+                    } label: { Image(systemName: "calendar.badge.plus").accessibilityLabel("Deadlines to Calendar") }
                     .menuStyle(.borderlessButton).fixedSize()
                     .help("Your open deadlines in Calendar — or as a file for Google or Outlook")
                     Toggle("Done", isOn: $showDone).toggleStyle(.switch).controlSize(.mini)
-                    Button { newAssignment() } label: { Image(systemName: "plus") }
+                    Button { newAssignment() } label: { Image(systemName: "plus").accessibilityLabel("New assignment") }
                 }
             } content: {
                 VStack(spacing: 0) {

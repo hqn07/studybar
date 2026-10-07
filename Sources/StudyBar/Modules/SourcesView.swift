@@ -79,9 +79,9 @@ struct SourcesView: View {
             HStack {
                 Text("SUBSCRIBED FEEDS").font(.caption2.bold()).foregroundStyle(.secondary)
                 Spacer()
-                Button { importing = true } label: { Image(systemName: "square.and.arrow.down") }
+                Button { importing = true } label: { Image(systemName: "square.and.arrow.down").accessibilityLabel("Import an .ics file") }
                     .buttonStyle(.borderless).help("Import .ics file")
-                Button { editingFeed = ICSFeed() } label: { Image(systemName: "plus") }.buttonStyle(.borderless)
+                Button { editingFeed = ICSFeed() } label: { Image(systemName: "plus").accessibilityLabel("Add a feed") }.buttonStyle(.borderless)
             }
             NavigationLink { ConnectCanvasView() } label: {
                 Label("Connect Canvas (no API needed)", systemImage: "link.badge.plus")

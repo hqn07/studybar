@@ -125,8 +125,8 @@ struct WeekGridView: View {
                                 mergeDuplicates()
                             } label: { Label("Merge \(mergeableCount) duplicate \(mergeableCount == 1 ? "class" : "classes")", systemImage: "arrow.triangle.merge") }
                         }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    Button { addClass(day: today, at: nil) } label: { Image(systemName: "plus") }
+                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Schedule actions") }
+                    Button { addClass(day: today, at: nil) } label: { Image(systemName: "plus").accessibilityLabel("Add a class") }
                         .help("Add a class")
                 }
             } content: {
@@ -199,7 +199,7 @@ struct WeekGridView: View {
             }
             Spacer()
             if !s.link.isEmpty {
-                Button { open(s.link) } label: { Image(systemName: "video") }.buttonStyle(.borderless)
+                Button { open(s.link) } label: { Image(systemName: "video").accessibilityLabel("Open meeting link") }.buttonStyle(.borderless)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -216,7 +216,7 @@ struct WeekGridView: View {
                         Text(state.course(c.courseID)?.code.nonEmpty ?? (c.title.isEmpty ? "Class" : c.title))
                             .font(.caption.weight(.medium)).lineLimit(1)
                         if !c.link.isEmpty {
-                            Button { open(c.link) } label: { Image(systemName: "arrow.up.forward.app") }
+                            Button { open(c.link) } label: { Image(systemName: "arrow.up.forward.app").accessibilityLabel("Open meeting link") }
                                 .buttonStyle(.borderless).help("Open meeting link")
                         }
                     }
@@ -277,10 +277,10 @@ struct WeekGridView: View {
     /// Week navigation: page through weeks, jump back to this one.
     private var weekNavBar: some View {
         HStack(spacing: DS.Space.m) {
-            Button { withAnimation { weekOffset -= 1 } } label: { Image(systemName: "chevron.left") }
+            Button { withAnimation { weekOffset -= 1 } } label: { Image(systemName: "chevron.left").accessibilityLabel("Previous week") }
                 .buttonStyle(.borderless)
             Text(weekRangeLabel).font(.callout.weight(.semibold)).contentTransition(.numericText())
-            Button { withAnimation { weekOffset += 1 } } label: { Image(systemName: "chevron.right") }
+            Button { withAnimation { weekOffset += 1 } } label: { Image(systemName: "chevron.right").accessibilityLabel("Next week") }
                 .buttonStyle(.borderless)
             Spacer()
             if !isCurrentWeek {

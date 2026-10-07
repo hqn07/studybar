@@ -49,7 +49,7 @@ struct MathToolsView: View {
                         .help("Share of the total uncertainty that comes from \(v.name)")
                     }
                     Spacer()
-                    Button { model.removeVariable(v.id) } label: { Image(systemName: "minus.circle") }
+                    Button { model.removeVariable(v.id) } label: { Image(systemName: "minus.circle").accessibilityLabel("Remove variable") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary)
                 }
             }

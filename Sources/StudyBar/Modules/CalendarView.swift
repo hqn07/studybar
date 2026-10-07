@@ -82,17 +82,18 @@ struct CalendarView: View {
                 HStack(spacing: 8) {
                     Button { viewMode = viewMode == "list" ? "week" : "list" } label: {
                         Image(systemName: viewMode == "list" ? "calendar.day.timeline.left" : "list.bullet")
+                        .accessibilityLabel(viewMode == "list" ? "Week view" : "List view")
                     }.help(viewMode == "list" ? "Week view" : "List view")
                     Menu {
                         ForEach([7, 14, 30], id: \.self) { d in
                             Button("Next \(d) days") { rangeDays = d; reload() }
                         }
-                    } label: { Image(systemName: "calendar.badge.clock") }
+                    } label: { Image(systemName: "calendar.badge.clock").accessibilityLabel("How far ahead") }
                         .help("Range: next \(rangeDays) days")
-                    Button { reload() } label: { Image(systemName: "arrow.clockwise") }
-                    Button { showNewEvent = true } label: { Image(systemName: "calendar.badge.plus") }
+                    Button { reload() } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Reload") }
+                    Button { showNewEvent = true } label: { Image(systemName: "calendar.badge.plus").accessibilityLabel("New calendar event") }
                         .help("New calendar event")
-                    Button { showSources = true } label: { Image(systemName: "slider.horizontal.3") }
+                    Button { showSources = true } label: { Image(systemName: "slider.horizontal.3").accessibilityLabel("Sources and filters") }
                         .help("Sources & filters")
                 }
             } content: {
@@ -255,11 +256,11 @@ struct CalendarView: View {
                 }
                 Spacer()
                 if item.kind == .calendar || item.kind == .feed {
-                    Button { addAssignment(item) } label: { Image(systemName: "text.badge.plus") }
+                    Button { addAssignment(item) } label: { Image(systemName: "text.badge.plus").accessibilityLabel("Add to Assignments") }
                         .buttonStyle(.borderless).font(.caption).help("Add to Assignments")
                 }
                 if let link = item.link, !link.isEmpty {
-                    Button { open(link) } label: { Image(systemName: "arrow.up.right.square") }
+                    Button { open(link) } label: { Image(systemName: "arrow.up.right.square").accessibilityLabel("Open link") }
                         .buttonStyle(.borderless).font(.caption)
                 }
                 if item.jump != nil {

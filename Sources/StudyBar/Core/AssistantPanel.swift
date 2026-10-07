@@ -73,7 +73,7 @@ struct AssistantPanelView: View {
                 Text("Assistant").font(.headline)
                 Spacer()
                 if !state.aiChat.isEmpty {
-                    Button { state.aiChat.clear() } label: { Image(systemName: "square.and.pencil") }
+                    Button { state.aiChat.clear() } label: { Image(systemName: "square.and.pencil").accessibilityLabel("New chat") }
                         .buttonStyle(.borderless).help("New chat — clears this conversation")
                 }
                 // ContextPill existed, documented, with no call site anywhere — the gauge it
@@ -83,7 +83,7 @@ struct AssistantPanelView: View {
                 }
                 Text(engineLabel).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     .help("The engine answering here — Settings ▸ Intelligence")
-                Button { close() } label: { Image(systemName: "xmark.circle.fill") }
+                Button { close() } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Close") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Close")
             }
             .padding(.horizontal, 12).padding(.vertical, 9)

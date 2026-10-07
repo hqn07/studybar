@@ -33,9 +33,9 @@ struct FilesView: View {
             HStack(spacing: 8) {
                 LibraryTabPicker()
                 Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
-                    Image(systemName: "pin.badge.plus")
+                    Image(systemName: "pin.badge.plus").accessibilityLabel("Pin files into a group")
                 }.help("Pin files into a group")
-                Button { addFolder() } label: { Image(systemName: "folder.badge.plus") }
+                Button { addFolder() } label: { Image(systemName: "folder.badge.plus").accessibilityLabel("Add a folder") }
                     .help("Add a folder")
             }
         } content: {
@@ -98,12 +98,12 @@ struct FilesView: View {
             if url == nil { Text("missing").font(.caption2).foregroundStyle(.orange) }
             Spacer()
             if let url {
-                Button { preview(url) } label: { Image(systemName: "eye") }
+                Button { preview(url) } label: { Image(systemName: "eye").accessibilityLabel("Preview") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Open in Preview")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder").accessibilityLabel("Show in Finder") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Reveal in Finder")
             }
-            Button { state.fileRefs.removeAll { $0.id == ref.id } } label: { Image(systemName: "xmark.circle.fill") }
+            Button { state.fileRefs.removeAll { $0.id == ref.id } } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Remove from group") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Remove from group")
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
@@ -175,6 +175,7 @@ struct FilesView: View {
                         Text(f.name).font(.caption)
                         Button { state.data.folders.removeAll { $0.id == f.id }; loadRecent() } label: {
                             Image(systemName: "xmark.circle.fill").font(.caption2)
+                            .accessibilityLabel("Remove folder")
                         }.buttonStyle(.borderless).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
@@ -301,16 +302,16 @@ struct FilesView: View {
                     Label("New group…", systemImage: "plus")
                 }
             } label: {
-                Image(systemName: grouped ? "tag.fill" : "tag")
+                Image(systemName: grouped ? "tag.fill" : "tag").accessibilityLabel(grouped ? "Change group" : "Add to a group")
             }
             .menuStyle(.borderlessButton).fixedSize()
             .foregroundStyle(grouped ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .font(.caption).help("Add to a group (tag)")
-            Button { preview(url) } label: { Image(systemName: "eye") }
+            Button { preview(url) } label: { Image(systemName: "eye").accessibilityLabel("Preview") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Open in Preview")
-            Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+            Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder").accessibilityLabel("Show in Finder") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption).help("Reveal in Finder")
-            Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right.square") }
+            Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right.square").accessibilityLabel("Open") }
                 .buttonStyle(.borderless).font(.caption).help("Open")
         }
         .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))

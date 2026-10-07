@@ -86,6 +86,7 @@ struct TriageReviewView: View {
             Button { toggle(p.id) } label: {
                 Image(systemName: p.accepted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(p.accepted ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .accessibilityLabel(p.accepted ? "Leave out" : "Accept")
             }.buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 1) {

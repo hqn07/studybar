@@ -375,6 +375,7 @@ struct SettingsView: View {
                             }
                             Button { HotKeyStore.reset(a); GlobalShortcuts.configure(); hotkeyTick += 1 } label: {
                                 Image(systemName: "arrow.counterclockwise")
+                                .accessibilityLabel("Reset to default")
                             }.buttonStyle(.borderless).help("Reset to default")
                         }
                     }
@@ -414,9 +415,9 @@ struct SettingsView: View {
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button { state.restoreFromTrash([t.id]) } label: { Image(systemName: "arrow.uturn.backward") }
+                        Button { state.restoreFromTrash([t.id]) } label: { Image(systemName: "arrow.uturn.backward").accessibilityLabel("Restore") }
                             .buttonStyle(.borderless).help("Restore")
-                        Button(role: .destructive) { state.purgeFromTrash([t.id]) } label: { Image(systemName: "xmark") }
+                        Button(role: .destructive) { state.purgeFromTrash([t.id]) } label: { Image(systemName: "xmark").accessibilityLabel("Delete forever") }
                             .buttonStyle(.borderless).help("Delete forever")
                     }
                 }
@@ -1077,9 +1078,9 @@ struct ModuleManagerSection: View {
                 ForEach(Array(cats.enumerated()), id: \.element) { i, cat in
                     HStack(spacing: 8) {
                         HStack(spacing: 2) {
-                            Button { prefs.moveCategory(cat.rawValue, up: true) } label: { Image(systemName: "chevron.up") }
+                            Button { prefs.moveCategory(cat.rawValue, up: true) } label: { Image(systemName: "chevron.up").accessibilityLabel("Move up") }
                                 .buttonStyle(.borderless).disabled(i == 0)
-                            Button { prefs.moveCategory(cat.rawValue, up: false) } label: { Image(systemName: "chevron.down") }
+                            Button { prefs.moveCategory(cat.rawValue, up: false) } label: { Image(systemName: "chevron.down").accessibilityLabel("Move down") }
                                 .buttonStyle(.borderless).disabled(i == cats.count - 1)
                         }.font(.caption2)
                         Text(cat.rawValue)
@@ -1092,15 +1093,16 @@ struct ModuleManagerSection: View {
                 HStack(spacing: 8) {
                     if prefs.order == .custom {
                         HStack(spacing: 2) {
-                            Button { prefs.move(m.id, up: true) } label: { Image(systemName: "chevron.up") }
+                            Button { prefs.move(m.id, up: true) } label: { Image(systemName: "chevron.up").accessibilityLabel("Move up") }
                                 .buttonStyle(.borderless).disabled(i == 0)
-                            Button { prefs.move(m.id, up: false) } label: { Image(systemName: "chevron.down") }
+                            Button { prefs.move(m.id, up: false) } label: { Image(systemName: "chevron.down").accessibilityLabel("Move down") }
                                 .buttonStyle(.borderless).disabled(i == rows.count - 1)
                         }.font(.caption2)
                     }
                     Button { prefs.toggleFavorite(m.id) } label: {
                         Image(systemName: prefs.isFavorite(m.id) ? "star.fill" : "star")
                             .foregroundStyle(prefs.isFavorite(m.id) ? .yellow : .secondary)
+                            .accessibilityLabel(prefs.isFavorite(m.id) ? "Remove from favorites" : "Add to favorites")
                     }.buttonStyle(.borderless)
                     Image(systemName: m.symbol).frame(width: 18).foregroundStyle(.tint)
                     Text(m.title)

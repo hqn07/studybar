@@ -57,8 +57,8 @@ struct ReadingView: View {
                         }
                         Divider()
                         Button { goodreads = true } label: { Label("Import Goodreads CSV…", systemImage: "square.and.arrow.down") }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    Button { showManualAdd.toggle() } label: { Image(systemName: "plus") }
+                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Add a book") }
+                    Button { showManualAdd.toggle() } label: { Image(systemName: "plus").accessibilityLabel("Add a book manually") }
                         .help("Add a book manually (no search)")
                 }
             } content: {
@@ -153,11 +153,11 @@ struct ReadingView: View {
                 .textFieldStyle(.plain).focused($bookSearchFocused)
                 .onSubmit { Task { await runBookSearch() } }
             if BarcodeScanner.isAvailable {
-                Button { scanning.toggle() } label: { Image(systemName: "barcode.viewfinder") }
+                Button { scanning.toggle() } label: { Image(systemName: "barcode.viewfinder").accessibilityLabel("Scan barcode") }
                     .buttonStyle(.borderless).help("Scan barcode")
             }
             if !bookQuery.isEmpty || searchActive {
-                Button { clearBookSearch() } label: { Image(systemName: "xmark.circle.fill") }
+                Button { clearBookSearch() } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Clear search") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
         }
@@ -352,12 +352,13 @@ struct ReadingDetailView: View {
                     }
                     Button { state.addToReadingList(item) } label: {
                         Image(systemName: inList ? "bookmark.fill" : "bookmark")
+                            .accessibilityLabel(inList ? "In Reading List" : "Add to Reading List")
                     }
                     .buttonStyle(.borderless).disabled(inList)
                     .help(inList ? "Already in Reading List" : "Add to Reading List")
                 }
-                Button { editing = true } label: { Image(systemName: "pencil") }.buttonStyle(.borderless)
-                Button(role: .destructive) { deleteBook() } label: { Image(systemName: "trash") }
+                Button { editing = true } label: { Image(systemName: "pencil").accessibilityLabel("Edit book") }.buttonStyle(.borderless)
+                Button(role: .destructive) { deleteBook() } label: { Image(systemName: "trash").accessibilityLabel("Delete book") }
                     .buttonStyle(.borderless).foregroundStyle(.red)
             }
             Divider()
@@ -421,7 +422,7 @@ struct ReadingDetailView: View {
                     if !item.highlights.isEmpty { metaChip("quote.opening", "\(item.highlights.count) highlights") }
                     CourseChip(course: state.course(item.courseID))
                     if !item.url.isEmpty {
-                        Button { open(item.url) } label: { Image(systemName: "arrow.up.right.square") }
+                        Button { open(item.url) } label: { Image(systemName: "arrow.up.right.square").accessibilityLabel("Open link") }
                             .buttonStyle(.borderless).font(.caption)
                     }
                 }
@@ -446,8 +447,8 @@ struct ReadingDetailView: View {
             if !item.usesUnits {
                 HStack(spacing: 10) {
                     Button { state.bumpReading(itemID, by: -10) } label: { Text("−10").frame(width: 38) }.buttonStyle(.bordered)
-                    Button { state.bumpReading(itemID, by: -1) } label: { Image(systemName: "minus") }.buttonStyle(.bordered)
-                    Button { state.bumpReading(itemID, by: 1) } label: { Image(systemName: "plus") }.buttonStyle(.borderedProminent)
+                    Button { state.bumpReading(itemID, by: -1) } label: { Image(systemName: "minus").accessibilityLabel("One page less") }.buttonStyle(.bordered)
+                    Button { state.bumpReading(itemID, by: 1) } label: { Image(systemName: "plus").accessibilityLabel("One page more") }.buttonStyle(.borderedProminent)
                     Button { state.bumpReading(itemID, by: 10) } label: { Text("+10").frame(width: 38) }.buttonStyle(.bordered)
                     Spacer()
                     Text("Page").font(.caption).foregroundStyle(.secondary)
@@ -487,11 +488,12 @@ struct ReadingDetailView: View {
                         Button { state.toggleReadingUnit(itemID, unitID: u.id) } label: {
                             Image(systemName: u.done ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(u.done ? .green : .secondary)
+                                .accessibilityLabel(u.done ? "Mark not done" : "Mark done")
                         }.buttonStyle(.plain)
                         Text(u.title).strikethrough(u.done)
                             .foregroundStyle(u.done ? .secondary : .primary)
                         Spacer()
-                        Button { deleteUnit(u) } label: { Image(systemName: "xmark") }
+                        Button { deleteUnit(u) } label: { Image(systemName: "xmark").accessibilityLabel("Remove") }
                             .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                     }
                     .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
@@ -535,6 +537,7 @@ struct ReadingDetailView: View {
                 ForEach(1...5, id: \.self) { n in
                     Button { setRating(n == item.rating ? 0 : n) } label: {
                         Image(systemName: n <= item.rating ? "star.fill" : "star").foregroundStyle(.yellow)
+                        .accessibilityLabel("\(n) star\(n == 1 ? "" : "s")")
                     }.buttonStyle(.plain)
                 }
                 Spacer()
@@ -566,7 +569,7 @@ struct ReadingDetailView: View {
                     Text("p\(h.page)").font(.caption2.monospacedDigit()).foregroundStyle(.tint)
                         .frame(width: 34, alignment: .leading)
                     Text(h.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                    Button { deleteHighlight(h) } label: { Image(systemName: "xmark") }
+                    Button { deleteHighlight(h) } label: { Image(systemName: "xmark").accessibilityLabel("Delete highlight") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption2)
                 }
                 .padding(8).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
@@ -605,9 +608,11 @@ struct ReadingDetailView: View {
                         Spacer()
                         Button { commitCards([d]); cardDrafts.removeAll { $0.id == d.id } } label: {
                             Image(systemName: "checkmark.circle.fill")
+                            .accessibilityLabel("Add this card")
                         }.buttonStyle(.borderless).foregroundStyle(.green).help("Add this card")
                         Button { cardDrafts.removeAll { $0.id == d.id } } label: {
                             Image(systemName: "xmark")
+                            .accessibilityLabel("Skip")
                         }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Skip")
                     }
                     TextField("Front", text: $d.front, axis: .vertical).textFieldStyle(.roundedBorder)
@@ -631,7 +636,7 @@ struct ReadingDetailView: View {
                 if item.pdfPages != nil {
                     Menu {
                         Button(role: .destructive) { confirmRemovePDF = true } label: { Label("Remove PDF…", systemImage: "trash") }
-                    } label: { Image(systemName: "ellipsis.circle") }.buttonStyle(.borderless)
+                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("PDF actions") }.buttonStyle(.borderless)
                 }
             }
             if pdfBusy {
@@ -655,7 +660,7 @@ struct ReadingDetailView: View {
                     TextField("Search inside the book…", text: $bookQuery)
                         .textFieldStyle(.plain).onSubmit { runSearch() }
                     if !bookQuery.isEmpty {
-                        Button { bookQuery = ""; bookHits = [] } label: { Image(systemName: "xmark.circle.fill") }
+                        Button { bookQuery = ""; bookHits = [] } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Clear search") }
                             .buttonStyle(.plain).foregroundStyle(.secondary)
                     }
                 }
@@ -951,7 +956,7 @@ struct BookLookupView: View {
                     TextField("Search by title or ISBN…", text: $query).textFieldStyle(.roundedBorder)
                         .onSubmit { Task { await run() } }
                     if BarcodeScanner.isAvailable {
-                        Button { scanning.toggle() } label: { Image(systemName: "camera") }.help("Scan barcode")
+                        Button { scanning.toggle() } label: { Image(systemName: "camera").accessibilityLabel("Scan barcode") }.help("Scan barcode")
                     }
                     Button("Search") { Task { await run() } }
                         .buttonStyle(.borderedProminent).disabled(query.count < 2 || loading)

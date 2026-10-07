@@ -53,7 +53,7 @@ struct DayPlannerView: View {
             ModulePane(title: "Schedule") {
                 HStack(spacing: 8) {
                     ScheduleModePicker()
-                    Button { addBlock() } label: { Image(systemName: "plus") }
+                    Button { addBlock() } label: { Image(systemName: "plus").accessibilityLabel("Add a block") }
                         .help("Add a block")
                 }
             } content: {
@@ -122,13 +122,13 @@ struct DayPlannerView: View {
 
     private var dayBar: some View {
         HStack(spacing: DS.Space.m) {
-            Button { shift(-1) } label: { Image(systemName: "chevron.left") }
+            Button { shift(-1) } label: { Image(systemName: "chevron.left").accessibilityLabel("Previous day") }
                 .buttonStyle(.borderless)
             VStack(alignment: .leading, spacing: 1) {
                 Text(dayTitle).font(.callout.weight(.semibold))
                 Text(summary).font(.caption).foregroundStyle(.secondary)
             }
-            Button { shift(1) } label: { Image(systemName: "chevron.right") }
+            Button { shift(1) } label: { Image(systemName: "chevron.right").accessibilityLabel("Next day") }
                 .buttonStyle(.borderless)
             Spacer()
             if !isToday {

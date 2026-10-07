@@ -50,7 +50,7 @@ struct ShortcutSheet: View {
                 HStack {
                     Label("Keyboard", systemImage: "command").font(.headline)
                     Spacer()
-                    Button { isPresented = false } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { isPresented = false } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Close") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)

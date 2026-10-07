@@ -42,8 +42,8 @@ struct SnippetsView: View {
                         }
                         Divider()
                         Button { addSamples() } label: { Label("Add sample snippets", systemImage: "sparkles") }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                    Button { editing = Snippet(category: selectedCategory ?? "") } label: { Image(systemName: "plus") }
+                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Snippet actions") }
+                    Button { editing = Snippet(category: selectedCategory ?? "") } label: { Image(systemName: "plus").accessibilityLabel("New snippet") }
                 }
             } content: {
                 VStack(spacing: 0) {
@@ -310,7 +310,7 @@ struct CategoryPicker: View {
                 TextField("New category…", text: $newCategory).textFieldStyle(.plain).font(.caption)
                     .onSubmit(commit)
                 if !newCategory.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Button(action: commit) { Image(systemName: "plus.circle.fill") }
+                    Button(action: commit) { Image(systemName: "plus.circle.fill").accessibilityLabel("Add category") }
                         .buttonStyle(.borderless).font(.caption)
                 }
             }

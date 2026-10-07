@@ -165,6 +165,7 @@ struct NotesView: View {
             if split {
                 Button { withAnimation(.snappy(duration: 0.22)) { listHidden.toggle() } } label: {
                     Image(systemName: listHidden ? "sidebar.left" : "sidebar.leading")
+                    .accessibilityLabel(listHidden ? "Show the note list" : "Hide the note list")
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(listHidden ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
@@ -207,8 +208,8 @@ struct NotesView: View {
                         }
                     }
                 }
-            } label: { Image(systemName: "ellipsis.circle") }
-            Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil") }
+            } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Notes actions") }
+            Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil").accessibilityLabel("New note") }
                 .keyboardShortcut("n", modifiers: .command).help("New note")
         }
     }
@@ -767,7 +768,7 @@ struct NoteEditor: View {
     private var header: some View {
         HStack(spacing: 8) {
             if !embedded {
-                Button { save() } label: { Image(systemName: "chevron.left").fontWeight(.semibold) }
+                Button { save() } label: { Image(systemName: "chevron.left").fontWeight(.semibold).accessibilityLabel("Back") }
                     .buttonStyle(.borderless).help("Back (saves)").keyboardShortcut("[", modifiers: .command)
             }
             TextField("Title", text: $draft.title).textFieldStyle(.plain).font(.title3.bold())
@@ -780,7 +781,7 @@ struct NoteEditor: View {
             Menu {
                 if outlineHeadings.isEmpty { Text("No headings yet") }
                 else { ForEach(outlineHeadings.indices, id: \.self) { i in Button(outlineHeadings[i].title) { editor.scrollTo(outlineHeadings[i].location) } } }
-            } label: { Image(systemName: "list.bullet.rectangle") }
+            } label: { Image(systemName: "list.bullet.rectangle").accessibilityLabel("Outline") }
                 .menuStyle(.borderlessButton).fixedSize().foregroundStyle(.secondary)
                 .onHover { hovering in
                     if hovering { outlineHeadings = editor.headings() }   // refresh as you reach for it
@@ -796,6 +797,7 @@ struct NoteEditor: View {
             }
             Button { splitLive.toggle(); if splitLive { refreshLiveNow() } } label: {
                 Image(systemName: splitLive ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
+                .accessibilityLabel(splitLive ? "Hide live math preview" : "Show live math preview")
             }
             .buttonStyle(.borderless).foregroundStyle(splitLive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .disabled(showPreview)
@@ -803,6 +805,7 @@ struct NoteEditor: View {
             .onHover { setHint("Live math preview — edit above, see it render below", $0) }
             Button { if !showPreview { persist() }; showPreview.toggle() } label: {
                 Image(systemName: showPreview ? "eye.fill" : "eye")
+                .accessibilityLabel(showPreview ? "Edit note" : "Preview note")
             }
             .buttonStyle(.borderless).foregroundStyle(showPreview ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .keyboardShortcut("e", modifiers: .command)
@@ -819,10 +822,12 @@ struct NoteEditor: View {
                 }
             Button { draft.pinned.toggle() } label: {
                 Image(systemName: draft.pinned ? "pin.fill" : "pin")
+                .accessibilityLabel(draft.pinned ? "Unpin note" : "Pin note")
             }.buttonStyle(.borderless).foregroundStyle(draft.pinned ? .orange : .secondary)
             .onHover { setHint(draft.pinned ? "Unpin note" : "Pin note", $0) }
             Button { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode.toggle() } } label: {
                 Image(systemName: focusMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                .accessibilityLabel(focusMode ? "Leave focus mode" : "Focus mode")
             }.buttonStyle(.borderless).foregroundStyle(focusMode ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             // The ⇧⌘F key equivalent lives once, on the shell (RootView.shortcutKeys), so the
             // two definitions can't both claim the chord.
@@ -882,7 +887,7 @@ struct NoteEditor: View {
                     Button { colorMode = .highlight } label: { Label("Highlight", systemImage: "highlighter") }
                     Button { colorMode = .foreground } label: { Label("Text color", systemImage: "paintpalette") }
                     if colorMode != nil { Divider(); Button("Hide color picker") { colorMode = nil } }
-                } label: { Image(systemName: "highlighter") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Image(systemName: "highlighter").accessibilityLabel("Text and highlight color") }.menuStyle(.borderlessButton).fixedSize()
                     .foregroundStyle(colorMode != nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                     .help("Text & highlight color")
                     .onHover { setHint("Text & highlight color", $0) }
@@ -897,7 +902,7 @@ struct NoteEditor: View {
                     Picker("Line spacing", selection: $notesLineSpacing) {
                         Text("Tight").tag(2.0); Text("Normal").tag(3.5); Text("Relaxed").tag(6.0)
                     }.pickerStyle(.inline)
-                } label: { Image(systemName: "textformat") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Image(systemName: "textformat").accessibilityLabel("Notes appearance") }.menuStyle(.borderlessButton).fixedSize()
                     .help("Notes appearance — font, size, line spacing (applies to all notes)")
                     .onHover { setHint("Notes appearance — font, size, line spacing", $0) }
             }.padding(.horizontal, 10).padding(.vertical, 5)
@@ -975,7 +980,7 @@ struct NoteEditor: View {
                 }
                 Spacer()
                 Text(AIConfig.mode.title).font(.caption2).foregroundStyle(.secondary)
-                Button { closeAI() } label: { Image(systemName: "xmark.circle.fill") }
+                Button { closeAI() } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Discard") }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Discard")
             }
             ScrollView {
@@ -1316,7 +1321,7 @@ struct NoteEditor: View {
                 TextField("Search notes", text: $askPickerQuery)
                     .textFieldStyle(.plain).font(.callout)
                 if !askPickerQuery.isEmpty {
-                    Button { askPickerQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { askPickerQuery = "" } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Clear search") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
             }
@@ -1548,7 +1553,7 @@ struct NoteEditor: View {
             Spacer()
             Button("Summarize") { chipDismissed = true; runAI(.summarize) }
                 .buttonStyle(.borderedProminent).controlSize(.small)
-            Button { chipDismissed = true } label: { Image(systemName: "xmark") }
+            Button { chipDismissed = true } label: { Image(systemName: "xmark").accessibilityLabel("Dismiss") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).help("Dismiss")
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1932,7 +1937,7 @@ struct NoteEditor: View {
                     // Out of the footer row: a permanent red target beside Share is a mis-click
                     // waiting to happen. Undo covers the delete itself.
                     Button(role: .destructive) { delete() } label: { Label("Delete Note", systemImage: "trash") }
-                } label: { Image(systemName: "square.and.arrow.up") }
+                } label: { Image(systemName: "square.and.arrow.up").accessibilityLabel("Share, export and more") }
                 .menuStyle(.borderlessButton).fixedSize()
                 if !embedded { Button("Done") { save() }.keyboardShortcut(.defaultAction) }
             }
@@ -2059,7 +2064,7 @@ struct NoteEditor: View {
             HStack {
                 Label(defineTerm, systemImage: "character.book.closed").font(.caption.bold())
                 Spacer()
-                Button { defineResult = nil } label: { Image(systemName: "xmark.circle.fill") }
+                Button { defineResult = nil } label: { Image(systemName: "xmark.circle.fill").accessibilityLabel("Close") }
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
             ScrollView {
@@ -2072,7 +2077,7 @@ struct NoteEditor: View {
     }
 
     private func fmtBtn(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: icon).frame(width: 18) }
+        Button(action: action) { Image(systemName: icon).frame(width: 18).accessibilityLabel(help) }
             .buttonStyle(.borderless).help(help)
             .onHover { setHint(help, $0) }
     }

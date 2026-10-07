@@ -40,8 +40,8 @@ struct WordCountView: View {
     var body: some View {
         ModulePane(title: "Word Count") {
             HStack(spacing: 8) {
-                Button { paste() } label: { Image(systemName: "doc.on.clipboard") }.help("Paste from clipboard")
-                Button { text = "" } label: { Image(systemName: "trash") }.disabled(text.isEmpty)
+                Button { paste() } label: { Image(systemName: "doc.on.clipboard").accessibilityLabel("Paste from clipboard") }.help("Paste from clipboard")
+                Button { text = "" } label: { Image(systemName: "trash").accessibilityLabel("Clear") }.disabled(text.isEmpty)
             }
         } content: {
             VStack(spacing: 0) {

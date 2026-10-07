@@ -89,7 +89,7 @@ struct CoursesView: View {
                     if !currentCourses.isEmpty {
                         Button { nextTerm = ""; archiving = true } label: { Label("Start next term…", systemImage: "arrow.right.circle") }
                     }
-                } label: { Image(systemName: "plus") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Image(systemName: "plus").accessibilityLabel("Add or import courses") }.menuStyle(.borderlessButton).fixedSize()
             } content: {
                 if state.data.courses.isEmpty {
                     EmptyState(symbol: "graduationcap", title: "No courses",
@@ -394,7 +394,7 @@ struct CourseDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             SubHeader(course?.name ?? "Course") {
-                if let c = course { Button { editing = c } label: { Image(systemName: "pencil") }.buttonStyle(.borderless) }
+                if let c = course { Button { editing = c } label: { Image(systemName: "pencil").accessibilityLabel("Edit course") }.buttonStyle(.borderless) }
             }
             Divider()
             if let c = course {
@@ -469,7 +469,7 @@ struct CourseDetailView: View {
 
     private func assignmentRow(_ a: Assignment) -> some View {
         HStack(spacing: 8) {
-            Button { toggleDone(a) } label: { Image(systemName: "circle").foregroundStyle(.secondary) }.buttonStyle(.plain)
+            Button { toggleDone(a) } label: { Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Mark done") }.buttonStyle(.plain)
             Button { editingAssignment = a } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(a.title.isEmpty ? "Untitled" : a.title).fontWeight(.medium)
@@ -591,6 +591,7 @@ struct CourseDetailView: View {
                 TextField("Component (e.g. Midterm)", text: b.name).textFieldStyle(.plain).fontWeight(.medium)
                 Button(role: .destructive) { state.withUndo("Deleted grade component") { state.gradeItems.removeAll { $0.id == item.id } } } label: {
                     Image(systemName: "trash")
+                    .accessibilityLabel("Delete grade component")
                 }.buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: DS.Space.m) {
@@ -642,12 +643,12 @@ struct CourseDetailView: View {
                         Text("Added \(syl.importedAt.dayMonth)").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button { SyllabusStore.open(syl) } label: { Image(systemName: "arrow.up.right.square") }
+                    Button { SyllabusStore.open(syl) } label: { Image(systemName: "arrow.up.right.square").accessibilityLabel("Open the syllabus") }
                         .buttonStyle(.borderless).help("Open the syllabus")
                     Menu {
                         Button { attachSyllabus(c) } label: { Label("Replace…", systemImage: "arrow.triangle.2.circlepath") }
                         Button(role: .destructive) { removeSyllabus(c) } label: { Label("Remove", systemImage: "trash") }
-                    } label: { Image(systemName: "ellipsis") }.buttonStyle(.borderless).fixedSize()
+                    } label: { Image(systemName: "ellipsis").accessibilityLabel("Syllabus actions") }.buttonStyle(.borderless).fixedSize()
                 }
                 .padding(9).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
 
