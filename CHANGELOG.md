@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.6.1] — 2026-10-07
 
 - **Fixed: Study's course list slid under the sidebar** — with a long course name anywhere in the course menu, the Course and Sources column was as wide as that name and slid left under the sidebar. The column now keeps to its width; the menu still shows names in full.
 
