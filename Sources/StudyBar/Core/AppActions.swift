@@ -15,7 +15,11 @@ enum AppActions {
         case .preparing, .transcribing: break
         default:
             if voice.hasUnsaved { state.recordRequested = true; state.selectedModuleID = "voice"; WindowOpener.routeToWindow?("voice") }
-            else { voice.start() }
+            else {
+                // Voice may never have been opened: expect the words of the class in session now.
+                CourseVocabulary.prepare(voice, course: state.course(state.courseID(at: .now) ?? state.workingCourseID), data: state.data)
+                voice.start()
+            }
         }
     }
 

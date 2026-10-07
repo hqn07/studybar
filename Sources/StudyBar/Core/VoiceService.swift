@@ -1292,13 +1292,20 @@ enum VoiceTakeSelfTest {
             if let name { try? FileManager.default.removeItem(at: VoiceService.recordingsDir.appendingPathComponent(name)) }
         }
 
-        let course = Course(name: "Linear Algebra", code: "MAS3105")
+        var course = Course(name: "Linear Algebra", code: "MAS3105")
+        course.syllabus = SyllabusItem(objectives: [SyllabusObjective(text: "Find eigenspaces", keys: ["eigenspace"])])
         var other = Note(title: "x", body: "**Unrelated**", courseID: UUID())
         other.tags = []
-        let notes = [Note(title: "W1", body: "# Eigenvalues\n- **eigenvector**: a vector…\n- **$\\lambda$** skipped\n## Diagonalization", courseID: course.id), other]
-        let terms = CourseVocabulary.terms(course: course, notes: notes)
+        var vdata = AppData()
+        vdata.notes = [Note(title: "W1", body: "# Eigenvalues\n- **eigenvector**: a vector…\n- **$\\lambda$** skipped\n## Diagonalization\nnullity :: dimension of the null space", courseID: course.id), other]
+        let deck = Deck(name: "MAS3105", courseID: course.id)
+        vdata.decks = [deck]
+        vdata.flashcards = [Flashcard(deckID: deck.id, front: "Cofactor", back: "…"), Flashcard(deckID: deck.id, front: "What is a basis?", back: "…")]
+        let terms = CourseVocabulary.terms(course: course, data: vdata)
         check("vocabulary from the course's notes", ["Linear Algebra", "MAS3105", "Eigenvalues", "eigenvector", "Diagonalization"].allSatisfy(terms.contains), "\(terms)")
         check("vocabulary skips math and other courses", !terms.contains { $0.contains("$") || $0 == "Unrelated" })
+        check("vocabulary from :: lines, card terms and the syllabus — not card questions",
+              ["nullity", "Cofactor", "eigenspace"].allSatisfy(terms.contains) && !terms.contains { $0.contains("basis") }, "\(terms)")
 
         // The timeline: sentences placed in time, stars on the line just heard, ⭐ for the notes.
         do {

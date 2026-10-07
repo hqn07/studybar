@@ -148,12 +148,9 @@ struct VoiceBody: View {
     }
 
     /// Bias recognition toward the course's vocabulary: the picked course, else the one in
-    /// session now. Its name for Whisper; its terms for Apple Speech.
+    /// session now. Its name for Whisper; its terms, and this lecture's slides, for Apple Speech.
     private func updateVocab() {
-        if let c = state.course(courseID ?? state.courseID(at: .now)) {
-            voice.vocabPrompt = "Course: \(c.name)\(c.code.isEmpty ? "" : " (\(c.code))")."
-            voice.vocabulary = CourseVocabulary.terms(course: c, notes: state.data.notes)
-        } else { voice.vocabPrompt = nil; voice.vocabulary = [] }
+        CourseVocabulary.prepare(voice, course: state.course(courseID ?? state.courseID(at: .now)), data: state.data)
     }
 
     private var preparingState: some View {
@@ -478,6 +475,7 @@ struct VoiceBody: View {
             guard let file else { return }
             state.data.studyFiles = (state.data.studyFiles ?? []) + [file]
             voice.slides = file
+            updateVocab()                       // its slide titles are this lecture's words
         }
     }
 
