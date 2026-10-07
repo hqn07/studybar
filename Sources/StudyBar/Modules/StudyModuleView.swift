@@ -72,6 +72,15 @@ struct StudyModuleView: View {
     enum Tab: String, CaseIterable, Identifiable {
         case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide", progress = "Progress", glossary = "Glossary"
         var id: String { rawValue }
+        /// Short, so all six fit as tabs at the window's default size: as a menu, Quiz, Exam and
+        /// Progress were out of sight behind "Tutor". (The raw value is what's remembered.)
+        var label: String {
+            switch self {
+            case .exam: return "Exam"
+            case .guide: return "Guide"
+            default: return rawValue
+            }
+        }
     }
 
     private var course: Course? {
@@ -112,13 +121,21 @@ struct StudyModuleView: View {
                         VStack(spacing: 0) {
                             HStack(spacing: 8) {
                                 if !twoColumns { sourcesButton }
-                                // Six tabs need ~520 pt; at the window's default size there are ~480, and a
-                                // segmented control that doesn't fit pushed the whole pane off the right edge.
+                                // A segmented control makes all six as wide as the widest, ~500 pt; at the
+                                // window's default size there are ~450. A menu in its place hid Quiz, Exam
+                                // and Progress behind "Tutor" — chips, each as wide as its name, all show.
                                 ViewThatFits(in: .horizontal) {
-                                    Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                                    Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.label).tag($0) } }
                                         .pickerStyle(.segmented).labelsHidden().fixedSize()
-                                    Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
-                                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            ForEach(Tab.allCases) { t in
+                                                Button { tab = t } label: { Chip(t.label, .filter, selected: tab == t) }
+                                                    .buttonStyle(.plain)
+                                                    .accessibilityAddTraits(tab == t ? .isSelected : [])
+                                            }
+                                        }
+                                    }
                                 }
                                 .frame(maxWidth: .infinity)
                             }
@@ -1290,7 +1307,7 @@ enum StudySnapshot {
         // The window's narrowest (560 less the sidebar) up to its default: nothing may overflow.
         for tab in [StudyModuleView.Tab.tutor, .quiz, .progress] {
             UserDefaults.standard.set(tab.rawValue, forKey: "studyTab")
-            for w in [500, 620, 760] { save(StudyModuleView(), "module-\(tab.rawValue.lowercased())-\(w).png", CGSize(width: w, height: 560)) }
+            for w in [500, 620, 720, 760] { save(StudyModuleView(), "module-\(tab.rawValue.lowercased())-\(w).png", CGSize(width: w, height: 560)) }
         }
         // A course with nothing in it, on the Quiz tab: what to add, not a Start that fails.
         let empty = Course(name: "Calculus III", code: "MAC2313")
