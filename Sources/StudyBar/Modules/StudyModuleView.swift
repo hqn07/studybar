@@ -227,7 +227,10 @@ struct StudyModuleView: View {
                         Text(c.code.isEmpty || c.code == c.name ? c.name : "\(c.code) — \(c.name)").tag(c.id.uuidString)
                     }
                 }
-                .labelsHidden().fixedSize().frame(maxWidth: .infinity, alignment: .leading)
+                // As wide as the column, not as its longest course name: a pop-up is as wide as its
+                // widest entry, and one long name made it wider than the column, which then slid
+                // under the sidebar. The menu itself still shows names in full.
+                .labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 8)
             Divider()
@@ -1273,7 +1276,8 @@ enum StudySnapshot {
             print("Set STUDYBAR_DATA_DIR to a scratch folder first — this adds sample data."); return 1
         }
         let course = Course(name: "Physics II", code: "PHY2049")
-        state.data.courses = [course]
+        // A long name, like a real school's: the course menu is as wide as its longest entry.
+        state.data.courses = [course, Course(name: "Introduction to Civil Engineering and the Built Environment", code: "CGN2002")]
         state.data.notes = [Note(title: "Week 3 — Gauss's Law", body: "## Flux\n- **Flux** — field through a surface", courseID: course.id),
                             Note(title: "Week 4 — Potential", body: "## Potential\n- $V = kq/r$", courseID: course.id)]
         UserDefaults.standard.set(course.id.uuidString, forKey: "studyCourse")
