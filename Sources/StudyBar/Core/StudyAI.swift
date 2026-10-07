@@ -87,6 +87,16 @@ enum Quiz {
         "MATERIAL:\n\"\"\"\n\(material)\n\"\"\"\n\nWrite \(count) questions from this material as the JSON object described."
     }
 
+    /// The source as cited, without the prompt's wording around it: luna answered
+    /// "the [thermo.txt, part 1] source" to "the [bracketed] source it came from".
+    static func cleanSource(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        if let m = s.firstMatch(of: /\[([^\]]+)\]/) { return String(m.output.1).trimmingCharacters(in: .whitespaces) }
+        if s.lowercased().hasPrefix("the ") { s = String(s.dropFirst(4)) }
+        if s.lowercased().hasSuffix(" source") { s = String(s.dropLast(7)) }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+    }
+
     /// Questions from the whole of the material: it is packed into request-sized groups and a
     /// share of the questions is asked of groups spread across it. nil if every request failed.
     static func generate(from passages: [StudyPassage], count: Int, exam: Bool, weak: [String] = [], level: Difficulty = .standard,
@@ -176,7 +186,7 @@ enum Quiz {
             guard !prompt.isEmpty else { return nil }
             let type = str("type", "kind").lowercased()
             var q = QuizQuestion(kind: .short, prompt: prompt, explanation: str("explanation", "why"),
-                                 topic: str("topic"), source: str("source").trimmingCharacters(in: CharacterSet(charactersIn: "[]")))
+                                 topic: str("topic"), source: cleanSource(str("source")))
             let choices = ((d["choices"] ?? d["options"]) as? [Any])?.map { MathSupport.normalized("\($0)") } ?? []
             if choices.count >= 2 || type.contains("mc") || type.contains("multiple") {
                 q.kind = .mcq
@@ -1199,6 +1209,10 @@ enum StudySelfTest {
                   && Cloze.build(plain: "a b c", blanks: [0, 2]) == "{{a}} b {{c}}", "\(phrase)")
             check("asked for blanks, only lines with a blank are cards", sparse.count == 2 && sparse.allSatisfy { $0.front.contains("{{") && $0.back.isEmpty }, "\(sparse)")
         }
+
+        check("a quiz source loses the prompt's wording around it",
+              Quiz.cleanSource("the [thermo.txt, part 1] source") == "thermo.txt, part 1" && Quiz.cleanSource("[Serway, p. 745]") == "Serway, p. 745"
+              && Quiz.cleanSource("Serway, p. 745") == "Serway, p. 745" && Quiz.cleanSource("the lecture notes source") == "lecture notes")
 
         // Quiz difficulty: Standard leaves the prompt as it was.
         check("a Standard quiz prompt is the old one; Easier and Harder each add their line",
