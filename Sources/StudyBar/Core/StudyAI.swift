@@ -1325,7 +1325,7 @@ enum StudySelfTest {
     }
 }
 
-// MARK: - Headless runs (StudyBar --study-run quiz|guide|tutor|cards|extract <file> [question] [--engine x])
+// MARK: - Headless runs (StudyBar --study-run quiz|guide|tutor|cards|notes|extract <file> [question] [--engine x])
 
 /// The real jobs on a real engine, printed — to read what the prompts produce.
 enum StudyRun {
@@ -1398,6 +1398,14 @@ enum StudyRun {
             let out = try? await provider.streamPlain(system: action.system(), messages: [
                 AIMessage(role: .user, text: action.user(units.map(\.text).joined(separator: "\n\n"), sources: refs))], temperature: action.temperature) { _ in }
             print("--- \(took()) · \(action.label) ---\n\(out ?? "FAILED")")
+            return out == nil ? 1 : 0
+        case "notes":
+            // `notes <transcript>`: study notes from a lecture, and the deadlines read from them.
+            let out = await LectureNotes.run(units.map(\.text).joined(separator: "\n\n"), job: .lecture, provider: provider, mode: mode) { _, _, _ in }
+            print("--- \(took()) ---\n\(out ?? "FAILED")")
+            var note = Note(title: "Lecture", body: out ?? ""); note.createdAt = .now
+            print("--- announced, as assignments ---")
+            for a in Announced.assignments(in: note, data: AppData()) { print("\(a.title) · \(a.due.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "no date")") }
             return out == nil ? 1 : 0
         case "title":
             // `title <transcript>`: the topic a saved lecture is named by.

@@ -175,8 +175,8 @@ enum LectureNotes {
     one-line answer), `### Questions to ask` (1–3 things the lecture left unclear or \
     contradictory, worth asking the professor — leave the heading out if there are none), and \
     `### Announced` (homework, readings, quizzes, exams and deadlines the lecturer announced, one \
-    per bullet as `What — when, as said`, e.g. `Problem set 4 — due next Friday` — leave the \
-    heading out if nothing was announced).
+    per bullet as `What to do — when, as said`, e.g. `Problem set 4 — due next Friday` or \
+    `Read sections 26.3–26.4 — before Monday` — leave the heading out if nothing was announced).
     """
 
     /// The user turn repeats the one instruction that matters. Small local models weight the
