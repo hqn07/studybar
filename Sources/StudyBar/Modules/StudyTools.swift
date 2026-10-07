@@ -421,3 +421,82 @@ struct StudyNotesSheet: View {
         }
     }
 }
+
+// MARK: - Announced in a lecture → Assignments
+
+/// The homework and deadlines a lecture's notes list under Announced, each as an assignment to
+/// check — title, date, whether it's wanted — before any is added. Dates are read from what was
+/// said, counted from the lecture's day.
+struct AnnouncedSheet: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let note: Note
+
+    struct Row: Identifiable { let id = UUID(); var a: Assignment; var dated: Bool; var include = true }
+    @State private var rows: [Row] = []
+    private var chosen: Int { rows.filter(\.include).count }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Announced in this lecture").font(.headline)
+                Spacer()
+                CourseChip(course: state.course(note.courseID))
+            }.padding(14)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Check each one, then add it to Assignments. Dates come from what was said, counted from the lecture on \(note.createdAt.dayMonth).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach($rows) { $r in
+                        HStack(alignment: .top, spacing: 8) {
+                            Button { r.include.toggle() } label: {
+                                Image(systemName: r.include ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(r.include ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            }.buttonStyle(.plain).padding(.top, 4)
+                                .accessibilityLabel(r.include ? "Don't add \(r.a.title)" : "Add \(r.a.title)")
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField("Title", text: $r.a.title).textFieldStyle(.roundedBorder)
+                                HStack(spacing: 8) {
+                                    Toggle("Due", isOn: $r.dated).toggleStyle(.checkbox)
+                                    if r.dated {
+                                        DatePicker("", selection: Binding(get: { r.a.due ?? defaultDue }, set: { r.a.due = $0 }),
+                                                   displayedComponents: [.date, .hourAndMinute]).labelsHidden().fixedSize()
+                                    }
+                                }
+                                Text(r.a.notes).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }.opacity(r.include ? 1 : 0.5)
+                    }
+                }.padding(14)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Add \(chosen) to Assignments") { add() }.buttonStyle(.borderedProminent).disabled(chosen == 0)
+            }.padding(12)
+        }
+        .frame(minWidth: 500, minHeight: 360)
+        .onAppear { rows = Announced.assignments(in: note, data: state.data).map { Row(a: $0, dated: $0.due != nil) } }
+    }
+
+    /// A week after the lecture, end of day — where a date picked by hand starts.
+    private var defaultDue: Date {
+        let cal = Calendar.current
+        let week = cal.date(byAdding: .day, value: 7, to: note.createdAt) ?? note.createdAt
+        return cal.date(bySettingHour: 23, minute: 59, second: 0, of: week) ?? week
+    }
+
+    private func add() {
+        let picked = rows.filter(\.include).map { r -> Assignment in
+            var a = r.a
+            a.title = a.title.trimmingCharacters(in: .whitespaces)
+            if !r.dated { a.due = nil }
+            return a
+        }.filter { !$0.title.isEmpty }
+        state.withUndo("Added \(picked.count) assignment\(picked.count == 1 ? "" : "s")") { state.data.assignments += picked }
+        dismiss()
+    }
+}
+

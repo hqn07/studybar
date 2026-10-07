@@ -565,6 +565,7 @@ struct NoteEditor: View {
     /// The flashcards sheet, and what it starts from (this note, or a selection in it).
     @State private var makingCards: MakeCardsView.Request?
     @State private var writingNotes = false
+    @State private var announcing = false
     @State private var aiText = ""
     @State private var aiDone = false
     @State private var asking = false
@@ -709,6 +710,7 @@ struct NoteEditor: View {
         .onChange(of: draft.pinned)        { _, _ in scheduleAutosave() }
         .onChange(of: draft.courseID)      { _, c in scheduleAutosave(); if let c { state.workingCourseID = c } }
         .sheet(item: $makingCards) { MakeCardsView(request: $0) }
+        .sheet(isPresented: $announcing) { AnnouncedSheet(note: draft) }
         .sheet(isPresented: $writingNotes) {
             StudyNotesSheet(text: draft.body, course: draft.courseID) { replaceBody($0) }
         }
@@ -1611,6 +1613,11 @@ struct NoteEditor: View {
             }
             Button { cardsFromNote() } label: { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled") }
             Button { quizMe() } label: { Label("Quiz me", systemImage: "checklist") }
+            let announced = Announced.pending(in: draft, data: state.data).count
+            if announced > 0 {
+                Button { announcing = true } label: { Label("Deadlines (\(announced))", systemImage: "calendar.badge.plus") }
+                    .help("Homework and dates the lecturer announced — add them to Assignments")
+            }
             Spacer()
             Button { state.justSavedLecture = nil } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).accessibilityLabel("Dismiss")
@@ -1864,6 +1871,15 @@ struct NoteEditor: View {
                     }
                     .buttonStyle(.plain)
                     .help("The cards made from this note — open their deck")
+                }
+                let announced = Announced.pending(in: draft, data: state.data).count
+                if announced > 0 {
+                    Text("·")
+                    Button { announcing = true } label: {
+                        Label("\(announced) deadline\(announced == 1 ? "" : "s") announced", systemImage: "calendar.badge.plus")
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.tint)
+                    .help("Homework and dates the lecturer announced — add them to Assignments")
                 }
                 Spacer()
             }.font(.caption2).foregroundStyle(.tertiary)

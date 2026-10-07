@@ -131,7 +131,8 @@ enum LectureNotes {
             } else {
                 scope = "This is part \(part) of \(total) of one lecture; write notes for this part only. "
                     + (part == 1 ? "Start with a `#` title for the lecture. " : "Do not write a `#` title. ")
-                    + "Do not write a summary or review section — the parts are joined afterwards."
+                    + "Do not write a summary or review section — the parts are joined afterwards. "
+                    + "If the lecturer announces homework, readings, a quiz, an exam or a deadline in this part, end it with a `### Announced` list, one per bullet as `What — when, as said`."
             }
             // The default style is word for word what these prompts always said; any other choice
             // swaps in its own instruction (`Style.keep`).
@@ -168,10 +169,14 @@ enum LectureNotes {
     // "Ask the professor" was here too; a 7B model filled it with "if anything was unclear,
     // ask" on a lecture where nothing was.
     private static let reviewSpec = """
-    `### Key takeaways` (3–6 bullets), `### Likely exam questions` (3–5 questions about \
-    what this lecture covered, each followed by a one-line answer), and `### Questions to ask` \
-    (1–3 things the lecture left unclear or contradictory, worth asking the professor — leave \
-    the heading out if there are none).
+    `### Key takeaways` (3–6 bullets), `### Formulas` (every equation or formula the lecture \
+    stated, one per bullet, with what its symbols mean — leave the heading out if there are none), \
+    `### Likely exam questions` (3–5 questions about what this lecture covered, each followed by a \
+    one-line answer), `### Questions to ask` (1–3 things the lecture left unclear or \
+    contradictory, worth asking the professor — leave the heading out if there are none), and \
+    `### Announced` (homework, readings, quizzes, exams and deadlines the lecturer announced, one \
+    per bullet as `What — when, as said`, e.g. `Problem set 4 — due next Friday` — leave the \
+    heading out if nothing was announced).
     """
 
     /// The user turn repeats the one instruction that matters. Small local models weight the
@@ -339,6 +344,63 @@ enum LectureNotes {
     }
 }
 
+// MARK: - Announced in a lecture
+
+/// Homework, readings and deadlines the lecturer announced, read from the notes' `### Announced`
+/// list (one per part of a long lecture, so every one counts), to offer as assignments. Dated
+/// from the lecture's own day, so "due Friday" is the Friday after that lecture.
+enum Announced {
+    /// The bullets under every `Announced` heading, once each; "none" and the like aren't items.
+    static func items(in body: String) -> [String] {
+        var out: [String] = [], inside = false, seen = Set<String>()
+        for line in body.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("#") {
+                inside = t.trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased().hasPrefix("announced")
+                continue
+            }
+            guard inside, let r = t.range(of: #"^(?:[-*•]|\d+[.)])\s+"#, options: .regularExpression) else { continue }
+            let item = String(t[r.upperBound...]).replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespaces)
+            let low = item.lowercased()
+            guard item.count >= 4, !low.hasPrefix("none"), !low.hasPrefix("nothing"), !low.hasPrefix("no "),
+                  seen.insert(key(item)).inserted else { continue }
+            out.append(item)
+        }
+        return out
+    }
+
+    /// "Problem set 4 — due next Friday" → ("Problem set 4", "due next Friday").
+    static func split(_ item: String) -> (what: String, when: String) {
+        for sep in [" — ", " – ", " - ", ": "] {
+            if let r = item.range(of: sep) {
+                return (String(item[..<r.lowerBound]).trimmingCharacters(in: .whitespaces),
+                        String(item[r.upperBound...]).trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return (item, item)
+    }
+
+    /// The ones not yet in Assignments for the note's course — what the note offers to add.
+    static func pending(in note: Note, data: AppData) -> [String] {
+        let have = Set(data.assignments.filter { $0.courseID == note.courseID }.map { key($0.title) })
+        return items(in: note.body).filter { !have.contains(key(split($0).what)) }
+    }
+
+    /// Each pending item as an assignment: its title, the due date read the way quick-add reads
+    /// one (from the lecture's day), the note's course, and where it was heard.
+    static func assignments(in note: Note, data: AppData) -> [Assignment] {
+        pending(in: note, data: data).map { item in
+            let (what, when) = split(item)
+            var a = Assignment(title: what, courseID: note.courseID,
+                               due: QuickParse.parse(when, courses: data.courses, now: note.createdAt).due)
+            a.notes = "Announced in “\(note.title.isEmpty ? "a lecture" : note.title)”: \(item)"
+            return a
+        }
+    }
+
+    static func key(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber } }
+}
+
 // MARK: - Self-test (StudyBar --lecture-selftest)
 
 /// The running notes Voice keeps while a lecture records (`VoiceService.soFar`).
@@ -476,6 +538,45 @@ enum LectureNotesSelfTest {
             var light = LectureNotes.Style(); light.fillIn = .light; light.shape = .qa
             let l = LectureNotes.system(.lecture, part: 1, of: 1, slides: true, style: light)
             check("light fill-in, Q&A, by slide", l.contains("a few in all") && l.contains("**Q:**") && l.contains("## Slide N") && !l.contains("aim for at least one"))
+        }
+
+        // Announced: read from every Announced list, dated from the lecture's day, offered once.
+        do {
+            let wed = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 7, hour: 10))!   // a Wednesday
+            var data = AppData()
+            let course = Course(name: "Physics 2", code: "PHY2049")
+            data.courses = [course]
+            var note = Note(title: "Week 7 — Capacitors", body: """
+            ## Capacitance
+            - **C = Q/V**
+            ### Announced
+            - Problem set 4 — due Friday
+            - **Read chapter 26** — before next lecture
+            ## Dielectrics
+            ### Announced
+            - Problem set 4 — due Friday
+            - Quiz 3: October 16
+            ## Review
+            ### Announced
+            - None announced
+            """, courseID: course.id)
+            note.createdAt = wed
+            check("announced items: every list, once each, not 'none'",
+                  Announced.items(in: note.body) == ["Problem set 4 — due Friday", "Read chapter 26 — before next lecture", "Quiz 3: October 16"],
+                  "\(Announced.items(in: note.body))")
+            let made = Announced.assignments(in: note, data: data)
+            let cal = Calendar.current
+            check("titles split from when, course kept",
+                  made.map(\.title) == ["Problem set 4", "Read chapter 26", "Quiz 3"] && made.allSatisfy { $0.courseID == course.id }, "\(made.map(\.title))")
+            check("'due Friday' is the Friday after the lecture; a dateless one has no date",
+                  made[0].due.map { cal.component(.day, from: $0) == 9 && cal.component(.month, from: $0) == 10 } == true && made[1].due == nil,
+                  "\(String(describing: made[0].due)) \(String(describing: made[1].due))")
+            check("a date as written", made[2].due.map { cal.component(.day, from: $0) == 16 } == true, "\(String(describing: made[2].due))")
+            data.assignments = [Assignment(title: "problem set 4", courseID: course.id)]
+            check("already in Assignments → not offered again", Announced.pending(in: note, data: data).count == 2)
+            check("the notes prompt asks for Formulas and Announced",
+                  LectureNotes.system(.lecture, part: 1, of: 1).contains("### Formulas") && LectureNotes.system(.lecture, part: 1, of: 1).contains("### Announced")
+                  && LectureNotes.system(.lecture, part: 2, of: 3).contains("### Announced"))
         }
 
         print(fail == 0 ? "LECTURE SELFTEST: ALL PASS" : "LECTURE SELFTEST: \(fail) FAILED")
