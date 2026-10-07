@@ -1056,7 +1056,24 @@ final class VoiceService: ObservableObject {
     func noteMoment(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isActive, !t.isEmpty else { return }
-        let line = "📝 " + t, at = takeElapsed
+        moment("📝 " + t)
+    }
+
+    /// A photo of the board at this moment — from an iPhone, a file, part of the screen. Kept
+    /// beside the recording, with a `📷 Board photo N` line where the lecture is, which the notes
+    /// keep in place and the note shows as the photo.
+    func addPhoto(_ cg: CGImage) {
+        guard isActive, let jpeg = ImageCards.jpeg(cg, maxSide: 2400) else { return }
+        let file = "photo-\(UUID().uuidString).jpg"
+        guard (try? jpeg.write(to: Self.recordingsDir.appendingPathComponent(file))) != nil else { return }
+        let at = takeElapsed
+        timeline.photos = (timeline.photos ?? []) + [.init(t: at, file: file)]
+        moment(BoardPhotos.marker(timeline.photos?.count ?? 1))
+    }
+
+    /// A line of the student's own at this moment of the transcript and its times.
+    private func moment(_ line: String) {
+        let at = takeElapsed
         if whisperMode {
             whisperCommitted = (whisperCommitted.isEmpty ? "" : whisperCommitted + "\n") + line + "\n"
             transcript = whisperCommitted
@@ -1088,6 +1105,8 @@ final class VoiceService: ObservableObject {
     func discardTake() {
         closeTake()
         let audio = takeURL, text = transcript.trimmingCharacters(in: .whitespacesAndNewlines), pending = takeFinalizing
+        let photos = (timeline.photos ?? []).map { Self.recordingsDir.appendingPathComponent($0.file) }
+        for p in photos { try? FileManager.default.trashItem(at: p, resultingItemURL: nil) }
         let when = (lastRecordingStart ?? .now).formatted(.dateTime.year().month().day().hour().minute()).replacingOccurrences(of: ":", with: ".")
         takeURL = nil; takeFinalizing = nil; transcript = ""; committed = ""; currentPartial = ""; timeline = LectureTimeline()
         Self.clearDraft()
@@ -1138,6 +1157,12 @@ final class VoiceService: ObservableObject {
             try? fm.trashItem(at: url, resultingItemURL: nil)
             if fm.fileExists(atPath: LectureTimeline.url(beside: url).path) { try? fm.trashItem(at: LectureTimeline.url(beside: url), resultingItemURL: nil) }
         }
+        // Board photos whose recording went, or a discarded session's left by a crash.
+        var used = Set<String>()
+        let timelines = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "json" }
+        for u in timelines { (try? JSONDecoder().decode(LectureTimeline.self, from: Data(contentsOf: u)))?.photos?.forEach { used.insert($0.file) } }
+        (try? JSONDecoder().decode(DraftInfo.self, from: Data(contentsOf: draftInfoURL)))?.timeline.photos?.forEach { used.insert($0.file) }
+        for name in BoardPhotos.orphans(files, keeping: used) { try? fm.trashItem(at: dir.appendingPathComponent(name), resultingItemURL: nil) }
         return gone.count
     }
 
@@ -1208,8 +1233,12 @@ final class VoiceService: ObservableObject {
 /// (`Recordings/<note>.json`), not in the synced store.
 struct LectureTimeline: Codable, Equatable {
     struct Line: Codable, Equatable { var t: Double; var text: String }
+    /// A photo of the board, when it was taken and its file beside the audio.
+    struct Photo: Codable, Equatable { var t: Double; var file: String }
     var lines: [Line] = []
     var stars: [Double] = []
+    /// In the order taken: photo N is `photos[N - 1]`. Optional, so older timelines decode.
+    var photos: [Photo]? = nil
 
     /// Text heard between two times, one line per sentence. With word times (Apple Speech) a
     /// sentence starts at its first word; without, at its share of the span.
@@ -1355,6 +1384,21 @@ enum VoiceTakeSelfTest {
                   && voice.timeline.lines.last?.text == "📝 this is on the exam" && !voice.transcript.contains("ignored"), voice.transcript)
             voice.status = .idle
         }
+
+        // A board photo: kept beside the recording, its line in the transcript and the times.
+        if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil, let (pic, _) = ImageCardsSelfTest.diagram() {
+            let voice = VoiceService()
+            voice.addPhoto(pic)
+            check("no photo while stopped", voice.timeline.photos == nil)
+            voice.status = .recording
+            voice.addPhoto(pic)
+            let p = voice.timeline.photos?.first
+            check("a board photo is kept beside the recording", p.map { FileManager.default.fileExists(atPath: BoardPhotos.url($0).path) } == true)
+            check("…with its line where the lecture is", voice.transcript.contains("📷 Board photo 1") && voice.timeline.lines.last?.text == "📷 Board photo 1", voice.transcript)
+            voice.status = .idle
+            if let p { try? FileManager.default.removeItem(at: BoardPhotos.url(p)) }
+        }
+        BoardPhotosSelfTest.run(check)
 
         // An interrupted session comes back whole: words, times, stars and audio.
         if ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil {

@@ -149,7 +149,7 @@ enum LectureNotes {
             \(scope)
 
             1. \(keep)
-            2. \(style.fillIn(fillIn))\(job == .lecture ? "\n3. A sentence starting with ⭐ was starred by the student while listening: it matters. Give it a prominent place in **bold**, keep the ⭐, and make it a likely exam question in the review.\n4. A line starting with 📝 is the student's own note, typed at that moment: keep it, word for word with its 📝, where it belongs." : "")\(style.stress)
+            2. \(style.fillIn(fillIn))\(job == .lecture ? "\n3. A sentence starting with ⭐ was starred by the student while listening: it matters. Give it a prominent place in **bold**, keep the ⭐, and make it a likely exam question in the review.\n4. A line starting with 📝 is the student's own note, typed at that moment: keep it, word for word with its 📝, where it belongs.\n5. A line `📷 Board photo N` is a photo the student took of the board at that moment: keep the line exactly as it is, on a line of its own, in the section about what was on the board then." : "")\(style.stress)
 
             \(format)
             """

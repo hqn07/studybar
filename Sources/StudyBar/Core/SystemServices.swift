@@ -96,6 +96,9 @@ enum ScreenGrab {
         menu.addItem(GrabItem(AIConfig.canSee(engine) ? "Copy Math as LaTeX" : "Copy Math as LaTeX — needs an engine that reads images",
                               enabled: AIConfig.canSee(engine)) { copyLatex(img) })
         menu.addItem(GrabItem("Ask the Tutor", enabled: AIConfig.isReady(for: .ask) && state?.data.courses.isEmpty == false) { askTutor(img) })
+        if let voice = state?.voice, voice.isActive {
+            menu.addItem(GrabItem("Add to the Recording as a Board Photo") { voice.addPhoto(img) })
+        }
         menu.addItem(GrabItem("Make Image Cards…") {
             state?.pendingImageCards = ImageCardsRequest(image: img)
             AppActions.open(module: "flashcards")

@@ -541,6 +541,8 @@ struct NoteEditor: View {
     @State private var draft: Note
     @State private var tagText: String
     @State private var showPreview = false
+    /// A lecture note's photos of the board, shown in the reading view where they were taken.
+    @State private var boardPhotos: [LectureTimeline.Photo] = []
     @State private var saveTask: Task<Void, Never>?
     @State private var defineTerm = ""
     @State private var defineResult: String?
@@ -1746,8 +1748,10 @@ struct NoteEditor: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         readingHeader
-                        NotePreview(text: draft.body.isEmpty ? "_Nothing here yet — click to start writing._" : draft.body)
+                        NotePreview(text: draft.body.isEmpty ? "_Nothing here yet — click to start writing._" : draft.body,
+                                    photos: boardPhotos, note: draft)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .task(id: draft.audioPath) { boardPhotos = BoardPhotos.photos(of: draft) }
                     }
                     .frame(maxWidth: 680, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)   // center the reading column

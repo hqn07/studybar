@@ -1393,6 +1393,17 @@ enum StudySnapshot {
             }
             save(NavigationStack { CardEditor(card: made[3]) }, "image-card-editor.png", CGSize(width: 560, height: 560))
             save(NavigationStack { DeckView(deck: imgDeck) }, "image-deck.png", CGSize(width: 760, height: 560))
+            // A lecture note with a photo of the board where it was taken.
+            if let photoJPEG = ImageCards.jpeg(pic, maxSide: 2400) {
+                var lecture = Note(title: "Week 6 — The heart", body: "# The heart\n## Chambers\n- Four chambers: two **atria** receive blood, two **ventricles** pump it out.\n- 📷 Board photo 1 — the diagram from the board\n## Circulation\n- The **left ventricle** pumps into the **aorta**.", courseID: course.id)
+                lecture.audioPath = "\(lecture.id.uuidString).m4a"
+                let file = "photo-\(UUID().uuidString).jpg"
+                try? photoJPEG.write(to: VoiceService.recordingsDir.appendingPathComponent(file))
+                var tl = LectureTimeline(); tl.photos = [.init(t: 754, file: file)]
+                try? JSONEncoder().encode(tl).write(to: LectureTimeline.url(beside: VoiceService.recordingsDir.appendingPathComponent(lecture.audioPath!)))
+                state.data.notes.append(lecture)
+                save(NoteEditor(note: lecture, embedded: true, startInPreview: true), "note-board-photo.png", CGSize(width: 900, height: 700))
+            }
         }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)

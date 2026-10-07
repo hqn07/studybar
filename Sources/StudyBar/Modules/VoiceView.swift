@@ -314,8 +314,26 @@ struct VoiceBody: View {
                     TextField("Note this moment — “on the exam”, “ask about step 3” — Return adds it", text: $momentNote)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { voice.noteMoment(momentNote); momentNote = "" }
+                    // The board at this moment — with an iPhone, from a file or part of the screen.
+                    PictureButton(title: "Board Photo", symbol: "camera") { voice.addPhoto($0) }
+                        .fixedSize()
+                        .help("A photo of the board, placed at this moment — take it with your iPhone, or pick a picture or part of the screen")
                 }
-                .frame(maxWidth: 520).padding(.horizontal, 36)
+                .frame(maxWidth: 640).padding(.horizontal, 36)
+                if let photos = voice.timeline.photos, !photos.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(photos.enumerated()), id: \.offset) { i, p in
+                                if let img = BoardPhotos.image(p) {
+                                    Image(nsImage: img).resizable().scaledToFill().frame(width: 64, height: 44).clipped()
+                                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                                        .help("Board photo \(i + 1) — in the note where it was taken")
+                                        .accessibilityLabel("Board photo \(i + 1)")
+                                }
+                            }
+                        }.padding(.horizontal, 36)
+                    }.frame(maxWidth: 640, maxHeight: 48)
+                }
             }
             if voice.isRecording {
                 LevelMeter(meter: voice.meter).frame(height: 42).padding(.horizontal, 36)
@@ -638,7 +656,8 @@ struct VoiceBody: View {
                                               shape: shape, existing: siblings,
                                               date: voice.lastRecordingStart ?? .now,
                                               termStart: state.data.termStart)
-        var note = Note(title: title, body: text, courseID: course)
+        // Every board photo keeps its place — any the notes left out go at the end.
+        var note = Note(title: title, body: BoardPhotos.ensured(text, count: voice.timeline.photos?.count ?? 0), courseID: course)
         note.audioPath = voice.claimTake(for: note.id)
         if let deck = voice.slides {
             note.slidesID = deck.id

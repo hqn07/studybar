@@ -27,16 +27,76 @@ struct RichText: View {
 /// (Markdown + LaTeX). Isolated here so MarkdownText/RichText stay untouched.
 struct NotePreview: View {
     let text: String
+    /// A lecture note's board photos, shown where their `📷 Board photo N` lines are.
+    var photos: [LectureTimeline.Photo] = []
+    var note: Note? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(FoldParser.parse(text)) { seg in
                 if seg.isFold {
                     FoldBlock(title: seg.title, content: seg.content)
-                } else {
+                } else if photos.isEmpty {
                     RichText(text: seg.content)
+                } else {
+                    ForEach(Array(BoardPhotos.split(seg.content).enumerated()), id: \.offset) { _, piece in
+                        switch piece {
+                        case .text(let t): RichText(text: t)
+                        case .photo(let n, let caption):
+                            BoardPhotoView(number: n, photo: photos.indices.contains(n - 1) ? photos[n - 1] : nil, caption: caption, note: note)
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/// A photo of the board, in the note where it was taken: click its time to hear the lecture
+/// from then; right-click to open it, copy it, or cover its parts as image cards.
+private struct BoardPhotoView: View {
+    @EnvironmentObject var state: AppState
+    let number: Int
+    let photo: LectureTimeline.Photo?
+    let caption: String
+    let note: Note?
+
+    var body: some View {
+        if let photo, let img = BoardPhotos.image(photo) {
+            VStack(alignment: .leading, spacing: 4) {
+                Image(nsImage: img).resizable().scaledToFit()
+                    .frame(maxWidth: 560, maxHeight: 340, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+                    .onTapGesture(count: 2) { NSWorkspace.shared.open(BoardPhotos.url(photo)) }
+                    .accessibilityLabel("Board photo \(number)\(caption.isEmpty ? "" : ", \(caption)")")
+                HStack(spacing: 8) {
+                    if let note, note.audioPath != nil {
+                        Button { state.pendingSeek = .init(note: note.id, at: photo.t) } label: {
+                            Label("Board photo \(number) · \(BoardPhotos.clock(photo.t))", systemImage: "play.circle")
+                        }
+                        .buttonStyle(.borderless).help("Play the lecture from when this was taken")
+                    } else {
+                        Label("Board photo \(number)", systemImage: "camera")
+                    }
+                    if !caption.isEmpty { Text(caption).foregroundStyle(.secondary) }
+                }
+                .font(.caption)
+            }
+            .padding(.vertical, 4)
+            .contextMenu {
+                Button("Open in Preview") { NSWorkspace.shared.open(BoardPhotos.url(photo)) }
+                Button("Make Image Cards…") {
+                    guard let cg = ImageCards.cgImage(img) else { return }
+                    state.pendingImageCards = ImageCardsRequest(image: cg, title: caption.isEmpty ? "Board photo \(number)" : caption, course: note?.courseID)
+                    AppActions.open(module: "flashcards")
+                }
+                Button("Copy Image") { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([img]) }
+            }
+        } else {
+            // Recordings stay on the Mac that made them, and their photos with them.
+            Label("Board photo \(number) — it's on the Mac that recorded this lecture", systemImage: "camera")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }
