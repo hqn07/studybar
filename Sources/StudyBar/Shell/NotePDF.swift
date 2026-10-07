@@ -362,14 +362,16 @@ enum NotePDF {
 /// styled note that matched was printed from its plain text, dropping its colors and images.
 enum NoteHTML {
     /// A saved note's text with its formatting: the stored rich text, else the plain body.
-    static func attributed(_ n: Note) -> NSAttributedString {
-        if let d = n.rich, let a = NSAttributedString.fromRTFD(d), a.length > 0 { return a }   // math/folds stored expanded
-        return NSAttributedString(string: n.body, attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor])
+    /// A lecture's board photos stand where their lines are.
+    @MainActor static func attributed(_ n: Note) -> NSAttributedString {
+        if let d = n.rich, let a = NSAttributedString.fromRTFD(d), a.length > 0 { return BoardPhotos.inlined(a, photos: BoardPhotos.photos(of: n)) }   // math/folds stored expanded
+        return BoardPhotos.inlined(NSAttributedString(string: n.body, attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor]),
+                                   photos: BoardPhotos.photos(of: n))
     }
 
     /// Several notes as one document — an exam binder: a contents list whose page numbers the
     /// layout fills in, then each note from the top of a new page, under its title and date.
-    static func binder(_ notes: [Note]) -> String {
+    @MainActor static func binder(_ notes: [Note]) -> String {
         func esc(_ s: String) -> String { s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;") }
         func title(_ n: Note) -> String { esc(n.title.isEmpty ? "Untitled note" : n.title) }
         let toc = notes.indices.map { i in
@@ -417,7 +419,7 @@ enum NoteHTML {
 
     /// Every note as Markdown, a folder per course — the way out to Obsidian, Bear or Notion, and
     /// a copy that needs no StudyBar to read. Run again into the same folder, it overwrites.
-    static func exportAll(_ data: AppData, to root: URL) -> (written: Int, failed: Int) {
+    @MainActor static func exportAll(_ data: AppData, to root: URL) -> (written: Int, failed: Int) {
         func safe(_ s: String) -> String {
             String(s.replacingOccurrences(of: #"[/:\\]"#, with: "-", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "."))).prefix(120))

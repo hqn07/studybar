@@ -1396,7 +1396,20 @@ enum VoiceTakeSelfTest {
             check("a board photo is kept beside the recording", p.map { FileManager.default.fileExists(atPath: BoardPhotos.url($0).path) } == true)
             check("…with its line where the lecture is", voice.transcript.contains("📷 Board photo 1") && voice.timeline.lines.last?.text == "📷 Board photo 1", voice.transcript)
             voice.status = .idle
-            if let p { try? FileManager.default.removeItem(at: BoardPhotos.url(p)) }
+            if let p {
+                let attr = BoardPhotos.inlined(NSAttributedString(string: "## Heart\n- 📷 Board photo 1 — the diagram\nMore"), photos: [p])
+                var pictures = 0
+                attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length)) { v, _, _ in if v != nil { pictures += 1 } }
+                check("exports show the photo in its place, with its caption", pictures == 1 && !attr.string.contains("📷")
+                      && attr.string.contains("the diagram") && attr.string.hasSuffix("More"), attr.string)
+                let md = VoiceService.recordingsDir.appendingPathComponent("export-test/Heart.md")
+                try? FileManager.default.createDirectory(at: md.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? NoteHTML.writeMarkdown(attr, to: md)
+                let assets = (try? FileManager.default.contentsOfDirectory(atPath: md.deletingLastPathComponent().appendingPathComponent("assets").path)) ?? []
+                check("…and Markdown writes it beside the note", assets.count == 1, "\(assets)")
+                try? FileManager.default.removeItem(at: md.deletingLastPathComponent())
+                try? FileManager.default.removeItem(at: BoardPhotos.url(p))
+            }
         }
         BoardPhotosSelfTest.run(check)
 

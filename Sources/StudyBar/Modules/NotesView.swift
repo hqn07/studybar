@@ -2257,7 +2257,7 @@ struct NoteEditor: View {
     /// mirror, so every path has real content.
     private func exportAttributed() -> NSAttributedString {
         let live = editor.attributedString
-        if live.length > 0 { return live.expandingMath().expandingFolds() }
+        if live.length > 0 { return BoardPhotos.inlined(live.expandingMath().expandingFolds(), photos: BoardPhotos.photos(of: draft)) }
         return NoteHTML.attributed(draft)
     }
 

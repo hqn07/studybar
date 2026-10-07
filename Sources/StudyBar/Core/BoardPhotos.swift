@@ -25,6 +25,12 @@ enum BoardPhotos {
         return text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n### Board photos\n" + missing.map(marker).joined(separator: "\n\n")
     }
 
+    /// What the notes wrote after the photo's name, if anything: "— the circuit for Q3".
+    static func caption(ofLine line: String) -> String {
+        line.replacing(/^[\s\-*•>_]*📷\s*[*_]*\s*[Bb]oard photo\s+\d+[*_]*\s*[—–:\-]?\s*/, with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "*_ "))
+    }
+
     enum Piece: Equatable { case text(String), photo(Int, caption: String) }
 
     /// The text cut at its photo lines, to show each photo in its place.
@@ -38,9 +44,7 @@ enum BoardPhotos {
         for line in text.components(separatedBy: "\n") {
             if let n = number(inLine: line) {
                 flush()
-                // What the notes wrote after the photo's name, if anything: "— the circuit for Q3".
-                let rest = line.replacing(/^[\s\-*•>_]*📷\s*[*_]*\s*[Bb]oard photo\s+\d+[*_]*\s*[—–:\-]?\s*/, with: "")
-                out.append(.photo(n, caption: rest.trimmingCharacters(in: CharacterSet(charactersIn: "*_ "))))
+                out.append(.photo(n, caption: caption(ofLine: line)))
             } else {
                 buffer.append(line)
             }
@@ -69,6 +73,30 @@ enum BoardPhotos {
     static func clock(_ t: Double) -> String {
         let s = Int(t)
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// The note's text with each photo's line replaced by the photo (and its caption), for PDF,
+    /// Word, Markdown and the binder — which otherwise print "📷 Board photo 2".
+    @MainActor static func inlined(_ attr: NSAttributedString, photos: [LectureTimeline.Photo]) -> NSAttributedString {
+        guard !photos.isEmpty else { return attr }
+        let out = NSMutableAttributedString(attributedString: attr)
+        let ns = attr.string as NSString
+        var found: [(range: NSRange, n: Int, caption: String)] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byParagraphs) { line, r, _, _ in
+            if let line, let n = number(inLine: line) { found.append((r, n, caption(ofLine: line))) }
+        }
+        for f in found.reversed() {
+            guard photos.indices.contains(f.n - 1), let img = image(photos[f.n - 1]), img.size.width > 0 else { continue }
+            let att = NSTextAttachment(); att.image = img
+            let w = min(460, img.size.width)
+            att.bounds = CGRect(x: 0, y: 0, width: w, height: img.size.height * w / img.size.width)
+            let piece = NSMutableAttributedString(attachment: att)
+            if !f.caption.isEmpty {
+                piece.append(NSAttributedString(string: "\n" + f.caption, attributes: attr.attributes(at: f.range.location, effectiveRange: nil)))
+            }
+            out.replaceCharacters(in: f.range, with: piece)
+        }
+        return out
     }
 
     /// A note's photos, from its recording's timeline.
