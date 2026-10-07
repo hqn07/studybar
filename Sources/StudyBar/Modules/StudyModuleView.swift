@@ -1365,7 +1365,7 @@ enum StudySnapshot {
             lecture.slidesID = deckFile.id
             state.data.notes.append(lecture)
             let slideCard = Flashcard(deckID: UUID(), front: "What does Gauss's law relate?", back: "Flux through a closed surface to the charge inside")
-            save(SlidesPane(file: deckFile, page: .constant(2), cards: [2: [slideCard]], openCard: { _ in }, makeCards: { _ in }),
+            save(SlidesPane(file: deckFile, page: .constant(2), cards: [2: [slideCard]], openCard: { _ in }, makeCards: { _ in }, pictureCards: { _ in }),
                  "slides-pane.png", CGSize(width: 380, height: 340))
             save(NoteEditor(note: lecture, embedded: true), "note-with-slides.png", CGSize(width: 1100, height: 560))
         }
@@ -1403,6 +1403,8 @@ enum StudySnapshot {
                 try? JSONEncoder().encode(tl).write(to: LectureTimeline.url(beside: VoiceService.recordingsDir.appendingPathComponent(lecture.audioPath!)))
                 state.data.notes.append(lecture)
                 save(NoteEditor(note: lecture, embedded: true, startInPreview: true), "note-board-photo.png", CGSize(width: 900, height: 700))
+                // The reading bar's links at the narrowest a note gets beside the list.
+                for w in [380, 520] { save(NoteEditor(note: lecture, embedded: true, startInPreview: true), "note-board-photo-\(w).png", CGSize(width: w, height: 500)) }
             }
         }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)

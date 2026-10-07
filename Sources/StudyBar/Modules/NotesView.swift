@@ -543,6 +543,7 @@ struct NoteEditor: View {
     @State private var showPreview = false
     /// A lecture note's photos of the board, shown in the reading view where they were taken.
     @State private var boardPhotos: [LectureTimeline.Photo] = []
+    @State private var narrowBar = false
     @State private var saveTask: Task<Void, Never>?
     @State private var defineTerm = ""
     @State private var defineResult: String?
@@ -1059,6 +1060,11 @@ struct NoteEditor: View {
                                            persist()
                                            let section = SlideCards.sections(draft.body)[n] ?? ""
                                            makingCards = .init(text: section, course: draft.courseID, note: draft.id)
+                                       },
+                                       pictureCards: { cg in
+                                           persist()
+                                           state.pendingImageCards = ImageCardsRequest(image: cg, title: "\((deck.name as NSString).deletingPathExtension) — slide \(slidePage)", course: draft.courseID)
+                                           state.selectedModuleID = "flashcards"
                                        })
                                 .frame(width: min(420, geo.size.width * 0.42))
                                 .task(id: slideCardsKey) { slideCards = SlideCards.bySlide(draft, cards: state.data.flashcards) }
@@ -1800,31 +1806,44 @@ struct NoteEditor: View {
     private var readingBar: some View {
         HStack(spacing: 6) {
             Image(systemName: "book").font(.caption2)
-            Text("Reading").font(.caption2.weight(.semibold))
-            Spacer()
+            if !narrowBar { Text("Reading").font(.caption2.weight(.semibold)) }
+            Spacer(minLength: 4)
             if AIConfig.isReady(for: .ask) {
-                Button { cardsFromNote() } label: { Label("Flashcards", systemImage: "rectangle.on.rectangle.angled").font(.caption2) }
+                Button { cardsFromNote() } label: { barLabel("Flashcards", "rectangle.on.rectangle.angled") }
                     .buttonStyle(.plain).foregroundStyle(.tint)
                     .help("Make flashcards from this note — you pick how many and check them before they're added")
                 Text("·").font(.caption2)
-                Button { quizMe() } label: { Label("Quiz me", systemImage: "checklist").font(.caption2) }
+                Button { quizMe() } label: { barLabel("Quiz me", "checklist") }
                     .buttonStyle(.plain).foregroundStyle(.tint)
                     .help("A quiz on this note, in Study")
                 Text("·").font(.caption2)
-                Button { asking ? closeAsk() : openAsk() } label: {
-                    Label("Ask", systemImage: "questionmark.bubble").font(.caption2)
-                }
+                Button { asking ? closeAsk() : openAsk() } label: { barLabel("Ask", "questionmark.bubble") }
                 .buttonStyle(.plain).foregroundStyle(.tint)
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .help("Ask a question about this lecture — or about something it didn't cover (⇧⌘A)")
                 Text("·").font(.caption2)
             }
-            Label("⌘E to edit", systemImage: "pencil").font(.caption2)
+            // A lecture's notes are where a misheard term shows: "ferrets" for farads.
+            if draft.audioPath != nil {
+                Button { persist(); fixingWord = .init(course: draft.courseID) } label: { barLabel("Fix a word", "character.cursor.ibeam") }
+                .buttonStyle(.plain).foregroundStyle(.tint)
+                .help("A term the transcription got wrong — fix it in every note of the course, and teach the course to expect it")
+                Text("·").font(.caption2)
+            }
+            barLabel("⌘E to edit", "pencil")
                 .help("⌘E, the eye button, or a double-click in the margin. Text is selectable — drag to copy a passage.")
         }
+        .lineLimit(1)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16).padding(.vertical, 5)
         .background(.sbSurface.opacity(0.5))
+        // Narrow — the note beside its list, slides open — the links keep their icons and lose
+        // their words, rather than wrapping a letter at a time.
+        .onGeometryChange(for: Bool.self) { $0.size.width < 540 } action: { narrowBar = $0 }
+    }
+    @ViewBuilder private func barLabel(_ title: String, _ symbol: String) -> some View {
+        if narrowBar { Image(systemName: symbol).font(.caption).accessibilityLabel(title) }
+        else { Label(title, systemImage: symbol).font(.caption2) }
     }
     private func enterEditFromPreview() { withAnimation(.easeOut(duration: 0.12)) { showPreview = false } }
 

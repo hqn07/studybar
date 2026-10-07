@@ -75,7 +75,7 @@ private struct BoardPhotoView: View {
                         Button { state.pendingSeek = .init(note: note.id, at: photo.t) } label: {
                             Label("Board photo \(number) · \(BoardPhotos.clock(photo.t))", systemImage: "play.circle")
                         }
-                        .buttonStyle(.borderless).help("Play the lecture from when this was taken")
+                        .buttonStyle(.borderless).foregroundStyle(.tint).help("Play the lecture from when this was taken")
                     } else {
                         Label("Board photo \(number)", systemImage: "camera")
                     }

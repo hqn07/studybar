@@ -12,6 +12,8 @@ struct SlidesPane: View {
     var openCard: ((Flashcard) -> Void)?
     /// Make cards from this slide's part of the note.
     var makeCards: ((Int) -> Void)?
+    /// Image cards from this slide's picture (a PDF deck's page).
+    var pictureCards: ((CGImage) -> Void)?
     @State private var showCards = false
 
     private var url: URL { StudyMaterial.fileURL(file) }
@@ -54,9 +56,16 @@ struct SlidesPane: View {
                     .onAppear { proxy.scrollTo(page, anchor: .top) }
                 }
             }
-            if openCard != nil || makeCards != nil { slideCards }
+            if openCard != nil || makeCards != nil || pictureCards != nil { slideCards }
         }
         .background(.sbSurface.opacity(0.35))
+    }
+
+    /// The slide as a picture, at twice its size.
+    private func slideImage() -> CGImage? {
+        guard let p = PDFDocument(url: url)?.page(at: page - 1) else { return nil }
+        let b = p.bounds(for: .cropBox)
+        return ImageCards.cgImage(p.thumbnail(of: CGSize(width: b.width * 2, height: b.height * 2), for: .cropBox))
     }
 
     /// This slide's cards, and a way to make some from it.
@@ -71,6 +80,10 @@ struct SlidesPane: View {
                 }
                 .buttonStyle(.borderless).disabled(mine.isEmpty)
                 Spacer()
+                if let pictureCards, isPDF {
+                    Button("Cover parts") { if let cg = slideImage() { pictureCards(cg) } }.buttonStyle(.borderless)
+                        .help("Image cards from this slide — cover its labels or parts, a card for each")
+                }
                 if let makeCards {
                     Button("Make cards") { makeCards(page) }.buttonStyle(.borderless)
                         .help("Flashcards from what the notes say about this slide")
