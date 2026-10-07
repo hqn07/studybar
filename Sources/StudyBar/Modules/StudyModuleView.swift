@@ -63,6 +63,11 @@ struct StudyModuleView: View {
     @AppStorage("studyTab") private var tab: Tab = .tutor
     @State private var reading: [String] = []            // files being read in
     @State private var dropTargeted = false
+    @State private var sourcesShown = false
+    /// Below this, the sources column moves behind a button. Beside it, the panes got ~250 pt at
+    /// the window's narrowest, and one row that needs more (Progress's topics) pushed all of
+    /// Study off both edges — every tab is laid out, shown or not.
+    static let twoColumnWidth: CGFloat = 640
 
     enum Tab: String, CaseIterable, Identifiable {
         case tutor = "Tutor", quiz = "Quiz", exam = "Practice exam", guide = "Study guide", progress = "Progress", glossary = "Glossary"
@@ -97,49 +102,67 @@ struct StudyModuleView: View {
                 EmptyState(symbol: "graduationcap", title: "Add a course to study",
                            subtitle: "Study works from a course's notes, slides, textbook and syllabus.")
             } else {
-                HStack(spacing: 0) {
-                    sourceColumn.frame(width: 250)
-                    Divider()
-                    VStack(spacing: 0) {
-                        // Six tabs need ~520 pt; at the window's default size there are ~480, and a
-                        // segmented control that doesn't fit pushed the whole pane off the right edge.
-                        ViewThatFits(in: .horizontal) {
-                            Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
-                                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                            Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
-                                .pickerStyle(.menu).labelsHidden().fixedSize()
+                GeometryReader { geo in
+                    let twoColumns = geo.size.width >= Self.twoColumnWidth
+                    HStack(spacing: 0) {
+                        if twoColumns {
+                            sourceColumn.frame(width: 250)
+                            Divider()
                         }
-                        .frame(maxWidth: .infinity).padding(10)
-                        Divider()
-                        if !AIConfig.isReady(for: .ask) {
-                            EmptyState(symbol: "sparkles", title: "Pick an AI engine",
-                                       subtitle: "Settings ▸ Intelligence — on-device, Ollama, or your own Claude / OpenAI key.")
-                        } else {
-                            // All four stay alive, so a quiz in progress survives a look at the tutor.
-                            let session = state.studySession(course?.id)
-                            // Nothing to write a quiz, exam, guide or glossary from: say what would be.
-                            let bare = sources.isEmpty && reading.isEmpty && ![.tutor, .progress].contains(tab)
-                            ZStack {
-                                ZStack {
-                                    TutorPane(course: course, material: material, m: session.tutor).opacity(tab == .tutor ? 1 : 0).allowsHitTesting(tab == .tutor)
-                                    QuizPane(exam: false, course: course, material: material, m: session.quiz).opacity(tab == .quiz ? 1 : 0).allowsHitTesting(tab == .quiz)
-                                    QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
-                                    GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
-                                    ProgressPane(course: course, quiz: session.quiz) { tab = $0 }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
-                                    if tab == .glossary { GlossaryPane(course: course, notes: tickedNotes) }
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                if !twoColumns { sourcesButton }
+                                // Six tabs need ~520 pt; at the window's default size there are ~480, and a
+                                // segmented control that doesn't fit pushed the whole pane off the right edge.
+                                ViewThatFits(in: .horizontal) {
+                                    Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                                    Picker("", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                                        .pickerStyle(.menu).labelsHidden().fixedSize()
                                 }
-                                .opacity(bare ? 0 : 1).allowsHitTesting(!bare)
-                                if bare { noMaterial }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .padding(10)
+                            Divider()
+                            if !AIConfig.isReady(for: .ask) {
+                                EmptyState(symbol: "sparkles", title: "Pick an AI engine",
+                                           subtitle: "Settings ▸ Intelligence — on-device, Ollama, or your own Claude / OpenAI key.")
+                            } else {
+                                // All four stay alive, so a quiz in progress survives a look at the tutor.
+                                let session = state.studySession(course?.id)
+                                // Nothing to write a quiz, exam, guide or glossary from: say what would be.
+                                let bare = sources.isEmpty && reading.isEmpty && ![.tutor, .progress].contains(tab)
+                                ZStack {
+                                    ZStack {
+                                        TutorPane(course: course, material: material, m: session.tutor).opacity(tab == .tutor ? 1 : 0).allowsHitTesting(tab == .tutor)
+                                        QuizPane(exam: false, course: course, material: material, m: session.quiz).opacity(tab == .quiz ? 1 : 0).allowsHitTesting(tab == .quiz)
+                                        QuizPane(exam: true, course: course, material: material, m: session.exam).opacity(tab == .exam ? 1 : 0).allowsHitTesting(tab == .exam)
+                                        GuidePane(course: course, material: material, m: session.guide).opacity(tab == .guide ? 1 : 0).allowsHitTesting(tab == .guide)
+                                        ProgressPane(course: course, quiz: session.quiz) { tab = $0 }.opacity(tab == .progress ? 1 : 0).allowsHitTesting(tab == .progress)
+                                        if tab == .glossary { GlossaryPane(course: course, notes: tickedNotes) }
+                                    }
+                                    .opacity(bare ? 0 : 1).allowsHitTesting(!bare)
+                                    if bare { noMaterial }
+                                }
                             }
                         }
+                        .id(course?.id)                   // a new course starts every pane over
                     }
-                    .id(course?.id)                   // a new course starts every pane over
+                    .studyFocus(course.map { .course($0.id) })
                 }
-                .studyFocus(course.map { .course($0.id) })
             }
         }
         .onAppear(perform: follow)
         .onChange(of: state.workingCourseID) { _, _ in follow() }
+    }
+
+    /// In a window too narrow for two columns: the course and its sources, behind one button.
+    private var sourcesButton: some View {
+        Button { sourcesShown.toggle() } label: {
+            Label("\(course.map { $0.code.isEmpty ? $0.name : $0.code } ?? "Sources") · \(selected.count)", systemImage: "sidebar.left")
+        }
+        .help("The course, and the sources Study works from")
+        .popover(isPresented: $sourcesShown, arrowEdge: .bottom) { sourceColumn.frame(width: 280, height: 440) }
     }
 
     /// A course with nothing in it yet: what Study reads, the two ways to add it, and a course
@@ -672,9 +695,15 @@ private struct QuizPane: View {
             Picker("Questions", selection: $count) {
                 ForEach(exam ? [10, 20, 30] : [5, 10, 15, 20], id: \.self) { Text("\($0)").tag($0) }
             }.fixedSize()
-            Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).fixedSize()
-                .help("Easier for a first pass; Harder for multi-step problems and the usual traps")
+            // Every tab is laid out even while hidden, so a segmented control that can't shrink
+            // made all of Study wider than a narrow window. A menu when the three don't fit.
+            ViewThatFits(in: .horizontal) {
+                Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).fixedSize()
+                Picker("Difficulty", selection: $level) { ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.menu).fixedSize()
+            }
+            .help("Easier for a first pass; Harder for multi-step problems and the usual traps")
             if exam {
                 Picker("Time", selection: $minutes) {
                     ForEach([15, 30, 45, 60, 90], id: \.self) { Text("\($0) min").tag($0) }
@@ -1004,7 +1033,8 @@ private struct ProgressPane: View {
                     }
                     ForEach(scores) { s in
                         HStack(spacing: 10) {
-                            Text(s.topic).font(.callout).frame(width: 220, alignment: .leading).lineLimit(1)
+                            // Up to 220 for the name; in a narrow pane it gives way, so the bar stays readable.
+                            Text(s.topic).font(.callout).frame(minWidth: 90, maxWidth: 220, alignment: .leading).lineLimit(1)
                             ProgressView(value: s.ratio).tint(s.ratio < 0.5 ? .red : s.ratio < 0.8 ? .orange : .green)
                             Text("\(s.right)/\(s.total) · \(Int((s.ratio * 100).rounded()))%")
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 80, alignment: .trailing)
@@ -1036,33 +1066,38 @@ private struct ProgressPane: View {
     /// What to do now, with the one button that does it.
     private func nextCard(_ next: NextStep.Pick, course: Course) -> some View {
         let quizBusy = quiz.phase == .generating || quiz.phase == .taking
-        return HStack(spacing: 12) {
+        // The button under the words, not beside them: beside, a narrow window cut both short.
+        return HStack(alignment: .top, spacing: 12) {
             Image(systemName: "arrow.forward.circle.fill").font(.title2).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text("NEXT").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Text(next.title).font(.headline).lineLimit(2)
-                Text(next.why).font(.callout).foregroundStyle(.secondary)
+                Text(next.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+                Text(next.why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                nextButton(next, course: course, quizBusy: quizBusy).padding(.top, 6)
             }
-            Spacer(minLength: 8)
-            Button(next.button) {
-                switch next.action {
-                case .exam: open(.exam)
-                case .quiz(let focus): quiz.focus = focus; open(.quiz)
-                case .makeCards: makingCards = .init(notes: [], course: course.id)
-                case .review:
-                    // The deck with the most due, opened, rather than the list of every deck.
-                    let due = state.data.flashcards.filter(\.isDue)
-                    state.pendingDeck = state.data.decks.filter { $0.courseID == course.id }
-                        .max { a, b in due.filter { $0.deckID == a.id }.count < due.filter { $0.deckID == b.id }.count }?.id
-                    state.selectedModuleID = "flashcards"
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled({ if case .quiz = next.action { return quizBusy }; return false }())
+            Spacer(minLength: 0)
         }
         .padding(14)
         .background(.tint.opacity(0.07), in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func nextButton(_ next: NextStep.Pick, course: Course, quizBusy: Bool) -> some View {
+        Button(next.button) {
+            switch next.action {
+            case .exam: open(.exam)
+            case .quiz(let focus): quiz.focus = focus; open(.quiz)
+            case .makeCards: makingCards = .init(notes: [], course: course.id)
+            case .review:
+                // The deck with the most due, opened, rather than the list of every deck.
+                let due = state.data.flashcards.filter(\.isDue)
+                state.pendingDeck = state.data.decks.filter { $0.courseID == course.id }
+                    .max { a, b in due.filter { $0.deckID == a.id }.count < due.filter { $0.deckID == b.id }.count }?.id
+                state.selectedModuleID = "flashcards"
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled({ if case .quiz = next.action { return quizBusy }; return false }())
     }
 
     /// The syllabus's objectives, each against the notes, flashcards and quiz answers on it.
@@ -1252,6 +1287,11 @@ enum StudySnapshot {
             win.orderOut(nil)
         }
         save(StudyModuleView(), "module.png", CGSize(width: 1000, height: 640))
+        // The window's narrowest (560 less the sidebar) up to its default: nothing may overflow.
+        for tab in [StudyModuleView.Tab.tutor, .quiz, .progress] {
+            UserDefaults.standard.set(tab.rawValue, forKey: "studyTab")
+            for w in [500, 620, 760] { save(StudyModuleView(), "module-\(tab.rawValue.lowercased())-\(w).png", CGSize(width: w, height: 560)) }
+        }
         // A course with nothing in it, on the Quiz tab: what to add, not a Start that fails.
         let empty = Course(name: "Calculus III", code: "MAC2313")
         state.data.courses.append(empty)
@@ -1273,6 +1313,9 @@ enum StudySnapshot {
         state.data.decks = [deck]
         state.data.flashcards = (0..<12).map { i in var f = Flashcard(deckID: deck.id, front: "Q\(i)", back: "A"); f.lapses = i < 2 ? 3 : 0; f.due = i < 5 ? .now : .distantFuture; return f }
         save(ProgressPane(course: course, quiz: QuizModel()) { _ in }, "progress.png", CGSize(width: 760, height: 420))
+        // With topic scores too, Study still fits the narrowest window.
+        UserDefaults.standard.set(StudyModuleView.Tab.progress.rawValue, forKey: "studyTab")
+        for w in [500, 640] { save(StudyModuleView(), "module-scores-\(w).png", CGSize(width: w, height: 560)) }
         save(NavigationStack { StudyView(deckID: nil, onClose: {}) }, "cards-panel.png", CGSize(width: 380, height: 440))
         state.data.notes[0].body = "## Flux\n- **Flux** — the field through a surface, $\\Phi = \\oint \\vec E \\cdot d\\vec A$\nGaussian surface :: an imaginary closed surface chosen for symmetry"
         save(GlossaryPane(course: course, notes: { state.data.notes.filter { $0.courseID == course.id } }), "glossary.png", CGSize(width: 760, height: 420))

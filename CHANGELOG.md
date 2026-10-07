@@ -17,6 +17,8 @@ this project uses [semantic versioning](https://semver.org).
 
 - **Nothing lost to one click** — deleting a link, citation, snippet or Read-later item can be undone, and it waits in the Trash. Removing or clearing the Shelf shows Undo. *Remove PDF* on a book asks first, and the PDF goes to the Trash rather than disappearing.
 
+- **Fixed: Study ran off both edges of a narrow window** — once a course had quiz scores, Study in a small window pushed its sources under the sidebar and the tabs off the right. In a narrow window the course and its sources now sit behind a button above the tabs.
+
 - **Fixed: search found everything** — searching "ohm" matched nearly every note, because those letters appear in order somewhere in most paragraphs. Search now only counts letters that sit close together.
 
 ## [2.6.0] — 2026-10-06
