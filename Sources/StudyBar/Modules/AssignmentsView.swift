@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum AssignmentSort: String, CaseIterable, Identifiable {
     case due = "Due date", urgency = "Urgency"
@@ -121,6 +122,12 @@ struct AssignmentsView: View {
                         } label: { Image(systemName: "arrow.up.arrow.down.circle") }
                         .help("Sort assignments")
                     }
+                    Menu {
+                        Button { exportDeadlines(open: true) } label: { Label("Add Deadlines to Calendar…", systemImage: "calendar.badge.plus") }
+                        Button { exportDeadlines(open: false) } label: { Label("Save Deadlines as .ics…", systemImage: "square.and.arrow.down") }
+                    } label: { Image(systemName: "calendar.badge.plus") }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .help("Your open deadlines in Calendar — or as a file for Google or Outlook")
                     Toggle("Done", isOn: $showDone).toggleStyle(.switch).controlSize(.mini)
                     Button { newAssignment() } label: { Image(systemName: "plus") }
                 }
@@ -324,6 +331,29 @@ struct AssignmentsView: View {
     private func consumePending() {
         if state.pendingNew == "assignments" { state.pendingNew = nil; quickFocused = true }
     }
+    /// Open deadlines as a calendar file. Add hands it to Calendar, which asks which calendar to
+    /// put them in; Save is for Google Calendar or Outlook.
+    private func exportDeadlines(open: Bool) {
+        let text = ICSExport.calendar(state.data.assignments, courses: state.data.courses)
+        let url: URL
+        if open {
+            url = FileManager.default.temporaryDirectory.appendingPathComponent("StudyBar deadlines.ics")
+        } else {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "StudyBar deadlines.ics"
+            panel.allowedContentTypes = [UTType(filenameExtension: "ics") ?? .data]
+            guard panel.runModal() == .OK, let picked = panel.url else { return }
+            url = picked
+        }
+        do { try text.write(to: url, atomically: true, encoding: .utf8) }
+        catch { Diagnostics.log(.data, .error, "deadlines .ics: \(error.localizedDescription)"); return }
+        if open, let calendar = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+            NSWorkspace.shared.open([url], withApplicationAt: calendar, configuration: NSWorkspace.OpenConfiguration())
+        } else if !open {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
     private func newAssignment() {
         editing = Assignment(title: "", due: Calendar.current.date(byAdding: .day, value: 1, to: .now))
     }

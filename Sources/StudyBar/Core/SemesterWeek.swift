@@ -77,6 +77,30 @@ enum WeekSelfTest {
         checkB("a real title is not blank", SemesterWeek.isBarePrefix("Week 3 — Present Value"), false)
         checkB("unrelated title is not blank", SemesterWeek.isBarePrefix("Gauss's Law"), false)
 
+        // Deadlines to Calendar: read back by the app's own .ics reader.
+        do {
+            let course = Course(name: "Physics 2", code: "PHY2049")
+            let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 6, hour: 12))!
+            var night = Assignment(title: "Problem set 4, part 2; long", courseID: course.id,
+                                   due: cal.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 23, minute: 59)))
+            night.notes = "Chapters 25–26\nShow work"
+            let timed = Assignment(title: "Quiz 3", courseID: course.id, due: cal.date(from: DateComponents(year: 2026, month: 10, day: 16, hour: 14)))
+            var done = Assignment(title: "Old lab", due: cal.date(from: DateComponents(year: 2026, month: 10, day: 20)))
+            done.status = .done
+            let past = Assignment(title: "Last week", due: cal.date(from: DateComponents(year: 2026, month: 9, day: 30)))
+            let text = ICSExport.calendar([night, timed, done, past, Assignment(title: "No date")], courses: [course], now: now)
+            let events = ICSParser.parse(text)
+            checkB("only open, dated, upcoming deadlines go out", events.count == 2, true)
+            checkB("titled with the course; commas and semicolons survive",
+                   events.first?.title == "PHY2049: Problem set 4, part 2; long", true)
+            checkB("an end-of-day deadline is an all-day event on its day",
+                   text.contains("DTSTART;VALUE=DATE:20261009") && text.contains("DTEND;VALUE=DATE:20261010"), true)
+            check("a timed one keeps its time", events.last?.start.map { cal.component(.hour, from: $0) }, 14)
+            checkB("stable UIDs, a reminder, CRLF lines no longer than 75 bytes",
+                   text.contains("UID:\(night.id.uuidString)@studybar") && text.contains("TRIGGER:-P1D")
+                   && text.components(separatedBy: "\r\n").allSatisfy { $0.utf8.count <= 75 }, true)
+        }
+
         print(fail == 0 ? "WEEK SELFTEST: ALL PASS (\(pass))" : "WEEK SELFTEST: \(fail) FAILED")
         return fail == 0 ? 0 : 1
     }
