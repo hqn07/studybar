@@ -294,7 +294,13 @@ enum LectureNotes {
                 notes += "\n\n" + NoteFormat.tidy(MathSupport.normalized(review.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
         }
-        return notes
+        return text.contains("⭐") ? notes : unstarred(notes)
+    }
+
+    /// A ⭐ in the notes means the student starred that moment. With nothing starred, a model
+    /// still put one on an exam question (gpt-5.6-luna, 2026-10-06) — so none is kept.
+    static func unstarred(_ notes: String) -> String {
+        notes.replacingOccurrences(of: #"⭐\s?"#, with: "", options: .regularExpression)
     }
 
     /// The user turn fences the text in `"""`, and a small model sometimes echoes the fence back.
@@ -573,6 +579,9 @@ enum LectureNotesSelfTest {
             let l = LectureNotes.system(.lecture, part: 1, of: 1, slides: true, style: light)
             check("light fill-in, Q&A, by slide", l.contains("a few in all") && l.contains("**Q:**") && l.contains("## Slide N") && !l.contains("aim for at least one"))
         }
+
+        check("no star in the transcript → none in the notes",
+              LectureNotes.unstarred("- **⭐ What is the energy density?**\n⭐Starred line") == "- **What is the energy density?**\nStarred line")
 
         // A slide's cards: each card under the slide its words match.
         do {
