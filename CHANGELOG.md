@@ -5,6 +5,16 @@ this project uses [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+- **All of Study in sight** — at the window's usual size, Study's tabs had folded into a menu reading "Tutor", hiding Quiz, Exam and Progress. They're now all on screen.
+
+- **Formulas show while you edit** — a formula written with `\dfrac` (as the AI usually writes them), `\tfrac`, `\operatorname` or `\boxed` was a blank line in the editor, though it showed in the reading view. It's drawn now.
+
+- **VoiceOver names every button** — icon-only buttons and menus (⋯, pin, back, show and hide, delete) now say what they do, and a toggle says which way it will go.
+
+- **Fixed: a stray back button** — opening a deck, a card or an editor put a second back arrow over the window's close and minimize buttons.
+
+- **Fixed: a ⭐ nobody gave** — study notes could star a question when nothing was starred in the lecture; a ⭐ in the notes now always means you starred it.
+
 - **Homework and deadlines from a lecture, into Assignments** — study notes from a lecture now end with what the lecturer announced (problem sets, readings, quizzes, exams) and a list of every formula with what its symbols mean. The note offers *Deadlines*: each announced item as an assignment, dated from what was said ("due next Wednesday at midnight", counted from the lecture's day), to check and add.
 
 - **Fix a misheard word everywhere** — in Voice Note, *Fix a word…* corrects a term the transcription got wrong ("ferrets" → "farads") throughout the transcript before you save. In Notes, *Fix a Word in Every Note of the Course…* (in the note's menu, or right-click the word) does it across a whole course, with Undo. Either can teach the course to expect the right word in future recordings.
