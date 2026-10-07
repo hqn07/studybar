@@ -145,7 +145,7 @@ extension Course:          MergeItem { var mergeStamp: Date { updatedAt ?? creat
 extension Note:            MergeItem { var mergeStamp: Date { updatedAt } }
 extension StudyFile:       MergeItem { var mergeStamp: Date { addedAt } }
 extension TopicResult:     MergeItem { var mergeStamp: Date { at } }
-extension CardImage:       MergeItem { var mergeStamp: Date { addedAt } }
+extension CardImage:       MergeItem { var mergeStamp: Date { .distantPast } }   // never edited, only added and dropped
 extension ClipItem:        MergeItem { var mergeStamp: Date { copiedAt } }
 extension Snippet:         MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension Assignment:      MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }

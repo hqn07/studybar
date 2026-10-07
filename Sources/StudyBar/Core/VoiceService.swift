@@ -1068,8 +1068,7 @@ final class VoiceService: ObservableObject {
         guard isActive, let jpeg = ImageCards.jpeg(cg, maxSide: 2400) else { return }
         let file = "photo-\(UUID().uuidString).jpg"
         guard (try? jpeg.write(to: Self.recordingsDir.appendingPathComponent(file))) != nil else { return }
-        let at = takeElapsed
-        timeline.photos = (timeline.photos ?? []) + [.init(t: at, file: file)]
+        timeline.photos = (timeline.photos ?? []) + [.init(t: takeElapsed, file: file)]
         moment(BoardPhotos.marker(timeline.photos?.count ?? 1))
     }
 

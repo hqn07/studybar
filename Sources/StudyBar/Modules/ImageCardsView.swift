@@ -5,18 +5,16 @@ import UniformTypeIdentifiers
 // MARK: - Image cards (benchmark 4.3): cover parts of a picture, a card for each
 
 /// Image cards asked for from outside Flashcards — a screen grab, a slide, a board photo.
-struct ImageCardsRequest: Identifiable, Equatable {
+struct ImageCardsRequest: Identifiable {
     let id = UUID()
     var image: CGImage? = nil
     var title = ""
     var deck: UUID? = nil
     var course: UUID? = nil
-    static func == (a: Self, b: Self) -> Bool { a.id == b.id }
 }
 
-/// A picture with its parts covered: the one asked about in orange with a "?", the rest grey
-/// (or showing, when the card leaves them as context). Revealed, the asked part is outlined, so
-/// the eye lands on the answer while the others stay covered.
+/// A picture with its parts covered: the one asked about in orange with a "?", the rest grey.
+/// Revealed, the asked part is outlined, so the eye lands on the answer while the others stay covered.
 struct OcclusionFace: View {
     let image: NSImage
     let occlusion: Occlusion
@@ -37,7 +35,7 @@ struct OcclusionFace: View {
                                     .overlay(Text("?").font(.system(size: max(9, min(r.height * 0.65, 26)), weight: .bold)).foregroundStyle(.white))
                                     .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
                             }
-                        } else if occlusion.hideAll {
+                        } else {
                             RoundedRectangle(cornerRadius: 3).fill(Color(white: 0.6))
                                 .frame(width: r.width, height: r.height).position(x: r.midX, y: r.midY)
                         }
@@ -55,7 +53,6 @@ struct OcclusionFace: View {
 struct PictureButton: NSViewRepresentable {
     var title: String
     var symbol = "photo.badge.plus"
-    var prominent = false
     var onImage: (CGImage) -> Void
 
     func makeNSView(context: Context) -> PictureSourceButton {
@@ -71,7 +68,6 @@ struct PictureButton: NSViewRepresentable {
     private func update(_ b: PictureSourceButton) {
         b.title = " " + title          // the symbol otherwise touches the first letter
         b.onImage = onImage
-        b.keyEquivalent = prominent ? "\r" : ""
         b.setContentHuggingPriority(.required, for: .horizontal)
     }
 }
@@ -104,9 +100,9 @@ final class PictureSourceButton: NSButton, NSServicesMenuRequestor {
 
     @objc private func choose() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image, .pdf]
+        panel.allowedContentTypes = [.image]
         panel.prompt = "Use Picture"
-        guard panel.runModal() == .OK, let url = panel.url, let cg = Self.picture(at: url) else { return }
+        guard panel.runModal() == .OK, let url = panel.url, let cg = NSImage(contentsOf: url).flatMap(ImageCards.cgImage) else { return }
         onImage?(cg)
     }
     @objc private func paste() {
@@ -114,21 +110,6 @@ final class PictureSourceButton: NSButton, NSServicesMenuRequestor {
     }
     @objc private func capture() {
         Task { @MainActor in if let cg = await ScreenGrab.capture() { onImage?(cg) } }
-    }
-
-    /// A picture file, or a PDF's first page drawn at twice its size.
-    static func picture(at url: URL) -> CGImage? {
-        if url.pathExtension.lowercased() == "pdf" {
-            guard let doc = CGPDFDocument(url as CFURL), let page = doc.page(at: 1) else { return nil }
-            let box = page.getBoxRect(.cropBox)
-            guard let ctx = CGContext(data: nil, width: Int(box.width * 2), height: Int(box.height * 2), bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
-            ctx.setFillColor(.white); ctx.fill(CGRect(x: 0, y: 0, width: box.width * 2, height: box.height * 2))
-            ctx.scaleBy(x: 2, y: 2); ctx.translateBy(x: -box.minX, y: -box.minY)
-            ctx.drawPDFPage(page)
-            return ctx.makeImage()
-        }
-        return NSImage(contentsOf: url).flatMap(ImageCards.cgImage)
     }
 
     // NSServicesMenuRequestor — what Continuity Camera delivers.
@@ -162,7 +143,6 @@ struct OcclusionEditor: View {
     @State private var readNothing = false
     @State private var dropping = false
     @State private var deck: UUID?
-    @AppStorage("occlusionHideAll") private var hideAll = true
     /// The picture takes the keyboard when a part is picked or drawn, so Delete removes it.
     @FocusState private var canvasFocused: Bool
 
@@ -207,7 +187,7 @@ struct OcclusionEditor: View {
             Text("A picture to learn from").font(.title3.weight(.semibold))
             Text("A labelled diagram, a map, a slide, a photo of the board. Cover the parts you want to learn — each one becomes a card that asks what's under it.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
-            PictureButton(title: "Choose a Picture", prominent: true) { use($0) }.fixedSize()
+            PictureButton(title: "Choose a Picture") { use($0) }.fixedSize()
             Text("Or drop one here — from Finder, Preview or a web page. The menu also takes a photo with your iPhone.")
                 .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center).frame(maxWidth: 380)
         }
@@ -220,7 +200,7 @@ struct OcclusionEditor: View {
         guard let p = providers.first else { return false }
         if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             _ = p.loadObject(ofClass: URL.self) { url, _ in
-                guard let url, let cg = PictureSourceButton.picture(at: url) else { return }
+                guard let url, let cg = NSImage(contentsOf: url).flatMap(ImageCards.cgImage) else { return }
                 DispatchQueue.main.async { use(cg) }
             }
             return true
@@ -342,8 +322,6 @@ struct OcclusionEditor: View {
                 Text("New deck: \(newDeckName)").tag(UUID?.none)
                 ForEach(state.data.decks) { Text($0.name.isEmpty ? "Deck" : $0.name).tag(Optional($0.id)) }
             }.fixedSize()
-            Toggle("Cover every part on each card", isOn: $hideAll).toggleStyle(.checkbox).font(.caption).fixedSize()
-                .help("On: the other parts stay covered, so their labels can't give the answer away. Off: they show, as context.")
             Spacer()
             Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
             Button(parts.isEmpty ? "Add Cards" : "Add \(parts.count) Card\(parts.count == 1 ? "" : "s")") { add() }
@@ -381,7 +359,7 @@ struct OcclusionEditor: View {
             if let target { d = target } else { d = Deck(name: newDeckName, courseID: course); state.data.decks.append(d) }
             state.data.cardImages = (state.data.cardImages ?? []) + [stored]
             state.data.flashcards += ImageCards.cards(title: title, imageID: stored.id, boxes: parts.map(\.box),
-                                                      labels: parts.map(\.label), hideAll: hideAll, deckID: d.id)
+                                                      labels: parts.map(\.label), deckID: d.id)
         }
         dismiss()
     }

@@ -1385,7 +1385,7 @@ enum StudySnapshot {
             save(OcclusionEditor(request: .init(course: course.id)), "image-cards-empty.png", CGSize(width: 760, height: 560))
             let stored = CardImage(jpeg: jpeg)
             state.data.cardImages = [stored]
-            let made = ImageCards.cards(title: "The heart", imageID: stored.id, boxes: labels.map(\.box), labels: labels.map(\.text), hideAll: true, deckID: imgDeck.id)
+            let made = ImageCards.cards(title: "The heart", imageID: stored.id, boxes: labels.map(\.box), labels: labels.map(\.text), deckID: imgDeck.id)
             state.data.flashcards += made.map { var c = $0; c.due = .now.addingTimeInterval(-60); return c }
             save(NavigationStack { StudyView(deckID: imgDeck.id) }, "image-card-review.png", CGSize(width: 720, height: 620))
             if let img = ImageCards.image(stored.id, in: state.data), let occ = made[3].occlusion {

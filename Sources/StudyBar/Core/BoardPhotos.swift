@@ -9,26 +9,21 @@ enum BoardPhotos {
     static func marker(_ n: Int) -> String { "📷 Board photo \(n)" }
 
     /// The photo a line shows: `📷 Board photo 2` as written, or as notes keep it — bulleted,
-    /// bold, with a caption after.
-    static func number(inLine line: String) -> Int? {
-        guard let m = line.firstMatch(of: /^[\s\-*•>_]*📷\s*[*_]*\s*[Bb]oard photo\s+(\d+)/) else { return nil }
-        return Int(m.output.1)
+    /// bold, with a caption after ("— the circuit for Q3").
+    static func photo(inLine line: String) -> (n: Int, caption: String)? {
+        guard let m = line.firstMatch(of: /^[\s\-*•>_]*📷\s*[*_]*\s*[Bb]oard photo\s+(\d+)[*_]*\s*[—–:\-]?\s*(.*)$/),
+              let n = Int(m.output.1) else { return nil }
+        return (n, String(m.output.2).trimmingCharacters(in: CharacterSet(charactersIn: "*_ ")))
     }
 
     /// Every photo with its line: one the notes left out goes at the end, under its own heading,
     /// so no photo is lost to a rewrite.
     static func ensured(_ text: String, count: Int) -> String {
         guard count > 0 else { return text }
-        let present = Set(text.components(separatedBy: "\n").compactMap(number(inLine:)))
+        let present = Set(text.components(separatedBy: "\n").compactMap { photo(inLine: $0)?.n })
         let missing = (1...count).filter { !present.contains($0) }
         guard !missing.isEmpty else { return text }
         return text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n### Board photos\n" + missing.map(marker).joined(separator: "\n\n")
-    }
-
-    /// What the notes wrote after the photo's name, if anything: "— the circuit for Q3".
-    static func caption(ofLine line: String) -> String {
-        line.replacing(/^[\s\-*•>_]*📷\s*[*_]*\s*[Bb]oard photo\s+\d+[*_]*\s*[—–:\-]?\s*/, with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "*_ "))
     }
 
     enum Piece: Equatable { case text(String), photo(Int, caption: String) }
@@ -42,9 +37,9 @@ enum BoardPhotos {
             buffer = []
         }
         for line in text.components(separatedBy: "\n") {
-            if let n = number(inLine: line) {
+            if let p = photo(inLine: line) {
                 flush()
-                out.append(.photo(n, caption: caption(ofLine: line)))
+                out.append(.photo(p.n, caption: p.caption))
             } else {
                 buffer.append(line)
             }
@@ -70,11 +65,6 @@ enum BoardPhotos {
         return img
     }
 
-    static func clock(_ t: Double) -> String {
-        let s = Int(t)
-        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
-    }
-
     /// The note's text with each photo's line replaced by the photo (and its caption), for PDF,
     /// Word, Markdown and the binder — which otherwise print "📷 Board photo 2".
     @MainActor static func inlined(_ attr: NSAttributedString, photos: [LectureTimeline.Photo]) -> NSAttributedString {
@@ -83,7 +73,7 @@ enum BoardPhotos {
         let ns = attr.string as NSString
         var found: [(range: NSRange, n: Int, caption: String)] = []
         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byParagraphs) { line, r, _, _ in
-            if let line, let n = number(inLine: line) { found.append((r, n, caption(ofLine: line))) }
+            if let line, let p = photo(inLine: line) { found.append((r, p.n, p.caption)) }
         }
         for f in found.reversed() {
             guard photos.indices.contains(f.n - 1), let img = image(photos[f.n - 1]), img.size.width > 0 else { continue }
@@ -110,11 +100,12 @@ enum BoardPhotos {
 
 enum BoardPhotosSelfTest {
     static func run(_ check: (String, Bool, String) -> Void) {
-        check("a photo's line reads back as its number", BoardPhotos.number(inLine: BoardPhotos.marker(3)) == 3, "")
-        check("…as the notes keep it, bulleted or bold", BoardPhotos.number(inLine: "- **📷 Board photo 2** — the RC circuit") == 2
-              && BoardPhotos.number(inLine: "  * 📷 board photo 12") == 12, "")
-        check("…and not mid-sentence", BoardPhotos.number(inLine: "See 📷 Board photo 2 above") == nil
-              && BoardPhotos.number(inLine: "## Capacitors") == nil, "")
+        check("a photo's line reads back as its number", BoardPhotos.photo(inLine: BoardPhotos.marker(3))?.n == 3, "")
+        let bold = BoardPhotos.photo(inLine: "- **📷 Board photo 2** — the RC circuit")
+        check("…as the notes keep it, bulleted or bold, caption kept", bold?.n == 2 && bold?.caption == "the RC circuit"
+              && BoardPhotos.photo(inLine: "  * 📷 board photo 12")?.n == 12, "\(String(describing: bold))")
+        check("…and not mid-sentence", BoardPhotos.photo(inLine: "See 📷 Board photo 2 above") == nil
+              && BoardPhotos.photo(inLine: "## Capacitors") == nil, "")
         let notes = "## Capacitors\n- C = Q/V\n- 📷 Board photo 2 — the plates\n## Energy\n- U = ½CV²"
         let kept = BoardPhotos.ensured(notes, count: 3)
         check("a photo the notes dropped is added at the end", kept.hasSuffix("### Board photos\n📷 Board photo 1\n\n📷 Board photo 3")

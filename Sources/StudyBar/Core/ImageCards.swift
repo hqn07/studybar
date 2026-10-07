@@ -18,14 +18,12 @@ struct OcclusionBox: Codable, Hashable {
 }
 
 /// A card that hides one part of a picture — a diagram's label, a region of a map — and asks
-/// what it is: the picture, every part marked on it, and the one this card asks about.
+/// what it is: the picture, every part marked on it (all covered, so no label gives another
+/// away), and the one this card asks about.
 struct Occlusion: Codable, Hashable {
     var imageID: UUID
     var boxes: [OcclusionBox]
     var ask: Int
-    /// The other parts stay covered too ("hide all, guess one"), so their labels don't give
-    /// this one away; off, they show as context.
-    var hideAll: Bool = true
 }
 
 /// A picture image cards are made from, once however many cards hide parts of it. In the store,
@@ -33,7 +31,6 @@ struct Occlusion: Codable, Hashable {
 struct CardImage: Identifiable, Codable, Equatable {
     var id = UUID()
     var jpeg: Data
-    var addedAt: Date = .now
 }
 
 enum ImageCards {
@@ -79,14 +76,15 @@ enum ImageCards {
 
     /// One card per part, all on the same picture. The front names the picture and which part,
     /// never the answer; the back is the part's label (or its number, when it has none).
-    static func cards(title: String, imageID: UUID, boxes: [OcclusionBox], labels: [String],
-                      hideAll: Bool, deckID: UUID) -> [Flashcard] {
-        let name = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Picture" : title.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func cards(title: String, imageID: UUID, boxes: [OcclusionBox], labels: [String], deckID: UUID) -> [Flashcard] {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines), name = t.isEmpty ? "Picture" : t
+        // ponytail: every card repeats its picture's boxes (n² for n parts, ~70 KB at 30 parts);
+        // move them onto CardImage if 50-part pictures make the store heavy.
         return boxes.indices.map { i in
             let label = i < labels.count ? labels[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
             var card = Flashcard(deckID: deckID, front: "🖼 \(name) — part \(i + 1) of \(boxes.count)",
                                  back: label.isEmpty ? "Part \(i + 1)" : label)
-            card.occlusion = Occlusion(imageID: imageID, boxes: boxes, ask: i, hideAll: hideAll)
+            card.occlusion = Occlusion(imageID: imageID, boxes: boxes, ask: i)
             return card
         }
     }
@@ -197,7 +195,7 @@ enum ImageCardsSelfTest {
         let deck = UUID(), img = UUID()
         let boxes = [OcclusionBox(CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.1)), OcclusionBox(CGRect(x: 0.7, y: 0.7, width: 0.2, height: 0.1)),
                      OcclusionBox(CGRect(x: 0.4, y: 0.4, width: 0.1, height: 0.1))]
-        let cards = ImageCards.cards(title: " Heart ", imageID: img, boxes: boxes, labels: ["Left ventricle", "Aorta"], hideAll: true, deckID: deck)
+        let cards = ImageCards.cards(title: " Heart ", imageID: img, boxes: boxes, labels: ["Left ventricle", "Aorta"], deckID: deck)
         check("a card per part", cards.count == 3 && cards.map { $0.occlusion?.ask } == [0, 1, 2])
         check("the back is the label, or its number", cards.map(\.back) == ["Left ventricle", "Aorta", "Part 3"], cards.map(\.back).description)
         check("the front names the picture, not the answer", cards[0].front == "🖼 Heart — part 1 of 3" && !cards.contains { $0.front.contains($0.back) })

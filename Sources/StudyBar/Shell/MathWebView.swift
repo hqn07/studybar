@@ -73,7 +73,7 @@ private struct BoardPhotoView: View {
                 HStack(spacing: 8) {
                     if let note, note.audioPath != nil {
                         Button { state.pendingSeek = .init(note: note.id, at: photo.t) } label: {
-                            Label("Board photo \(number) · \(BoardPhotos.clock(photo.t))", systemImage: "play.circle")
+                            Label("Board photo \(number) · \(Duration.seconds(photo.t).formatted(.time(pattern: .minuteSecond)))", systemImage: "play.circle")
                         }
                         .buttonStyle(.borderless).foregroundStyle(.tint).help("Play the lecture from when this was taken")
                     } else {
