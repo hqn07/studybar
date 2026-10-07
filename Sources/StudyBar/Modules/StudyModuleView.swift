@@ -1379,17 +1379,17 @@ enum StudySnapshot {
         // transcript and Save below the window, with nothing to scroll. Save must stay in reach.
         let voice = state.voice
         voice.transcript = Array(repeating: "The torque on a current loop is tau equals N I A B sine theta, and the magnetic moment points along the thumb when the fingers curl with the current.", count: 40).joined(separator: " ")
-        voice.snapshotSoFar((0..<9).map { i in LiveSummary.Stretch(minutes: "\(i * 4)–\(i * 4 + 4) min", points: [
+        voice.soFar = (0..<9).map { i in LiveSummary.Stretch(minutes: "\(i * 4)–\(i * 4 + 4) min", points: [
             "A current-carrying loop in a uniform field feels zero net force but a nonzero torque that turns it toward alignment.",
             "Torque comes from two equal forces on opposite sides; with lever arms it gives $\\tau = I(AD)B\\sin\\theta$.",
-            "Define the magnetic moment $\\mu = IA$; its direction follows the right-hand rule."]) })
+            "Define the magnetic moment $\\mu = IA$; its direction follows the right-hand rule."]) }
         save(VoiceView(), "voice-long-lecture.png", CGSize(width: 1000, height: 640))
         save(VoiceView(), "voice-long-lecture-tall.png", CGSize(width: 1000, height: 900))
         voice.status = .recording
         save(VoiceView(), "voice-long-recording.png", CGSize(width: 1000, height: 640))
         voice.status = .idle
         voice.transcript = ""
-        voice.snapshotSoFar([])
+        voice.soFar = []
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)
         AIUsage.add(model: "my-custom-model", input: 3_000, output: 800)
