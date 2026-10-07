@@ -50,6 +50,8 @@ final class VoiceService: ObservableObject {
     @Published var slides: StudyFile?
     /// "So far": a few points on each stretch of the lecture, written while it records.
     @Published private(set) var soFar: [LiveSummary.Stretch] = []
+    /// For the layout snapshot only: a long lecture's summaries without a real recording.
+    func snapshotSoFar(_ s: [LiveSummary.Stretch]) { soFar = s }
     private var soFarTask: Task<Void, Never>?
     @Published var transcript = ""
     /// "Make study notes" in progress, and the transcript it replaced (so it can be reverted).
