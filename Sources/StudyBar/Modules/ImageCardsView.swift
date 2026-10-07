@@ -163,6 +163,8 @@ struct OcclusionEditor: View {
     @State private var dropping = false
     @State private var deck: UUID?
     @AppStorage("occlusionHideAll") private var hideAll = true
+    /// The picture takes the keyboard when a part is picked or drawn, so Delete removes it.
+    @FocusState private var canvasFocused: Bool
 
     init(request: ImageCardsRequest, parts: [Part] = []) {
         self.request = request
@@ -274,7 +276,7 @@ struct OcclusionEditor: View {
                                 .background(Color.orange, in: Capsule()).offset(x: -6, y: -8)
                         }
                         .frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
-                        .onTapGesture { selected = p.id }
+                        .onTapGesture { selected = p.id; canvasFocused = true }
                         .accessibilityLabel("Part \(i + 1)\(p.label.isEmpty ? "" : ", \(p.label)")")
                 }
                 if let d = drawing {
@@ -290,12 +292,14 @@ struct OcclusionEditor: View {
                                               width: abs(v.location.x - v.startLocation.x), height: abs(v.location.y - v.startLocation.y)), in: fit)
             }.onEnded { _ in
                 if let d = drawing, d.width * fit.width >= 6, d.height * fit.height >= 6 {
-                    let p = Part(box: OcclusionBox(d)); parts.append(p); selected = p.id
+                    let p = Part(box: OcclusionBox(d)); parts.append(p); selected = p.id; canvasFocused = true
                 }
                 drawing = nil
             })
         }
         .focusable()
+        .focused($canvasFocused)
+        .focusEffectDisabled()
         .onDeleteCommand { removeSelected() }
     }
 
