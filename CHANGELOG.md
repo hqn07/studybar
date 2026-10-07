@@ -3,6 +3,16 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Image cards** — make flashcards from a picture: a labelled diagram, a map, a slide, a photo of the board. Drag over the parts you want to learn, or click *Cover the Labels* and every word on the picture is covered, with its text as the answer. Each part becomes a card: in review the part asked about is orange, the others grey, and the answer outlines it. Find it as *Picture…* beside *Add card* in a deck, *From a picture…* on the Flashcards screen, *Cover parts* under a PDF slide beside its note, or *Make Image Cards…* after grabbing part of the screen. Pictures come from a file, the clipboard, part of the screen, or a photo taken with your iPhone.
+
+- **Photos of the board, where they were taken** — while recording, *Board Photo* (beside the moment note) takes a photo with your iPhone, or uses a picture or part of the screen. It goes into the lecture at that moment: the study notes keep it in the right section, the note shows it there, its time plays the lecture from when you took it, and right-click turns it into image cards. PDF, Word and Markdown exports include it.
+
+- **Fix a word, where you read the lecture** — a lecture's notes have *Fix a word* in the reading bar, for the term the transcription got wrong.
+
+- **Fixed: the reading bar in a narrow note** — its links wrapped a letter at a time ("Qui z me"); in a narrow note they now show as icons.
+
 ## [2.6.1] — 2026-10-07
 
 - **Fixed: Study's course list slid under the sidebar** — with a long course name anywhere in the course menu, the Course and Sources column was as wide as that name and slid left under the sidebar. The column now keeps to its width; the menu still shows names in full.
