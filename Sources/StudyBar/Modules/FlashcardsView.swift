@@ -83,6 +83,8 @@ struct FlashcardsView: View {
                         Button { making = .init() } label: { Label("Make cards from notes…", systemImage: "sparkles") }
                             .buttonStyle(.borderedProminent).disabled(state.data.notes.isEmpty)
                             .help("Pick notes — a lecture, a week, a whole course — and the AI writes cards you check before they're added")
+                        Button { state.pendingImageCards = .init() } label: { Label("From a picture…", systemImage: "photo.on.rectangle.angled") }
+                            .help("Cover the labels of a diagram, a map or a slide — a card for each")
                         TextField("New empty deck…", text: $newDeck, onCommit: addDeck)
                             .textFieldStyle(.roundedBorder)
                         Button("Add", action: addDeck).disabled(newDeck.isEmpty)
@@ -115,6 +117,7 @@ struct FlashcardsView: View {
             .navigationDestination(for: Deck.self) { DeckView(deck: $0) }
             .navigationDestination(item: $editing) { CardEditor(card: $0) }
             .sheet(item: $making) { MakeCardsView(request: $0) }
+            .sheet(item: $state.pendingImageCards) { OcclusionEditor(request: $0) }
         }
         .onAppear(perform: openPending)
         .onChange(of: state.pendingDeck) { _, _ in openPending() }
@@ -207,6 +210,7 @@ struct DeckView: View {
     @State private var editingCard: Flashcard?
     @State private var importing = false
     @State private var generating = false
+    @State private var picturing = false
 
     private var cards: [Flashcard] { state.data.flashcards.filter { $0.deckID == deck.id } }
     private var due: [Flashcard] { cards.filter { $0.isDue } }
@@ -249,6 +253,7 @@ struct DeckView: View {
         .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
         .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id) }
         .sheet(isPresented: $generating) { MakeCardsView(request: .init(course: deck.courseID, deck: deck.id)) }
+        .sheet(isPresented: $picturing) { OcclusionEditor(request: .init(deck: deck.id, course: deck.courseID)) }
     }
 
     private var header: some View {
@@ -268,8 +273,9 @@ struct DeckView: View {
                 }
                 if AIConfig.isReady {
                     Button { generating = true } label: { Label("Make cards from notes…", systemImage: "sparkles") }
-                    Divider()
                 }
+                Button { picturing = true } label: { Label("Make cards from a picture…", systemImage: "photo.on.rectangle.angled") }
+                Divider()
                 Button { CardsPanel.shared.show(deckID: deck.id) } label: { Label("Review on top of other apps", systemImage: "pip") }
                 Button { importing = true } label: { Label("Import from Anki / CSV…", systemImage: "square.and.arrow.down") }
                 Button { exportFile() } label: { Label("Export for Anki…", systemImage: "square.and.arrow.up") }
@@ -317,6 +323,8 @@ struct DeckView: View {
                                     : "Cloze card — the blanked word is the answer.")
                     .font(.caption2).foregroundStyle(.tertiary)
                 Spacer()
+                Button { picturing = true } label: { Label("Picture…", systemImage: "photo.on.rectangle.angled") }
+                    .help("Cards from a picture — a labelled diagram, a map, a slide: cover the parts to learn, a card for each")
                 Button { addCard() } label: { Label("Add card", systemImage: "plus") }
                     .buttonStyle(.borderedProminent).disabled(!canAdd)
             }
@@ -327,7 +335,7 @@ struct DeckView: View {
         Group {
             if cards.isEmpty {
                 EmptyState(symbol: "plus.rectangle.on.rectangle", title: "No cards",
-                           subtitle: "Add front/back pairs above, or import an Anki/CSV file from the ⋯ menu.")
+                           subtitle: "Add front/back pairs above, cover the labels of a picture (Picture…), or import an Anki/CSV file from the ⋯ menu.")
             } else {
                 VStack(spacing: 0) {
                     if cards.count > 6 { SearchField(text: $cardFilter).padding(8) }
@@ -416,7 +424,7 @@ struct DeckView: View {
         }
     }
     private func exportCSV() {
-        let csv = cards.map { c in
+        let csv = cards.filter { $0.occlusion == nil }.map { c in
             let f = c.front.replacingOccurrences(of: "\t", with: " ")
             let b = c.back.replacingOccurrences(of: "\t", with: " ")
             let t = c.tags.joined(separator: " ")
@@ -428,7 +436,7 @@ struct DeckView: View {
 
     /// Export the deck as an Anki-importable plain-text file (cloze back-converted).
     private func exportFile() {
-        let text = AnkiText.export(cards.map { AnkiText.Card(front: $0.front, back: $0.back, tags: $0.tags) })
+        let text = AnkiText.export(cards.filter { $0.occlusion == nil }.map { AnkiText.Card(front: $0.front, back: $0.back, tags: $0.tags) })
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = "\(deck.name.isEmpty ? "deck" : deck.name).txt"
@@ -664,6 +672,12 @@ struct CardEditor: View {
                         }
                         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+                    } else if let occ = draft.occlusion {
+                        if let img = ImageCards.image(occ.imageID, in: state.data) {
+                            OcclusionFace(image: img, occlusion: occ, revealed: true).frame(maxHeight: 320)
+                        }
+                        labeled("What the outlined part is") { TextField("Its name", text: $draft.back).textFieldStyle(.roundedBorder) }
+                        Text(draft.front).font(.caption).foregroundStyle(.secondary)
                     } else {
                         FlipCardComposer(frontPlain: $frontPlain, back: $draft.back, blanks: $blanks, flipped: $flipped)
                         if let s = draft.source, let from = CardOrigin.label(s, data: state.data) {
@@ -701,7 +715,7 @@ struct CardEditor: View {
     }
     private func save() {
         draft.tags = selectedTags.sorted()
-        if sourceNote == nil {
+        if sourceNote == nil, draft.occlusion == nil {
             draft.noteID = nil      // its note is gone: the card is the student's own now
             draft.front = Cloze.build(plain: frontPlain.trimmingCharacters(in: .whitespaces), blanks: blanks)
         }
@@ -842,11 +856,18 @@ struct StudyView: View {
             if let card = currentCard {
                 Spacer()
                 VStack(spacing: 14) {
-                    faceText(card.isCloze ? Cloze.question(card.front) : card.front, font: .title2.bold())
+                    if let occ = card.occlusion, let img = ImageCards.image(occ.imageID, in: state.data) {
+                        OcclusionFace(image: img, occlusion: occ, revealed: revealed).frame(maxHeight: 460)
+                        if revealed { Text(card.back).font(.title3.weight(.semibold)) }
+                    } else {
+                        faceText(card.isCloze ? Cloze.question(card.front) : card.front, font: .title2.bold())
+                    }
                     if revealed {
-                        Divider().frame(width: 120)
-                        faceText(card.isCloze ? Cloze.answer(card.front) : card.back, font: .title3,
-                                 color: card.isCloze ? .primary : .secondary)
+                        if card.occlusion == nil {
+                            Divider().frame(width: 120)
+                            faceText(card.isCloze ? Cloze.answer(card.front) : card.back, font: .title3,
+                                     color: card.isCloze ? .primary : .secondary)
+                        }
                         if !card.tags.isEmpty {
                             Text(card.tags.map { "#\($0)" }.joined(separator: " "))
                                 .font(.caption2).foregroundStyle(.tint)
@@ -1029,7 +1050,7 @@ struct MatchView: View {
 
     private func build() {
         let cards = state.data.flashcards
-            .filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty }
+            .filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty && $0.occlusion == nil }
             .shuffled().prefix(6)
         var t: [Tile] = []
         for c in cards {
@@ -1157,7 +1178,7 @@ struct TestView: View {
     }
 
     private func build() {
-        let cards = state.data.flashcards.filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty }
+        let cards = state.data.flashcards.filter { $0.deckID == deckID && !$0.front.isEmpty && !$0.back.isEmpty && $0.occlusion == nil }
         let backs = Array(Set(cards.map(\.back)))
         guard cards.count >= 2 && backs.count >= 2 else { qs = []; idx = 0; score = 0; picked = nil; return }
         qs = cards.shuffled().prefix(12).map { c in

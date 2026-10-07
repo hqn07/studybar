@@ -407,6 +407,10 @@ struct Flashcard: Identifiable, Codable, Hashable {
     /// Paused: kept in its deck, but never offered for review until resumed — a card that's wrong,
     /// or not on this exam. Optional, so older stores decode.
     var paused: Bool? = nil
+    /// A picture with parts hidden — this card asks about one of them (`ImageCards`). Its `front`
+    /// names the picture and its `back` is that part's label, so lists and search still read.
+    /// Optional, so older stores decode.
+    var occlusion: Occlusion? = nil
 
     var isDue: Bool { due <= .now && paused != true }
     /// Its source, counting a `term :: definition` card's note.
@@ -692,6 +696,7 @@ struct AppData: Codable, Equatable {
     var rssRead: [String]? = nil       // links of read News articles (decode-safe; unioned on merge)
     var studyFiles: [StudyFile]? = nil // course material attached in Study (decode-safe)
     var topicResults: [TopicResult]? = nil // marked quiz/exam answers, for topic scores (decode-safe)
+    var cardImages: [CardImage]? = nil  // the pictures image cards hide parts of, one per picture (decode-safe)
 }
 
 extension AppData {

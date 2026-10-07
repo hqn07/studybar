@@ -194,6 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Task { @MainActor in exit(await VoiceTakeSelfTest.run()) }
             return
         }
+        if CommandLine.arguments.contains("--imagecards-selftest") {
+            Task { @MainActor in exit(await ImageCardsSelfTest.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--pdf-selftest") {
             Task { @MainActor in exit(await PDFSelfTest.run()) }
             return

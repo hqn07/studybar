@@ -1375,6 +1375,25 @@ enum StudySnapshot {
         if let card = state.data.flashcards.first(where: { $0.noteID == cardNote.id }) {
             save(CardEditor(card: card), "card-editor.png", CGSize(width: 560, height: 420))
         }
+        // Image cards: the editor with a diagram's labels covered, its empty start, a card in review.
+        if let (pic, labels) = ImageCardsSelfTest.diagram(), let jpeg = ImageCards.jpeg(pic) {
+            let imgDeck = Deck(name: "PHY2049", courseID: course.id)
+            state.data.decks.append(imgDeck)
+            save(OcclusionEditor(request: .init(image: pic, title: "The heart", deck: imgDeck.id, course: course.id),
+                                 parts: labels.map { OcclusionEditor.Part(box: $0.box, label: $0.text) }),
+                 "image-cards-editor.png", CGSize(width: 900, height: 640))
+            save(OcclusionEditor(request: .init(course: course.id)), "image-cards-empty.png", CGSize(width: 760, height: 560))
+            let stored = CardImage(jpeg: jpeg)
+            state.data.cardImages = [stored]
+            let made = ImageCards.cards(title: "The heart", imageID: stored.id, boxes: labels.map(\.box), labels: labels.map(\.text), hideAll: true, deckID: imgDeck.id)
+            state.data.flashcards += made.map { var c = $0; c.due = .now.addingTimeInterval(-60); return c }
+            save(NavigationStack { StudyView(deckID: imgDeck.id) }, "image-card-review.png", CGSize(width: 720, height: 620))
+            if let img = ImageCards.image(stored.id, in: state.data), let occ = made[3].occlusion {
+                save(OcclusionFace(image: img, occlusion: occ, revealed: true).padding(20), "image-card-revealed.png", CGSize(width: 640, height: 470))
+            }
+            save(NavigationStack { CardEditor(card: made[3]) }, "image-card-editor.png", CGSize(width: 560, height: 560))
+            save(NavigationStack { DeckView(deck: imgDeck) }, "image-deck.png", CGSize(width: 760, height: 560))
+        }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)
         AIUsage.add(model: "my-custom-model", input: 3_000, output: 800)

@@ -123,6 +123,7 @@ extension AppData {
         r.timeBlocks  = mergeOptLists(base: base.timeBlocks, mine: mine.timeBlocks, theirs: theirs.timeBlocks, deletedByMine: del)
         r.studyFiles  = mergeOptLists(base: base.studyFiles, mine: mine.studyFiles, theirs: theirs.studyFiles, deletedByMine: del)
         r.topicResults = mergeOptLists(base: base.topicResults, mine: mine.topicResults, theirs: theirs.topicResults)
+        r.cardImages  = mergeOptLists(base: base.cardImages, mine: mine.cardImages, theirs: theirs.cardImages)
         // Scalars.
         r.scratchpad  = merge3(base.scratchpad, mine.scratchpad, theirs.scratchpad)
         r.termName    = merge3(base.termName,   mine.termName,   theirs.termName)
@@ -144,6 +145,7 @@ extension Course:          MergeItem { var mergeStamp: Date { updatedAt ?? creat
 extension Note:            MergeItem { var mergeStamp: Date { updatedAt } }
 extension StudyFile:       MergeItem { var mergeStamp: Date { addedAt } }
 extension TopicResult:     MergeItem { var mergeStamp: Date { at } }
+extension CardImage:       MergeItem { var mergeStamp: Date { addedAt } }
 extension ClipItem:        MergeItem { var mergeStamp: Date { copiedAt } }
 extension Snippet:         MergeItem { var mergeStamp: Date { updatedAt ?? .distantPast } }
 extension Assignment:      MergeItem { var mergeStamp: Date { updatedAt ?? createdAt } }

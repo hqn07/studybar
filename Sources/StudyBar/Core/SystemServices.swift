@@ -73,7 +73,7 @@ enum ScreenGrab {
         }
     }
 
-    private static func capture() async -> CGImage? {
+    static func capture() async -> CGImage? {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("studybar-grab-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: url) }
         let p = Process()
@@ -96,6 +96,10 @@ enum ScreenGrab {
         menu.addItem(GrabItem(AIConfig.canSee(engine) ? "Copy Math as LaTeX" : "Copy Math as LaTeX — needs an engine that reads images",
                               enabled: AIConfig.canSee(engine)) { copyLatex(img) })
         menu.addItem(GrabItem("Ask the Tutor", enabled: AIConfig.isReady(for: .ask) && state?.data.courses.isEmpty == false) { askTutor(img) })
+        menu.addItem(GrabItem("Make Image Cards…") {
+            state?.pendingImageCards = ImageCardsRequest(image: img)
+            AppActions.open(module: "flashcards")
+        })
         menu.addItem(.separator())
         menu.addItem(GrabItem("Copy Image") {
             NSPasteboard.general.clearContents()

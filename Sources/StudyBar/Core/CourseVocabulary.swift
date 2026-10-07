@@ -33,8 +33,10 @@ enum CourseVocabulary {
             if out.count >= limit { return Array(out.prefix(limit)) }
         }
         let decks = Set(data.decks.filter { $0.courseID == course.id }.map(\.id))
-        for c in data.flashcards where decks.contains(c.deckID) && !c.front.contains("?") && !c.front.contains("{{") {
-            add(Substring(c.front))
+        for c in data.flashcards where decks.contains(c.deckID) {
+            // An image card's term is its answer — a diagram's label; its front only names the picture.
+            if c.occlusion != nil { if c.back.range(of: #"^Part \d+$"#, options: .regularExpression) == nil { add(Substring(c.back)) } }
+            else if !c.front.contains("?") && !c.front.contains("{{") { add(Substring(c.front)) }
         }
         for o in course.syllabus?.objectives ?? [] { o.keys.forEach { add(Substring($0)) } }
         for f in (data.studyFiles ?? []) where f.courseID == course.id && f.id != slides?.id { titles(f) }

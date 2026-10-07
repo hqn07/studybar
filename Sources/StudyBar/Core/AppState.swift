@@ -38,6 +38,9 @@ final class AppState: ObservableObject {
     @Published var recordRequested = false
     /// A deck, or a book (at a page), a search result asked to open — consumed by its module.
     @Published var pendingDeck: UUID?
+    /// Image cards to make from a picture that came from elsewhere — a screen grab, a slide, a
+    /// board photo. Flashcards shows the editor.
+    @Published var pendingImageCards: ImageCardsRequest?
     struct PendingBook: Equatable { let id: UUID; let page: Int? }
     @Published var pendingBook: PendingBook?
     /// Play a note's recording from a moment, once the note is open — a card's source.
@@ -287,6 +290,8 @@ final class AppState: ObservableObject {
             let kept = tr.filter { $0.deletedAt > cutoff }
             initial.trash = kept.isEmpty ? nil : kept
         }
+        // Pictures no image card uses any more, nor one in the Trash (after its 30 days above).
+        if initial.cardImages != nil { initial.cardImages = ImageCards.inUse(initial) }
         data = initial
         baseData = initial
         loadedMtime = AppState.mtime(fileURL)
