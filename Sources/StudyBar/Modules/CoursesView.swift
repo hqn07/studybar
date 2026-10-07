@@ -436,7 +436,7 @@ struct CourseDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(item: $editing) { CourseEditor(course: $0) }
         .navigationDestination(item: $editingAssignment) { AssignmentEditor(assignment: $0) }
     }
@@ -919,7 +919,7 @@ struct CourseEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func save() {
@@ -970,7 +970,7 @@ struct TermEditor: View {
                 }.keyboardShortcut(.defaultAction) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear {
             name = state.data.termName
             start = state.data.termStart ?? Date()

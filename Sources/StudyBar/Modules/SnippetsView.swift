@@ -273,7 +273,7 @@ struct SnippetEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     /// Undoable, and kept in the Trash — unless it was a new snippet never saved.

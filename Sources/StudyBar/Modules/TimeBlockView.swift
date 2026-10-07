@@ -602,7 +602,7 @@ struct TimeBlockEditor: View {
             }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func timePicker(_ label: String, _ binding: Binding<Int>) -> some View {

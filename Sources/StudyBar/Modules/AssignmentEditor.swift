@@ -86,7 +86,7 @@ struct AssignmentEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private var checklistSection: some View {

@@ -52,7 +52,7 @@ struct PlanDaySheet: View {
         }
         .frame(minWidth: 380, minHeight: 320)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear(perform: generate)
         .onDisappear { task?.cancel() }
     }

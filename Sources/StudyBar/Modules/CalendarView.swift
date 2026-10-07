@@ -523,7 +523,7 @@ struct NewEventView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear { if calID.isEmpty { calID = cal.defaultCalendar?.calendarIdentifier ?? writable.first?.calendarIdentifier ?? "" } }
     }
 

@@ -697,7 +697,7 @@ struct NoteEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear {
             editor.onEdit = { scheduleAutosave(); refreshLive(); liveWords = countWords(editor.plainText) }
             editor.onOpenLink = { openLink($0) }

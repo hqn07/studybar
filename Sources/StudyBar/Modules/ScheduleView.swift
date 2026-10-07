@@ -665,7 +665,7 @@ struct ClassEditor: View {
             }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private var periodPicker: some View {
@@ -775,7 +775,7 @@ struct ClassImportView: View {
             }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func importRow(_ row: Binding<Row>) -> some View {
@@ -868,7 +868,7 @@ struct PasteScheduleView: View {
         }
         .frame(minWidth: 440, minHeight: 380)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func extract() {

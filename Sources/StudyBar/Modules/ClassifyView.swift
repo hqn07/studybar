@@ -53,7 +53,7 @@ struct ClassifyView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .task {
             await CanvasFeedImport.backfillTags(state: state)   // recover tags for older imports
             scanning = false

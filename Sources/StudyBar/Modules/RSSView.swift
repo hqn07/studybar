@@ -183,7 +183,7 @@ struct RSSView: View {
                 }
             }
         }
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func feedRow(_ f: RSSFeed) -> some View {
@@ -320,7 +320,7 @@ struct ArticleReader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear { state.markRead(article.link) }
     }
 

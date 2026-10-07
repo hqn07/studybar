@@ -156,7 +156,7 @@ struct LinkEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("")
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
     /// Undoable, and kept in the Trash — unless it was a new link never saved.
     private func delete() {

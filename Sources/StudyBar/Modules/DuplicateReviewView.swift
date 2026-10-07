@@ -38,7 +38,7 @@ struct DuplicateReviewView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .task {
             if !ran {
                 groups = DuplicateFinder.find(state.data.assignments)

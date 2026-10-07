@@ -387,7 +387,7 @@ struct ReadingDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()) }
         .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID, startPage: readerStart) }
         // A search hit inside the book opens it at that page.
@@ -984,7 +984,7 @@ struct BookLookupView: View {
             }.padding(16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func resultRow(_ info: BookInfo) -> some View {
@@ -1082,7 +1082,7 @@ struct GoodreadsImportView: View {
             }.padding(16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             if case .success(let url) = result { runImport(url) }
         }
@@ -1204,7 +1204,7 @@ struct ReadingEditor: View {
                 Button("Save") { save() }.keyboardShortcut(.defaultAction) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     @ViewBuilder private func field<C: View>(_ l: String, @ViewBuilder _ c: () -> C) -> some View {

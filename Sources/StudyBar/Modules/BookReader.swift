@@ -38,7 +38,7 @@ struct BookReader: View {
             state.data.reading[i].currentPage = p
             if state.data.reading[i].totalPages == 0 { state.data.reading[i].totalPages = reader.pageCount }
         }
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     private func highlight() {

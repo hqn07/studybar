@@ -33,7 +33,7 @@ struct ConnectCanvasView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .overlay {
             if showConfirm {
                 ConfirmCard(

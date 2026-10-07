@@ -38,7 +38,7 @@ struct FeedEditor: View {
                 Button("Save") { save() }.keyboardShortcut(.defaultAction) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .overlay { if confirmingDelete { deleteCard } }
     }
 

@@ -242,7 +242,7 @@ struct DeckView: View {
             cardList
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll) }
         .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id) }
         .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id) }
@@ -693,7 +693,7 @@ struct CardEditor: View {
                 Button("Save") { save() }.keyboardShortcut(.defaultAction) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
     }
 
     @ViewBuilder private func labeled<C: View>(_ l: String, @ViewBuilder _ c: () -> C) -> some View {
@@ -765,7 +765,7 @@ struct CSVImportView: View {
                     .disabled(newCards.isEmpty) }.padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .fileImporter(isPresented: $choosing,
                       allowedContentTypes: [.plainText, .commaSeparatedText,
                                             UTType(filenameExtension: "tsv") ?? .plainText,
@@ -892,7 +892,7 @@ struct StudyView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
         .onAppear {
             if queue.isEmpty {
@@ -961,7 +961,7 @@ struct MatchView: View {
             if done { result } else { grid }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear { if tiles.isEmpty { build() } }
     }
 
@@ -1083,7 +1083,7 @@ struct TestView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .onAppear { if qs.isEmpty { build() } }
     }
 

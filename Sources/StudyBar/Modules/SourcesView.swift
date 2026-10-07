@@ -27,7 +27,7 @@ struct SourcesView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("").toolbar(.hidden, for: .windowToolbar)
+        .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(item: $editingFeed) { FeedEditor(feed: $0) }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [UTType(filenameExtension: "ics") ?? .plainText]) { result in
