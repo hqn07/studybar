@@ -236,6 +236,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ]
             state.data.assignments += [Assignment(title: "Problem Set 5", courseID: c.id, due: Date().addingTimeInterval(4 * 86_400),
                                                  notes: "Chapter 24, problems 12–20. Problem 18: coaxial cable, a line charge inside a cylindrical shell.")]
+            // A lecture's study notes as they're now written — formulas, what was announced — with
+            // cards made from it and some quiz answers, so Progress, Deadlines and cards have something to show.
+            let lecture = Note(title: "Week 5 — Capacitors", body: "# Capacitors\n## Capacitance\n- **Capacitance** $C = Q/V$, measured in **farads**\n- Parallel plates: $C = \\varepsilon_0 A/d$\n## Energy\n- $U = \\tfrac12 CV^2$\n## Review\n### Formulas\n- $C = Q/V$ — charge per volt\n- $U = \\tfrac12 CV^2$ — stored energy\n### Announced\n- Problem set 6 — due next Friday\n- Read sections 26.3–26.4 — before Monday\n- Quiz 3 — October 16", courseID: c.id)
+            state.data.notes.append(lecture)
+            let deck = Deck(name: "PHY2049", courseID: c.id)
+            state.data.decks.append(deck)
+            state.data.flashcards += [("Unit of capacitance?", "The farad"), ("Energy stored in a capacitor?", "U = ½CV²"), ("Gauss's law relates…", "Flux through a closed surface to the charge inside")].map {
+                var f = Flashcard(deckID: deck.id, front: $0.0, back: $0.1); f.source = CardSource(noteID: lecture.id); f.due = Date().addingTimeInterval(-3_600); return f
+            }
+            state.data.topicResults = [("Capacitance", [true, false, false]), ("Gauss's law", [true, true, true, false])]
+                .flatMap { t, oks in oks.map { TopicResult(courseID: c.id, topic: t, correct: $0) } }
             state.saveNow()
         }
         // Test/dev hook: SB_DOCK=1 promotes StudyBar to a regular Dock app so UI-automation
