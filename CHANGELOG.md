@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.6.0] — 2026-10-07
 
 - **All of Study in sight** — at the window's usual size, Study's tabs had folded into a menu reading "Tutor", hiding Quiz, Exam and Progress. They're now all on screen.
 
@@ -46,8 +46,6 @@ this project uses [semantic versioning](https://semver.org).
 - **Fixed: Study ran off both edges of a narrow window** — once a course had quiz scores, Study in a small window pushed its sources under the sidebar and the tabs off the right. In a narrow window the course and its sources now sit behind a button above the tabs.
 
 - **Fixed: search found everything** — searching "ohm" matched nearly every note, because those letters appear in order somewhere in most paragraphs. Search now only counts letters that sit close together.
-
-## [2.6.0] — 2026-10-06
 
 - **Record from anywhere** — start, pause, resume and stop a lecture from the menu bar, or with a shortcut (⌃⌥R by default, in Settings ▸ Shortcuts with the others). If there's an unsaved recording, Voice Note opens and asks first.
 
