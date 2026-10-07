@@ -37,6 +37,7 @@ struct VoiceBody: View {
     @State private var choosingStyle = false
     @State private var notesFocus = ""
     @State private var momentNote = ""
+    @State private var soFarOpen = false
     @State private var confirmDiscard = false
     enum Replace: Identifiable {
         case record, transcribe(URL)
@@ -119,7 +120,7 @@ struct VoiceBody: View {
                     case .transcribing:
                         transcribingState
                     default:
-                        recorder
+                        ScrollView { recorder.frame(maxWidth: .infinity) }.scrollBounceBehavior(.basedOnSize)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -347,19 +348,7 @@ struct VoiceBody: View {
 
             slidesRow
 
-            if !voice.soFar.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("So far", systemImage: "text.badge.checkmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    ForEach(voice.soFar) { s in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(s.minutes).font(.caption2).foregroundStyle(.tertiary)
-                            RichText(text: s.points.map { "- " + $0 }.joined(separator: "\n"))
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
-            }
+            if !voice.soFar.isEmpty { soFarPanel }
 
             // An audio-only take (it stopped before any words were transcribed) can be saved too.
             if !voice.transcript.isEmpty || (idle && voice.hasUnsaved) {
@@ -479,6 +468,46 @@ struct VoiceBody: View {
             }
             Spacer()
         }
+    }
+
+    /// What's been said, a few points every few minutes. It grew a stretch at a time with nothing
+    /// to hold it, so a long lecture pushed the transcript and Save off the bottom of the window
+    /// — a whole lecture there and no way to reach it. Now it keeps to a box that follows the
+    /// newest points, and once the recording stops it folds away for the transcript.
+    private var soFarPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("So far", systemImage: "text.badge.checkmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if !voice.isActive {
+                    Button(soFarOpen ? "Hide" : "Show \(voice.soFar.count) summar\(voice.soFar.count == 1 ? "y" : "ies")") { soFarOpen.toggle() }
+                        .buttonStyle(.borderless).font(.caption)
+                }
+            }
+            if voice.isActive || soFarOpen {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(voice.soFar) { s in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(s.minutes).font(.caption2).foregroundStyle(.tertiary)
+                                    RichText(text: s.points.map { "- " + $0 }.joined(separator: "\n"))
+                                }
+                                .id(s.id)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: min(220, CGFloat(voice.soFar.count) * 90))
+                    .onAppear { if let last = voice.soFar.last { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    .onChange(of: voice.soFar.count) { _, _ in
+                        if let last = voice.soFar.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// The deck the lecture is given from: the notes follow it, and it sits beside the note.
