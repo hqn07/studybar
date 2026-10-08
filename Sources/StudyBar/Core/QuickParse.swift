@@ -83,6 +83,8 @@ enum QuickParse {
 
     // MARK: - Dates
 
+    private static let countWords = ["a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                                      "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12]
     private static let weekdays: [String: Int] = [
         "sunday": 1, "monday": 2, "tuesday": 3, "wednesday": 4, "thursday": 5, "friday": 6, "saturday": 7,
         "sun": 1, "mon": 2, "tue": 3, "tues": 3, "wed": 4, "thu": 5, "thur": 5, "thurs": 5, "fri": 6, "sat": 7]
@@ -95,14 +97,17 @@ enum QuickParse {
     private static func matchDate(_ s: String, now: Date, cal: Calendar) -> (Date, String)? {
         let today = cal.startOfDay(for: now)
 
+        // "in two weeks", "3 days from now": counted first — "in two weeks from today" is not today.
+        let n = #"(\d{1,2}|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"#
+        if let m = firstMatch(#"\bin "# + n + #" (day|days|week|weeks)\b"#, s) ?? firstMatch(#"\b"# + n + #" (day|days|week|weeks) from (?:now|today)\b"#, s),
+           let count = Int(m.groups[0]) ?? countWords[m.groups[0]] {
+            let days = m.groups[1].hasPrefix("week") ? count * 7 : count
+            return (cal.date(byAdding: .day, value: days, to: today)!, m.whole)
+        }
+
         if let m = firstMatch(#"\b(today|tonight|eod|tod)\b"#, s) { return (today, m.whole) }
         if let m = firstMatch(#"\b(tomorrow|tmrw|tmr)\b"#, s) { return (cal.date(byAdding: .day, value: 1, to: today)!, m.whole) }
         if let m = firstMatch(#"\bnext week\b"#, s) { return (cal.date(byAdding: .day, value: 7, to: today)!, m.whole) }
-
-        if let m = firstMatch(#"\bin (\d{1,2}) (day|days|week|weeks)\b"#, s), let n = Int(m.groups[0]) {
-            let days = m.groups[1].hasPrefix("week") ? n * 7 : n
-            return (cal.date(byAdding: .day, value: days, to: today)!, m.whole)
-        }
 
         if let m = firstMatch(#"\b(next )?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thur|thu|fri|sat)\b"#, s),
            let target = weekdays[m.groups[1]] {
