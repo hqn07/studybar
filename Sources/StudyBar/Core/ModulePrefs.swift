@@ -13,7 +13,10 @@ final class ModulePrefs: ObservableObject {
     @Published var favorites: [String] { didSet { save("favoriteModules", favorites) } }
     @Published var order: OrderMode { didSet { UserDefaults.standard.set(order.rawValue, forKey: "moduleOrder") } }
     @Published var custom: [String] { didSet { save("customOrder", custom) } }
-    @Published var categoryOrder: [String] { didSet { save("categoryOrder", categoryOrder) } }
+    /// The sidebar groups' order. Its own key, not 2.8.1's "categoryOrder": the installed app
+    /// and a newer build can share one preferences domain, and each rewrote the other's order.
+    @Published var categoryOrder: [String] { didSet { save(Self.groupOrderKey, categoryOrder) } }
+    static let groupOrderKey = "sidebarGroupOrder"
     @Published private var usage: [String: Int] {
         didSet { UserDefaults.standard.set(usage, forKey: "moduleUsage") }
     }
@@ -42,7 +45,7 @@ final class ModulePrefs: ObservableObject {
         favorites = UserDefaults.standard.stringArray(forKey: "favoriteModules") ?? []
         order = OrderMode(rawValue: UserDefaults.standard.string(forKey: "moduleOrder") ?? "") ?? .category
         custom = UserDefaults.standard.stringArray(forKey: "customOrder") ?? []
-        categoryOrder = UserDefaults.standard.stringArray(forKey: "categoryOrder") ?? []
+        categoryOrder = UserDefaults.standard.stringArray(forKey: Self.groupOrderKey) ?? []
         usage = (UserDefaults.standard.dictionary(forKey: "moduleUsage") as? [String: Int]) ?? [:]
         reconcileCustom()
         reconcileCategories()

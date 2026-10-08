@@ -5,6 +5,12 @@ import Foundation
 enum DesignSelfTest {
     @MainActor
     static func run() -> Int32 {
+        // It writes preferences (check 9), and by the time any flag is read the app has built
+        // its state from the real data file and preferences: only ever from a test copy.
+        guard Bundle.main.bundleIdentifier == "com.studybar.StudyBar.test" else {
+            print("Run this through scripts/test-copy.sh --design-selftest — never on the Debug build, which shares the installed app's preferences.")
+            return 2
+        }
         var failures = 0
         func check<T: Equatable>(_ name: String, _ got: T, _ want: T) {
             let ok = got == want
@@ -44,6 +50,16 @@ enum DesignSelfTest {
               ModulePrefs.completedCategories(["Overview", "Research", "Capture", "Study"]), ["Plan", "Capture", "Study", "Tools", "System"])
         check("8 an order of current names is kept",
               ModulePrefs.completedCategories(["Study", "Plan"]), ["Study", "Plan", "Capture", "Tools", "System"])
+        // 2.8.1 and this build can share a preferences domain (the installed app and a Debug
+        // build): the new groups must not overwrite the order the old app reads.
+        let d = UserDefaults.standard
+        d.set(["Overview", "Research"], forKey: "categoryOrder")
+        let prefs = ModulePrefs()
+        prefs.categoryOrder = ["Study", "Plan", "Capture", "Tools", "System"]
+        check("9 the new group order leaves 2.8.1's categoryOrder alone",
+              d.stringArray(forKey: "categoryOrder") ?? [], ["Overview", "Research"])
+        check("9b and is kept under its own key",
+              d.stringArray(forKey: "sidebarGroupOrder") ?? [], ["Study", "Plan", "Capture", "Tools", "System"])
 
         // A course card's one fact. Thursday 2026-10-08, 12:15.
         let now = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 12, minute: 15))!
