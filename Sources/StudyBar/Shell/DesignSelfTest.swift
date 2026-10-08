@@ -124,6 +124,12 @@ enum DesignSelfTest {
         check("t3 nothing at all", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 0).count, 0)
         check("t4 short focus", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 2700).map(\.value), ["45m"])
 
+        // Plan my day: a fresh plan would throw away the drafts on screen and ask the AI again.
+        check("p1 plan when there's work", TodayBrief.canPlan(loading: false, hasDrafts: false, hasWork: true), true)
+        check("p2 not while drafts are open", TodayBrief.canPlan(loading: false, hasDrafts: true, hasWork: true), false)
+        check("p3 not while planning", TodayBrief.canPlan(loading: true, hasDrafts: false, hasWork: true), false)
+        check("p4 not with nothing to plan", TodayBrief.canPlan(loading: false, hasDrafts: false, hasWork: false), false)
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }

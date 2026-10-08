@@ -844,7 +844,7 @@ struct NoteEditor: View {
             // two definitions can't both claim the chord.
             .help(focusMode ? "Exit focus mode (⇧⌘F)" : "Focus mode — hide the list and chrome (⇧⌘F)")
             .onHover { setHint(focusMode ? "Exit focus mode (⇧⌘F)" : "Focus mode — hide the list and chrome (⇧⌘F)", $0) }
-        }.padding(12)
+        }.padding(.horizontal, 12).toolbarRow(!embedded)   // pushed (narrow Notes): the toolbar row
     }
 
     // Formatting toolbar — drives the NSTextView through the controller.

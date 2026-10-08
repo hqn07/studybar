@@ -8,6 +8,8 @@ struct TodayView: View {
     @EnvironmentObject var state: AppState
     @State private var quickTask = ""
     @FocusState private var quickFocused: Bool
+    /// True in the window's left pane (the toolbar row's owner) — not in the popover.
+    @Environment(\.isPrimaryPane) private var inWindow
     @State private var aiLine: String?
     @State private var aiForID: UUID?
     @AppStorage("scheduleMode") private var scheduleMode = "week"
@@ -60,7 +62,8 @@ struct TodayView: View {
         ModulePane(title: greeting,
                    primary: ModuleAction(title: "Plan my day", systemImage: "calendar.badge.clock",
                                          help: "Block study time for today's work — you check the plan before it's added",
-                                         disabled: planLoading || (focus == nil && next7.isEmpty)) { generatePlan() },
+                                         disabled: !TodayBrief.canPlan(loading: planLoading, hasDrafts: !planDrafts.isEmpty,
+                                                                       hasWork: focus != nil || !next7.isEmpty)) { generatePlan() },
                    controls: { headerAccessory }) {
             // Wide (the window): one screen — the next thing, glance tiles, the day and the
             // week. Narrow (the popover, a split pane): the single column.
@@ -420,7 +423,7 @@ struct TodayView: View {
                 .padding(.horizontal, DS.Space.xs)
             }
         }
-        .onAppear { quickFocused = true }
+        .onAppear { if !inWindow { quickFocused = true } }
     }
 
     private var parsePreview: some View {
@@ -650,6 +653,10 @@ struct TodayView: View {
 /// Today's glance tiles in the window: the next class, what's due, cards due, focus so far — each
 /// left out when it has nothing to say (B6), so a quiet day shows the hero alone. Pure.
 enum TodayBrief {
+    /// Plan my day is offered when there's work to plan and no plan already on screen: a new one
+    /// would throw away the drafts being edited and ask the AI again. Pure.
+    static func canPlan(loading: Bool, hasDrafts: Bool, hasWork: Bool) -> Bool { !loading && !hasDrafts && hasWork }
+
     struct Tile: Identifiable {
         enum Kind { case nextClass, due, cards, focus }
         let kind: Kind

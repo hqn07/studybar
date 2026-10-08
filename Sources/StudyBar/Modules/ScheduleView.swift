@@ -823,7 +823,7 @@ struct PasteScheduleView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SubHeader("Paste Schedule") { }
+            SubHeader("Paste Schedule") { }.environment(\.isPrimaryPane, false)   // a sheet
             Divider()
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 Text("Paste your class schedule — a copied timetable, a registrar \"detailed schedule\", or an email. StudyBar's assistant will pull out the classes for you to review.")

@@ -22,6 +22,7 @@ struct PlanDaySheet: View {
                     Button("Add all") { acceptAll() }.font(.caption.bold())
                 }
             }
+            .environment(\.isPrimaryPane, false)   // a sheet: never the window's toolbar row
             Divider()
             Group {
                 if loading {

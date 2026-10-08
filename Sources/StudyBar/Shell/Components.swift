@@ -33,27 +33,40 @@ struct ModulePane<Content: View, Controls: View, More: View>: View {
                 Text(title).font(.title3.bold()).lineLimit(1)
                 if More.self != EmptyView.self {
                     Menu { more() } label: {
-                        Image(systemName: "ellipsis.circle").accessibilityLabel("More")
+                        Image(systemName: "ellipsis.circle").accessibilityLabel("\(title) actions")
                     }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .help("More")
+                    .help("More \(title) actions")
                 }
-                Spacer(minLength: DS.Space.m)
-                controls()
-                if let p = primary {
-                    Button(action: p.action) { Label(p.title, systemImage: p.systemImage) }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
-                        .keyboardShortcut(p.shortcut)
-                        .help(p.help ?? p.title)
-                        .disabled(p.disabled)
+                Spacer(minLength: DS.Space.s)
+                // In a narrow window the primary drops its label before the title is squeezed out.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: DS.Space.m) { controls(); primaryButton(labeled: true) }
+                    HStack(spacing: DS.Space.m) { controls(); primaryButton(labeled: false) }
                 }
             }
             .padding(.horizontal, 14)
             .modifier(ToolbarRow(inlinePadding: 10))
             .zIndex(1)
             Divider()
-            // The header spans the pane; only the content is held to the module's column.
-            content().moduleColumn()
+            // The header spans the pane; only the content is held to the module's column. The
+            // content sits below the toolbar row, never in it: a header inside it is an ordinary bar.
+            content().moduleColumn().environment(\.isPrimaryPane, false)
+        }
+    }
+}
+
+extension ModulePane {
+    @ViewBuilder fileprivate func primaryButton(labeled: Bool) -> some View {
+        if let p = primary {
+            Button(action: p.action) {
+                if labeled { Label(p.title, systemImage: p.systemImage) } else { Image(systemName: p.systemImage) }
+            }
+            .buttonStyle(.borderedProminent).controlSize(.small)
+            .keyboardShortcut(p.shortcut)
+            .help(p.help ?? p.title)
+            .accessibilityLabel(p.help ?? p.title)   // "New assignment", not just "New"
+            .disabled(p.disabled)
         }
     }
 }
@@ -104,6 +117,15 @@ struct SubHeader<Trailing: View>: View {
     }
 }
 
+extension View {
+    /// For a page's own header when the page is pushed over a module (it replaces the module's
+    /// header, so in the window's left pane it is the toolbar row). `active: false` leaves it an
+    /// ordinary bar — for a header that isn't at the top of the pane.
+    func toolbarRow(_ active: Bool = true) -> some View {
+        modifier(ToolbarRow(inlinePadding: 12, inlineFill: false, active: active))
+    }
+}
+
 /// A module's header: in the window's left pane it is the toolbar row — 44 pt, up in the
 /// titlebar beside the traffic lights and the search field, draggable where it's empty —
 /// and anywhere else (the popover, the right pane of a split) an ordinary bar.
@@ -111,7 +133,9 @@ private struct ToolbarRow: ViewModifier {
     var inlinePadding: CGFloat
     /// The inline bar's surface fill (ModulePane has one; a pushed page's header doesn't).
     var inlineFill = true
-    @Environment(\.isPrimaryPane) private var primary
+    var active = true
+    @Environment(\.isPrimaryPane) private var isPrimaryPane
+    private var primary: Bool { isPrimaryPane && active }
     @Environment(\.titlebarLeading) private var leading
     @Environment(\.titlebarTrailing) private var trailing
 

@@ -10,7 +10,7 @@ import AppKit
 /// bundle id and a throwaway data folder. Rendering the window writes preferences (module use,
 /// onboarding), and the Debug build otherwise shares the installed app's.
 enum ModuleAudit {
-    static let widths: [CGFloat] = [720, 1280, 1680]
+    static let widths: [CGFloat] = [560, 720, 1280, 1680]   // 560: the window's minimum
     static let height: CGFloat = 820
 
     @MainActor
@@ -72,6 +72,31 @@ enum ModuleAudit {
               "split-notes-chat-1440-dark.png", size1440, .darkAqua)
         shoot(RootView(surface: .window, win: WindowModel(moduleID: "notes", rightID: "assignments")), "split",
               "split-notes-assignments-1440-dark.png", size1440, .darkAqua)
+        // Pages pushed over a module, and a sheet, as the window's left pane holds them: a pushed
+        // page's header is the toolbar row (room for the lights and the search field); a sheet's isn't.
+        func pushed(_ page: some View, _ w: CGFloat) -> some View {
+            let railed = w < 760
+            return HStack(spacing: 0) {
+                Color.clear.frame(width: railed ? 49 : 177)
+                NavigationStack { page }
+                    .environment(\.isPrimaryPane, true)
+                    .environment(\.titlebarLeading, railed ? 70 : 0)
+                    .environment(\.titlebarTrailing, 204)
+                    .environment(\.moduleContentCap, DS.Width.content)
+            }
+        }
+        if let deck = state.data.decks.first {
+            for w: CGFloat in [720, 1280] {
+                shoot(pushed(DeckView(deck: deck).moduleColumn(), w), "pushed", "pushed-deck-\(Int(w))-dark.png", CGSize(width: w, height: height), .darkAqua)
+                shoot(pushed(StudyView(deckID: nil).moduleColumn(), w), "pushed", "pushed-review-\(Int(w))-dark.png", CGSize(width: w, height: height), .darkAqua)
+            }
+        }
+        if let note = state.data.notes.first {
+            shoot(pushed(NoteEditor(note: note, startInPreview: true), 720), "pushed", "pushed-note-720-dark.png", CGSize(width: 720, height: height), .darkAqua)
+        }
+        shoot(PlanDaySheet(date: Date()).environment(\.isPrimaryPane, true).environment(\.titlebarTrailing, 204),
+              "pushed", "sheet-planday-dark.png", CGSize(width: 520, height: 480), .darkAqua)
+
         state.globalSearch = "flux"
         shoot(RootView(surface: .window, win: WindowModel(moduleID: "today")), "search", "search-1280-dark.png", size1280, .darkAqua)
         state.globalSearch = ""

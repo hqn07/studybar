@@ -310,7 +310,7 @@ struct DeckView: View {
                 Button(role: .destructive) { deleteDeck() } label: { Label("Delete deck", systemImage: "trash") }
             } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Deck actions") }.menuStyle(.borderlessButton).fixedSize()
             studyButton
-        }.padding(12)
+        }.padding(.horizontal, 12).toolbarRow()   // pushed over the module: its header is the toolbar row
     }
 
     private var statsRow: some View {
@@ -876,7 +876,7 @@ struct StudyView: View {
                     Button { editingCard = c } label: { Image(systemName: "pencil").accessibilityLabel("Edit card") }.buttonStyle(.borderless)
                 }
                 Text("\(queue.count) left").font(.caption).foregroundStyle(.secondary)
-            }.padding(12)
+            }.padding(.horizontal, 12).toolbarRow()   // pushed over the module: its header is the toolbar row
 
             if let card = currentCard {
                 Spacer()
@@ -1025,7 +1025,7 @@ struct MatchView: View {
                 Text("\(gone.count / 2)/\(pairCount)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
             Button { build() } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Shuffle") }.buttonStyle(.borderless).help("Shuffle")
-        }.padding(12)
+        }.padding(.horizontal, 12).toolbarRow()   // pushed over the module: its header is the toolbar row
     }
 
     private var grid: some View {
@@ -1142,7 +1142,7 @@ struct TestView: View {
             if !qs.isEmpty && idx < qs.count {
                 Text("\(idx + 1)/\(qs.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-        }.padding(12)
+        }.padding(.horizontal, 12).toolbarRow()   // pushed over the module: its header is the toolbar row
     }
 
     private func question(_ q: Q) -> some View {

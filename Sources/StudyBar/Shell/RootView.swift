@@ -215,7 +215,9 @@ struct RootView: View {
     private func titlebarLeading(sidebarWidth: CGFloat) -> CGFloat {
         state.focusMode ? (win.tabBar ? 0 : 78) : max(0, toggleX + 34 - sidebarWidth)
     }
-    private static let searchRoom: CGFloat = 180 + 12 + 12   // field + edge + gap
+    /// The search field: narrower in a narrow window, so the module's title keeps its room.
+    /// The row leaves it the field plus 12 pt of edge and 12 pt of gap.
+    private static func searchWidth(narrow: Bool) -> CGFloat { narrow ? 120 : 180 }
 
     // MARK: Content
 
@@ -229,7 +231,7 @@ struct RootView: View {
                 pane(win.moduleID)
                     .environment(\.isPrimaryPane, true)
                     // The search field sits over the right pane when there is one.
-                    .environment(\.titlebarTrailing, win.rightID == nil ? Self.searchRoom : 0)
+                    .transformEnvironment(\.titlebarTrailing) { if win.rightID != nil { $0 = 0 } }
                     .onPreferenceChange(StudyFocusKey.self) { f in win.focus = f }
                 if let right = win.rightID {
                     PaneDivider(width: Binding(get: { CGFloat(splitWidth) }, set: { splitWidth = Double($0) }),
@@ -319,10 +321,10 @@ struct RootView: View {
                     } else {
                         ModulePane(title: "Search") { UnifiedSearchView(query: state.globalSearch) }
                             .environment(\.isPrimaryPane, true)
-                            .environment(\.titlebarTrailing, Self.searchRoom)
                     }
                 }
                 .environment(\.titlebarLeading, titlebarLeading(sidebarWidth: sidebarWidth))
+                .environment(\.titlebarTrailing, Self.searchWidth(narrow: forced) + 24)
             }
             // Fixed in the row whatever the module: the toggle past the lights, search at the
             // right edge — one search field, so typing never loses it when results replace the module.
@@ -331,7 +333,7 @@ struct RootView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if !state.focusMode {
-                    SearchField(text: $state.globalSearch).frame(width: 180)
+                    SearchField(text: $state.globalSearch).frame(width: Self.searchWidth(narrow: forced))
                         .frame(height: Self.rowHeight).padding(.trailing, 12)
                 }
             }
@@ -573,7 +575,7 @@ struct SidebarView: View {
             Divider()
             Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(systemName: "ellipsis").accessibilityLabel("More")
+            Image(systemName: "ellipsis").accessibilityLabel("New tab, new window, quit")
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .foregroundStyle(.secondary)
@@ -608,7 +610,8 @@ struct SidebarView: View {
         let sel = win.moduleID == m.id
         // ⌥-click puts it on the right, beside what's open.
         return Button {
-            if NSEvent.modifierFlags.contains(.option), m.id != win.moduleID { win.rightID = m.id } else { win.moduleID = m.id }
+            if NSEvent.modifierFlags.contains(.option), m.id != win.moduleID { win.rightID = m.id }
+            else { state.globalSearch = ""; win.moduleID = m.id }   // the sidebar stays during a search
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: m.symbol).font(.system(size: 14)).frame(width: 22)
@@ -651,7 +654,7 @@ struct SidebarView: View {
         .accessibilityAddTraits(win.moduleID == m.id ? [.isButton, .isSelected] : .isButton)
         // A replaced element doesn't inherit the button's action: without this, VoiceOver
         // announced the row as a button and pressing it did nothing.
-        .accessibilityAction { win.moduleID = m.id }
+        .accessibilityAction { state.globalSearch = ""; win.moduleID = m.id }
     }
     private func badge(for id: String) -> Int? {
         switch id {
