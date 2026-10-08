@@ -1292,20 +1292,8 @@ enum StudySnapshot {
                                  answerText: "Symmetry makes E constant on the surface so it comes out of the integral.",
                                  explanation: "", topic: "Gauss's law", source: "")
         func save(_ view: some View, _ name: String, _ size: CGSize) {
-            let host = NSHostingView(rootView: view.environmentObject(state).frame(width: size.width, height: size.height)
-                .background(Color(nsColor: .windowBackgroundColor)))
-            host.frame = CGRect(origin: .zero, size: size)
-            host.appearance = NSAppearance(named: .aqua)
-            let win = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            win.contentView = host
-            win.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
-            win.orderBack(nil)
-            host.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
-            host.cacheDisplay(in: host.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out).appendingPathComponent(name))
-            win.orderOut(nil)
+            ModuleAudit.save(view.environmentObject(state), to: URL(fileURLWithPath: out).appendingPathComponent(name),
+                             size: size, appearance: .aqua)
         }
         save(StudyModuleView(), "module.png", CGSize(width: 1000, height: 640))
         // The window's narrowest (560 less the sidebar) up to its default: nothing may overflow.

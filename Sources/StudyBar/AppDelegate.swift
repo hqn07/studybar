@@ -184,6 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let i = CommandLine.arguments.firstIndex(of: "--study-snapshot"), i + 1 < CommandLine.arguments.count {
             exit(StudySnapshot.run(state: state, out: CommandLine.arguments[i + 1]))
         }
+        // `scripts/module-audit.sh` runs this from a test copy: every module, rendered.
+        if let i = CommandLine.arguments.firstIndex(of: "--module-audit"), i + 1 < CommandLine.arguments.count {
+            exit(ModuleAudit.run(state: state, out: CommandLine.arguments[i + 1]))
+        }
         if CommandLine.arguments.contains("--study-selftest") {
             exit(StudySelfTest.run())
         }
