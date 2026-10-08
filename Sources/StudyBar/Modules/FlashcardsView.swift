@@ -97,6 +97,17 @@ struct FlashcardsView: View {
                 Button { state.pendingImageCards = .init() } label: { Label("Make cards from a picture…", systemImage: "photo.on.rectangle.angled") }
             }) {
                 VStack(spacing: 0) {
+                    if !state.data.flashcards.isEmpty {
+                        // What's due and how it's going, before the decks.
+                        let retention = StudyStats.flashcardRetention(state.data)
+                        GlanceRow(stats: [
+                            GlanceStat(value: "\(dueNow)", label: "due now", isEmpty: dueNow == 0),
+                            GlanceStat(value: retention.map { "\(Int(($0 * 100).rounded()))%" } ?? "", label: "retention", isEmpty: retention == nil),
+                            GlanceStat(value: "\(state.data.decks.count)", label: state.data.decks.count == 1 ? "deck" : "decks"),
+                        ])
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DS.Space.l).padding(.top, DS.Space.l)
+                    }
                     HStack {
                         TextField("New empty deck…", text: $newDeck, onCommit: addDeck)
                             .textFieldStyle(.roundedBorder)

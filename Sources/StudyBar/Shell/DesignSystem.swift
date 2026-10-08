@@ -266,6 +266,48 @@ struct GlanceRow: View {
     }
 }
 
+/// A module's scopes as numbers you can click — "12 this week · 2 overdue · 93 all" — the
+/// summary and the filter in one strip. A scope with nothing in it is left out unless it's the
+/// one selected.
+struct GlanceFilter: View {
+    struct Item: Identifiable {
+        let id: String
+        let count: Int
+        let label: String
+        let help: String
+        let selected: Bool
+        let action: () -> Void
+    }
+    let items: [Item]
+
+    /// The items worth showing. Pure.
+    static func shown(_ items: [Item]) -> [Item] { items.filter { $0.count > 0 || $0.selected } }
+
+    var body: some View {
+        HStack(spacing: DS.Space.xs) {
+            ForEach(Self.shown(items)) { item in
+                Button(action: item.action) {
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.s) {
+                        Text("\(item.count)")
+                            .font(.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(item.selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        Text(item.label).font(.callout)
+                            .foregroundStyle(item.selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, DS.Space.xs)
+                    .background(item.selected ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(.clear),
+                                in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(item.help)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(item.selected ? .isSelected : [])
+            }
+        }
+    }
+}
+
 // MARK: - Card container
 
 extension View {

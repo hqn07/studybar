@@ -104,6 +104,17 @@ enum DesignSelfTest {
         check("w2 a page in a capped module", ModuleColumn.width(nil, cap: DS.Width.content), DS.Width.content)
         check("w3 no cap, no limit", ModuleColumn.width(DS.Width.form, cap: nil), nil)
 
+        // The glance strip: a filter with nothing in it is left out — unless it's the one selected,
+        // or the strip would hide where you are.
+        func item(_ id: String, _ n: Int, _ sel: Bool = false) -> GlanceFilter.Item {
+            .init(id: id, count: n, label: id, help: "", selected: sel, action: {})
+        }
+        check("g1 empty filters are left out",
+              GlanceFilter.shown([item("week", 12, true), item("overdue", 0), item("all", 34), item("archived", 0)]).map(\.id),
+              ["week", "all"])
+        check("g2 the selected filter stays even at zero",
+              GlanceFilter.shown([item("week", 0), item("overdue", 0, true)]).map(\.id), ["overdue"])
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }

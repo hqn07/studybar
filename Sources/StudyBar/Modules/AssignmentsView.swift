@@ -169,21 +169,17 @@ struct AssignmentsView: View {
 
     // MARK: Scope — the list you work from, not the list of everything
 
+    /// The scopes as glance numbers you click — the summary and the filter in one strip.
     private var scopeBar: some View {
-        HStack(spacing: DS.Space.xs) {
-            ForEach(AssignmentScope.allCases) { s in
-                if s != .archived || archivedCount > 0 {
-                    Button { withAnimation(.snappy(duration: 0.2)) { scope = s.rawValue } } label: {
-                        Chip(label(for: s), .filter, selected: scopeMode == s, systemImage: s.symbol)
-                    }
-                    .buttonStyle(.plain)
-                    .help(help(for: s))
-                }
-            }
+        HStack(spacing: DS.Space.m) {
+            GlanceFilter(items: AssignmentScope.allCases.map { s in
+                GlanceFilter.Item(id: s.rawValue, count: count(for: s), label: s.rawValue.lowercased(), help: help(for: s),
+                                  selected: scopeMode == s) { withAnimation(.snappy(duration: 0.2)) { scope = s.rawValue } }
+            })
             if busyworkCount > 0 {
                 Button { withAnimation(.snappy(duration: 0.2)) { hideBusywork.toggle() } } label: {
-                    Chip(hideBusywork ? "\(busyworkCount) hidden" : "Showing housekeeping",
-                         .filter, selected: !hideBusywork, systemImage: "tray")
+                    Text(hideBusywork ? "\(busyworkCount) housekeeping hidden" : "Showing housekeeping")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help(hideBusywork
@@ -196,12 +192,12 @@ struct AssignmentsView: View {
         .padding(.bottom, DS.Space.s)
     }
 
-    private func label(for s: AssignmentScope) -> String {
+    private func count(for s: AssignmentScope) -> Int {
         switch s {
-        case .week: "This week \(weekCount)"
-        case .overdue: "Overdue \(overdueCount)"
-        case .all: "All \(live.count)"
-        case .archived: "Archived \(archivedCount)"
+        case .week: weekCount
+        case .overdue: overdueCount
+        case .all: live.count
+        case .archived: archivedCount
         }
     }
 
