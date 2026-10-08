@@ -101,7 +101,7 @@ private enum MathRows {
         func listRow<V: View>(_ v: V) -> AnyView { AnyView(v.padding(.leading, inset)) }
 
         if t.hasPrefix("### ") { return styled(String(t.dropFirst(4)), .headline) }
-        if t.hasPrefix("## ")  { return styled(String(t.dropFirst(3)), .title3.bold()) }
+        if t.hasPrefix("## ")  { return styled(String(t.dropFirst(3)), .title3.bold()).map { AnyView($0.padding(.top, 10)) } }
         if t.hasPrefix("# ")   { return styled(String(t.dropFirst(2)), .title2.bold()) }
 
         if t.hasPrefix("☑ ") || t.lowercased().hasPrefix("- [x] ") {
@@ -120,6 +120,10 @@ private enum MathRows {
         if t.hasPrefix("• ") || t.hasPrefix("- ") || t.hasPrefix("* ") {
             guard let it = inline(String(t.dropFirst(2)), color: color) else { return nil }
             return listRow(HStack(alignment: .top, spacing: 6) { Text(NoteFormat.bulletGlyph(depth)); it })
+        }
+        if t.hasPrefix("> "), let kind = Callout(quote: String(t.dropFirst(2))) {
+            guard let it = inline(String(t.dropFirst(2)), color: color) else { return nil }
+            return AnyView(CalloutBox(kind: kind) { it })
         }
         if t.hasPrefix("> ") {
             guard let it = inline(String(t.dropFirst(2)), color: color) else { return nil }

@@ -254,6 +254,7 @@ enum NotePDF {
           ul{margin:2px 0 5px;padding-left:16px;} li{margin:1px 0;} ul ul{margin:0;list-style:circle;} ul ul ul{list-style:square;}
           code{background:#f1f1f4;padding:0 3px;border-radius:3px;font:10px ui-monospace,Menlo,monospace;}
           blockquote{margin:4px 0;padding-left:8px;border-left:2px solid #bbb;color:#444;}
+          \(MathMarkdown.calloutCSS) blockquote.co{color:#1d1d20;}
           a{color:#0a58ca;text-decoration:none;} mark{padding:0 1px;border-radius:2px;}
           img{max-width:100%;height:auto;}
           .katex{font-size:1.05em;} .katex-display{margin:6px 0;}

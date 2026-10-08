@@ -329,6 +329,11 @@ enum MathMarkdown {
     /// Memoized because the reading view calls it from `body`: a note that re-rendered for an
     /// unrelated reason (a recording meter ticking, a selection change) paid the full markdown
     /// conversion again every time.
+    /// Study notes' callouts (`Callout`), the same boxes the native view draws.
+    static let calloutCSS = "blockquote.co{opacity:1;margin:.5em 0;padding:.4em .7em;border-left:3px solid var(--c);border-radius:6px;"
+        + "background:color-mix(in srgb,var(--c) 13%,transparent);} blockquote.short{--c:#8e8e93;} blockquote.key{--c:#0a84ff;} "
+        + "blockquote.watch{--c:#ff9f0a;} blockquote.added{--c:#e6b800;}"
+
     static func bodyHTML(_ md: String) -> String {
         if let hit = bodyCache.object(forKey: md as NSString) { return hit as String }
         let out = convert(joinDisplayBlocks(MathSupport.normalized(md)))
@@ -359,6 +364,7 @@ enum MathMarkdown {
           ul ul{margin:0;list-style:circle;} ul ul ul{list-style:square;}
           code{background:\(codeBG);padding:1px 4px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.92em;}
           blockquote{margin:.3em 0;padding-left:.6em;border-left:2px solid currentColor;opacity:.7;}
+          \(MathMarkdown.calloutCSS)
           a{color:#0a84ff;text-decoration:none;}
           .katex{font-size:1.05em;} .katex-display{margin:.4em 0;overflow-x:auto;overflow-y:hidden;}
           table{border-collapse:collapse;margin:.5em 0;font-size:.94em;display:block;overflow-x:auto;}
@@ -504,7 +510,12 @@ enum MathMarkdown {
             if t.hasPrefix("### ") { closeList(); html += "<h3>\(inlineHTML(String(t.dropFirst(4))))</h3>"; continue }
             if t.hasPrefix("## ")  { closeList(); html += "<h2>\(inlineHTML(String(t.dropFirst(3))))</h2>"; continue }
             if t.hasPrefix("# ")   { closeList(); html += "<h1>\(inlineHTML(String(t.dropFirst(2))))</h1>"; continue }
-            if t.hasPrefix("> ")   { closeList(); html += "<blockquote>\(inlineHTML(String(t.dropFirst(2))))</blockquote>"; continue }
+            if t.hasPrefix("> ")   {
+                closeList()
+                let q = String(t.dropFirst(2))
+                html += Callout(quote: q).map { "<blockquote class=\"co \($0.rawValue)\">" } ?? "<blockquote>"
+                html += "\(inlineHTML(q))</blockquote>"; continue
+            }
             if t.lowercased().hasPrefix("- [x] ") {
                 item(NoteFormat.indentLevel(rawLine), "☑︎ \(inlineHTML(String(t.dropFirst(6))))"); continue
             }

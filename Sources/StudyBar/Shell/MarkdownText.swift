@@ -22,7 +22,7 @@ struct MarkdownText: View {
         if t.hasPrefix("# ") {
             inline(String(t.dropFirst(2))).font(.title2.bold())
         } else if t.hasPrefix("## ") {
-            inline(String(t.dropFirst(3))).font(.title3.bold())
+            inline(String(t.dropFirst(3))).font(.title3.bold()).padding(.top, 10)
         } else if t.hasPrefix("### ") {
             inline(String(t.dropFirst(4))).font(.headline)
         } else if t.hasPrefix("- [ ] ") || t.hasPrefix("- [] ") {
@@ -34,6 +34,8 @@ struct MarkdownText: View {
         } else if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("• ") {
             HStack(alignment: .top, spacing: 6) { Text(NoteFormat.bulletGlyph(depth)); inline(String(t.dropFirst(2))) }
                 .padding(.leading, inset)
+        } else if t.hasPrefix("> "), let kind = Callout(quote: String(t.dropFirst(2))) {
+            CalloutBox(kind: kind) { inline(String(t.dropFirst(2))) }
         } else if t.hasPrefix("> ") {
             inline(String(t.dropFirst(2))).italic().foregroundStyle(.secondary)
                 .padding(.leading, 8).overlay(Rectangle().frame(width: 2).foregroundStyle(.tint), alignment: .leading)
@@ -49,6 +51,45 @@ struct MarkdownText: View {
             return Text(attr)
         }
         return Text(s)
+    }
+}
+
+/// The boxes study notes point things out with — `> **In short:** …`, `> **Key idea:** …`,
+/// `> **Watch out:** …` and `> 💡 **Added:** …` — drawn as tinted boxes, so they stand out from
+/// the paragraphs around them (signaling) instead of fading into a grey quote. Any other quote
+/// stays a quote.
+enum Callout: String {
+    case short, key, watch, added
+
+    init?(quote: String) {
+        let t = quote.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("💡") { self = .added }
+        else if t.hasPrefix("**In short") { self = .short }
+        else if t.hasPrefix("**Key idea") { self = .key }
+        else if t.hasPrefix("**Watch out") { self = .watch }
+        else { return nil }
+    }
+
+    var color: Color {
+        switch self {
+        case .short: return .gray
+        case .key: return .blue
+        case .watch: return .orange
+        case .added: return .yellow
+        }
+    }
+}
+
+struct CalloutBox<Content: View>: View {
+    let kind: Callout
+    @ViewBuilder let content: Content
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 7).padding(.leading, 12).padding(.trailing, 10)
+            .background(kind.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 7, bottomLeadingRadius: 7).fill(kind.color).frame(width: 3) }
+            .padding(.vertical, 2)
     }
 }
 
