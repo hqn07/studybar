@@ -1759,7 +1759,7 @@ struct NoteEditor: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .task(id: draft.audioPath) { boardPhotos = BoardPhotos.photos(of: draft) }
                     }
-                    .frame(maxWidth: 680, alignment: .leading)
+                    .frame(maxWidth: DS.Width.prose, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)   // center the reading column
                     .padding(.horizontal, 24).padding(.vertical, 20)
                     // Selectable so a passage can be copied without entering the editor. The
@@ -1793,10 +1793,11 @@ struct NoteEditor: View {
                 .background(.sbSurface)
             }
         } else {
-            // Cap the writing column to a readable measure and center it (only bites once
-            // the window is wider than ~720 — no effect in the popover / narrow window).
+            // Cap the writing column to the reading measure and center it: the text view insets
+            // its text 6 pt a side, so this gives the same line length as the reading view and
+            // switching with ⌘E doesn't reflow the note.
             RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor, focusOnAppear: startedEmpty)
-                .frame(maxWidth: 720)
+                .frame(maxWidth: DS.Width.prose + 12)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 4).padding(.vertical, 2)
         }

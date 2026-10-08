@@ -383,7 +383,7 @@ struct TutorPane: View {
                         }
                         ForEach(m.thread) { turn in turnView(turn).id(turn.id) }
                     }
-                    .padding(16).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+                    .padding(16).frame(maxWidth: DS.Width.prose, alignment: .leading).frame(maxWidth: .infinity)
                 }
                 .onChange(of: m.thread.last?.answer) { _, _ in if let id = m.thread.last?.id { proxy.scrollTo(id, anchor: .bottom) } }
             }
@@ -649,7 +649,7 @@ private struct GlossaryPane: View {
                             .textSelection(.enabled)
                         }
                     }
-                    .padding(16).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+                    .padding(16).frame(maxWidth: DS.Width.form, alignment: .leading).frame(maxWidth: .infinity)
                 }
             }
         }
@@ -814,7 +814,7 @@ private struct QuizPane: View {
                         Button("Finish") { m.phase = .done }.buttonStyle(.borderedProminent)
                     }
                 }
-            }.padding(20).frame(maxWidth: 720).frame(maxWidth: .infinity)
+            }.padding(20).frame(maxWidth: DS.Width.form).frame(maxWidth: .infinity)
         }
     }
 
@@ -842,7 +842,7 @@ private struct QuizPane: View {
                             QuestionCard(q: q, response: binding(q), revealed: false, feedback: nil, check: {})
                         }
                     }
-                }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
+                }.padding(20).frame(maxWidth: DS.Width.form).frame(maxWidth: .infinity)
             }
         }
     }
@@ -884,7 +884,7 @@ private struct QuizPane: View {
                         QuestionCard(q: q, response: binding(q), revealed: true, feedback: m.feedback[q.id], check: { aiCheck(q) })
                     }
                 }
-            }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
+            }.padding(20).frame(maxWidth: DS.Width.form).frame(maxWidth: .infinity)
         }
     }
 
@@ -1078,7 +1078,7 @@ private struct ProgressPane: View {
                     }
                 }
             }
-            .padding(20).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+            .padding(20).frame(maxWidth: DS.Width.form, alignment: .leading).frame(maxWidth: .infinity)
         }
         .sheet(item: $makingCards) { MakeCardsView(request: $0) }
     }
@@ -1208,7 +1208,7 @@ private struct GuidePane: View {
                 }.padding(10)
                 Divider()
                 ScrollView {
-                    NotePreview(text: guide).padding(20).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
+                    NotePreview(text: guide).padding(20).frame(maxWidth: DS.Width.prose, alignment: .leading).frame(maxWidth: .infinity)
                         .textSelection(.enabled)
                 }
             }

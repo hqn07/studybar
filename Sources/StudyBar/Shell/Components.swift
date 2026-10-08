@@ -5,6 +5,7 @@ struct ModulePane<Content: View, Bar: View>: View {
     let title: String
     @ViewBuilder var toolbar: () -> Bar
     @ViewBuilder var content: () -> Content
+    @Environment(\.moduleContentCap) private var cap
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +22,8 @@ struct ModulePane<Content: View, Bar: View>: View {
             .background(.sbSurface)
             .zIndex(1)
             Divider()
-            content()
+            // The header spans the pane; only the content is held to the window's column.
+            content().frame(maxWidth: cap ?? .infinity).frame(maxWidth: .infinity)
         }
     }
 }

@@ -316,7 +316,7 @@ struct ArticleReader: View {
                         Label("Open original", systemImage: "safari")
                     }.buttonStyle(.borderedProminent)
                 }
-                .padding(DS.Space.xl).frame(maxWidth: 720, alignment: .leading)
+                .padding(DS.Space.xl).frame(maxWidth: DS.Width.prose, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

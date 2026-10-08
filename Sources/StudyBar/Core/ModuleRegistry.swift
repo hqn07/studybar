@@ -18,9 +18,9 @@ struct ModuleInfo: Identifiable {
     let title: String
     let symbol: String
     let category: ModuleCategory
-    /// Spatial modules (charts, boards, grids, calendars) that fill the window's full
-    /// width. Text/list modules stay `false` and get a centered readable column when the
-    /// window is widened past its default (see RootView.content).
+    /// Spatial modules (two-pane editors, calendars, boards) fill the pane; every other
+    /// module's content sits in a column capped at `DS.Width.content`. The header spans
+    /// either way (see RootView.pane and ModulePane).
     var wide: Bool = false
     let make: () -> AnyView
 }
@@ -32,7 +32,7 @@ enum ModuleRegistry {
         .init(id: "today", title: "Today", symbol: "sun.max",
               category: .overview) { AnyView(TodayView()) },
         .init(id: "insights", title: "Insights", symbol: "chart.bar.xaxis",
-              category: .overview, wide: true) { AnyView(InsightsView()) },
+              category: .overview) { AnyView(InsightsView()) },
         // NOTE: the Assistant is no longer a sidebar module — it's a summoned floating panel
         // (AssistantPanel, opened via ⌘K / AppActions.assistant). Cross-object AI jobs live
         // there; inline edits stay on the object (the ✨ menus). AssistantView/Chat is reused.
@@ -63,7 +63,7 @@ enum ModuleRegistry {
 
         // Links & resources
         .init(id: "library", title: "Library", symbol: "books.vertical",
-              category: .links, wide: true) { AnyView(LibraryView()) },
+              category: .links) { AnyView(LibraryView()) },
 
         // Research
         .init(id: "citations", title: "Citations", symbol: "quote.opening",
@@ -82,7 +82,7 @@ enum ModuleRegistry {
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
               category: .study) { AnyView(FlashcardsView()) },
         .init(id: "reading", title: "Reading", symbol: "book",
-              category: .study, wide: true) { AnyView(ReadingView()) },
+              category: .study) { AnyView(ReadingView()) },
 
         // Organize
         .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",

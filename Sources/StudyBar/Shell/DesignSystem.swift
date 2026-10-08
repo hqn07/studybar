@@ -13,6 +13,20 @@ enum DS {
     enum Radius { static let control: CGFloat = 6; static let card: CGFloat = 10; static let modal: CGFloat = 14 }
     /// Spacing on a base-4 step.
     enum Space { static let xs: CGFloat = 4; static let s: CGFloat = 6; static let m: CGFloat = 8; static let l: CGFloat = 12; static let xl: CGFloat = 16 }
+    /// Column widths. `content` caps a module's lists and dashboards on a wide window (the header
+    /// still spans); `prose` is a reading measure for running text, ~70 characters; `form` is
+    /// for question-and-answer layouts (quizzes, progress) that are not prose but read as one.
+    enum Width { static let content: CGFloat = 1200; static let prose: CGFloat = 680; static let form: CGFloat = 760 }
+}
+
+private struct ModuleContentCapKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+extension EnvironmentValues {
+    /// How wide a module's content may grow — set by the window for non-spatial modules,
+    /// nil (no cap) everywhere else, the popover included. `ModulePane` applies it below its header.
+    var moduleContentCap: CGFloat? {
+        get { self[ModuleContentCapKey.self] }
+        set { self[ModuleContentCapKey.self] = newValue }
+    }
 }
 
 extension Color {

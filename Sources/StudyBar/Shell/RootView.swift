@@ -261,11 +261,9 @@ struct RootView: View {
     private func pane(_ id: String) -> some View {
         Group {
             if let m = ModuleRegistry.info(id) {
-                if m.wide {
-                    m.make()                                     // spatial: fill the pane
-                } else {
-                    m.make().frame(maxWidth: 820)                // text/list: readable column,
-                }                                                //  centered by the frame below
+                // Spatial modules fill the pane; the rest get a capped column under a header
+                // that still spans (ModulePane applies the cap).
+                m.make().environment(\.moduleContentCap, m.wide ? nil : DS.Width.content)
             } else {
                 Text("Select a module").foregroundStyle(.secondary)
             }
