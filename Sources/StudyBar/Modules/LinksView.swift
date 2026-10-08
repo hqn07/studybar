@@ -25,14 +25,12 @@ struct LinksView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Library") {
-                HStack(spacing: 8) {
-                    LibraryTabPicker()
-                    Button { addCurrentTab() } label: { Image(systemName: "safari").accessibilityLabel("Add current browser tab") }
-                        .help("Add current browser tab")
-                    Button { editing = QuickLink(title: "", url: "") } label: { Image(systemName: "plus").accessibilityLabel("New link") }
-                }
-            } content: {
+            ModulePane(title: "Library",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "New link") { editing = QuickLink(title: "", url: "") },
+                       controls: { LibraryTabPicker() },
+                       more: {
+                Button { addCurrentTab() } label: { Label("Add current browser tab", systemImage: "safari") }
+            }) {
                 if state.data.links.isEmpty {
                     EmptyState(symbol: "link", title: "No links",
                                subtitle: "Pin your LMS, library, email and course pages. Use the Safari button to grab the current tab.")

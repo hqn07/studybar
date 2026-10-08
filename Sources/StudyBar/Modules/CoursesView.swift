@@ -80,17 +80,18 @@ struct CoursesView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Courses") {
-                Menu {
-                    Button { editing = Course(name: "", term: currentTerm) } label: { Label("Add course", systemImage: "plus") }
-                    Button { pastTerm = ""; pastPrompt = true } label: { Label("Add past course…", systemImage: "clock.arrow.circlepath") }
-                    Divider()
-                    Button { editingTerm = true } label: { Label("Set term dates…", systemImage: "calendar.badge.plus") }
-                    if !currentCourses.isEmpty {
-                        Button { nextTerm = ""; archiving = true } label: { Label("Start next term…", systemImage: "arrow.right.circle") }
-                    }
-                } label: { Image(systemName: "plus").accessibilityLabel("Add or import courses") }.menuStyle(.borderlessButton).fixedSize()
-            } content: {
+            ModulePane(title: "Courses",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "Add a course") {
+                           editing = Course(name: "", term: currentTerm)
+                       },
+                       more: {
+                Button { pastTerm = ""; pastPrompt = true } label: { Label("Add past course…", systemImage: "clock.arrow.circlepath") }
+                Divider()
+                Button { editingTerm = true } label: { Label("Set term dates…", systemImage: "calendar.badge.plus") }
+                if !currentCourses.isEmpty {
+                    Button { nextTerm = ""; archiving = true } label: { Label("Start next term…", systemImage: "arrow.right.circle") }
+                }
+            }) {
                 if state.data.courses.isEmpty {
                     EmptyState(symbol: "graduationcap", title: "No courses",
                                subtitle: "Add your classes — assignments, notes and links attach to them.")

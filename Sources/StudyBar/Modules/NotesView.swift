@@ -139,7 +139,12 @@ struct NotesView: View {
                         // room for the traffic lights floating in the titlebar strip.
                         detailPane.padding(.top, 26)
                     } else {
-                        ModulePane(title: "Notes") { toolbar(split: split) } content: {
+                        ModulePane(title: "Notes",
+                                   primary: ModuleAction(title: "New", systemImage: "square.and.pencil",
+                                                         shortcut: KeyboardShortcut("n", modifiers: .command),
+                                                         help: "New note") { newNote(split: split) },
+                                   controls: { noteControls(split: split) },
+                                   more: { noteMenu(split: split) }) {
                             if split { splitBody(available: geo.size.width) } else { stackBody }
                         }
                     }
@@ -160,7 +165,9 @@ struct NotesView: View {
         }
     }
 
-    @ViewBuilder private func toolbar(split: Bool) -> some View {
+    /// What stays in sight in the header: the list toggle (a view switch, with its own shortcut)
+    /// and, in focus mode, the way out.
+    @ViewBuilder private func noteControls(split: Bool) -> some View {
         HStack(spacing: 8) {
             if split {
                 Button { withAnimation(.snappy(duration: 0.22)) { listHidden.toggle() } } label: {
@@ -185,32 +192,32 @@ struct NotesView: View {
                 .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.tint)
                 .help("Exit focus mode (⇧⌘F)")
             }
-            Menu {
-                Section("Sort") {
-                    ForEach(NoteSort.allCases) { s in
-                        Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
+        }
+    }
+
+    /// The header's ⋯ menu: sort, new from a template, export.
+    @ViewBuilder private func noteMenu(split: Bool) -> some View {
+        Section("Sort") {
+            ForEach(NoteSort.allCases) { s in
+                Button { sort = s } label: { Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down") }
+            }
+        }
+        Section("New from template") {
+            ForEach(NoteTemplates.all) { t in
+                Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
+            }
+        }
+        if !notes.isEmpty {
+            Section("Export") {
+                if notes.count > 1 {
+                    Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
+                }
+                if AIConfig.isReady(for: .ask) {
+                    Button { audioReview() } label: {
+                        Label(notes.count == 1 ? "Audio review of this note…" : "Audio review of these \(notes.count) notes…", systemImage: "headphones")
                     }
                 }
-                Section("New from template") {
-                    ForEach(NoteTemplates.all) { t in
-                        Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
-                    }
-                }
-                if !notes.isEmpty {
-                    Section("Export") {
-                        if notes.count > 1 {
-                            Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
-                        }
-                        if AIConfig.isReady(for: .ask) {
-                            Button { audioReview() } label: {
-                                Label(notes.count == 1 ? "Audio review of this note…" : "Audio review of these \(notes.count) notes…", systemImage: "headphones")
-                            }
-                        }
-                    }
-                }
-            } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Notes actions") }
-            Button { newNote(split: split) } label: { Image(systemName: "square.and.pencil").accessibilityLabel("New note") }
-                .keyboardShortcut("n", modifiers: .command).help("New note")
+            }
         }
     }
 

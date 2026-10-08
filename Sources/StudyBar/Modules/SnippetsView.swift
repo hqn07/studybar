@@ -34,18 +34,17 @@ struct SnippetsView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Snippets") {
-                HStack(spacing: 8) {
-                    Menu {
-                        Button { byUse.toggle() } label: {
-                            Label("Sort by most used", systemImage: byUse ? "checkmark" : "arrow.up.arrow.down")
-                        }
-                        Divider()
-                        Button { addSamples() } label: { Label("Add sample snippets", systemImage: "sparkles") }
-                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Snippet actions") }
-                    Button { editing = Snippet(category: selectedCategory ?? "") } label: { Image(systemName: "plus").accessibilityLabel("New snippet") }
+            ModulePane(title: "Snippets",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "New snippet") {
+                           editing = Snippet(category: selectedCategory ?? "")
+                       },
+                       more: {
+                Button { byUse.toggle() } label: {
+                    Label("Sort by most used", systemImage: byUse ? "checkmark" : "arrow.up.arrow.down")
                 }
-            } content: {
+                Divider()
+                Button { addSamples() } label: { Label("Add sample snippets", systemImage: "sparkles") }
+            }) {
                 VStack(spacing: 0) {
                     if state.data.snippets.count > 4 { SearchField(text: $search).padding(8); Divider() }
                     if categories.count > 1 { categoryChips; Divider() }

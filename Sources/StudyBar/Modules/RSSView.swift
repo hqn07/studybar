@@ -32,24 +32,15 @@ struct RSSView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Library") {
-                HStack(spacing: 8) {
-                    LibraryTabPicker()
-                    if unreadCount > 0 {
-                        Button { markAllRead() } label: { Image(systemName: "checkmark.circle").accessibilityLabel("Mark all as read") }
-                            .help("Mark all as read")
-                    }
-                    Button { unreadOnly.toggle() } label: {
-                        Image(systemName: unreadOnly ? "circle.fill" : "circle.dashed")
-                            .accessibilityLabel(unreadOnly ? "Show all articles" : "Show unread only")
-                    }
-                    .foregroundStyle(unreadOnly ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    .help(unreadOnly ? "Showing unread — tap for all" : "Show unread only")
-                    Button { Task { await refresh() } } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Refresh") }
-                        .disabled(loading || state.rssFeeds.isEmpty)
-                    Button { managing = true } label: { Image(systemName: "list.bullet").accessibilityLabel("Manage feeds") }.help("Manage feeds")
+            ModulePane(title: "Library", controls: { LibraryTabPicker() }, more: {
+                if unreadCount > 0 {
+                    Button { markAllRead() } label: { Label("Mark all as read", systemImage: "checkmark.circle") }
                 }
-            } content: {
+                Toggle("Unread only", isOn: $unreadOnly)
+                Button { Task { await refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    .disabled(loading || state.rssFeeds.isEmpty)
+                Button { managing = true } label: { Label("Manage feeds…", systemImage: "list.bullet") }
+            }) {
                 Group {
                     if state.rssFeeds.isEmpty {
                         VStack(spacing: 12) {

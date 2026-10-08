@@ -27,16 +27,17 @@ struct CitationsView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Citations") {
-                HStack(spacing: 8) {
-                    Picker("", selection: $styleRaw) {
-                        ForEach(CiteStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
-                    }.labelsHidden().fixedSize()
-                    Button { importFile() } label: { Image(systemName: "square.and.arrow.down").accessibilityLabel("Import a library") }
-                        .help("Import a library — BibTeX (.bib), RIS (.ris) or CSL-JSON, from Zotero, Mendeley, EndNote or Google Scholar")
-                    Button { addManual() } label: { Image(systemName: "plus").accessibilityLabel("Add a citation") }
+            ModulePane(title: "Citations",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "Add a citation") { addManual() },
+                       controls: {
+                Picker("", selection: $styleRaw) {
+                    ForEach(CiteStyle.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                }.labelsHidden().fixedSize().help("Citation style")
+            }, more: {
+                Button { importFile() } label: {
+                    Label("Import a library — BibTeX, RIS or CSL-JSON…", systemImage: "square.and.arrow.down")
                 }
-            } content: {
+            }) {
                 VStack(spacing: 0) {
                     grabBar
                     if state.data.references.count > 4 && searchResults.isEmpty {

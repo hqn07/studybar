@@ -79,7 +79,7 @@ struct SettingsView: View {
     var body: some View {
         // A module like the rest: its title is the toolbar row, so the first row of the form
         // isn't under the traffic lights.
-        ModulePane(title: "Settings") { EmptyView() } content: {
+        ModulePane(title: "Settings") {
             HStack(spacing: 0) {
                 settingsSidebar
                 Divider()

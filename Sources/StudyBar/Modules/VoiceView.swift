@@ -53,50 +53,43 @@ struct VoiceBody: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Voice Note") {
-                HStack(spacing: 8) {
-                    if idle {
-                        Menu {
-                            Picker("Engine", selection: $voiceEngine) {
-                                Text("Apple Speech · instant, live").tag("apple")
-                                Text("Whisper · higher quality").tag("whisper")
-                            }
-                            Picker("Listen to", selection: $voiceSource) {
-                                Text("Microphone").tag("mic")
-                                Text("The Mac's sound · Zoom, Teams, videos").tag("system")
-                            }
-                            if whisper {
-                                Picker("Model", selection: $voiceWhisperModel) {
-                                    ForEach(VoiceService.whisperModels, id: \.id) { Text($0.label).tag($0.id) }
-                                }
-                                Picker("Language", selection: $voiceWhisperLang) {
-                                    ForEach(VoiceService.whisperLangs, id: \.id) { Text($0.label).tag($0.id) }
-                                }
-                                Divider()
-                                Button { voice.prepareWhisper() } label: {
-                                    Label(voice.isModelDownloaded(voiceWhisperModel) ? "Model downloaded" : "Download model now",
-                                          systemImage: voice.isModelDownloaded(voiceWhisperModel) ? "checkmark.circle" : "arrow.down.circle")
-                                }.disabled(voice.isModelDownloaded(voiceWhisperModel))
-                            }
-                            Divider()
-                            Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
-                        } label: { Image(systemName: whisper ? "cpu" : "waveform").accessibilityLabel("Transcription engine") }
-                            .help("Transcription engine")
-                        if voiceEngine == "apple" {
-                            Menu {
-                                ForEach(VoiceService.locales, id: \.id) { loc in
-                                    Button { voiceLocale = loc.id } label: {
-                                        Label(loc.label, systemImage: voiceLocale == loc.id ? "checkmark" : "globe")
-                                    }
-                                }
-                            } label: { Image(systemName: "globe").accessibilityLabel("Dictation language") }.help("Dictation language")
+            ModulePane(title: "Voice Note", controls: {
+                if !voice.transcript.isEmpty && idle {
+                    CoursePicker(courseID: $courseID)
+                }
+            }, more: {
+                // How it listens: set before a recording, so it can't change mid-take.
+                Group {
+                    Picker("Engine", selection: $voiceEngine) {
+                        Text("Apple Speech · instant, live").tag("apple")
+                        Text("Whisper · higher quality").tag("whisper")
+                    }
+                    Picker("Listen to", selection: $voiceSource) {
+                        Text("Microphone").tag("mic")
+                        Text("The Mac's sound · Zoom, Teams, videos").tag("system")
+                    }
+                    if whisper {
+                        Picker("Model", selection: $voiceWhisperModel) {
+                            ForEach(VoiceService.whisperModels, id: \.id) { Text($0.label).tag($0.id) }
+                        }
+                        Picker("Language", selection: $voiceWhisperLang) {
+                            ForEach(VoiceService.whisperLangs, id: \.id) { Text($0.label).tag($0.id) }
+                        }
+                        Button { voice.prepareWhisper() } label: {
+                            Label(voice.isModelDownloaded(voiceWhisperModel) ? "Model downloaded" : "Download model now",
+                                  systemImage: voice.isModelDownloaded(voiceWhisperModel) ? "checkmark.circle" : "arrow.down.circle")
+                        }.disabled(voice.isModelDownloaded(voiceWhisperModel))
+                    }
+                    if voiceEngine == "apple" {
+                        Picker("Dictation language", selection: $voiceLocale) {
+                            ForEach(VoiceService.locales, id: \.id) { Text($0.label).tag($0.id) }
                         }
                     }
-                    if !voice.transcript.isEmpty && idle {
-                        CoursePicker(courseID: $courseID)
-                    }
+                    Divider()
+                    Button { importAudio() } label: { Label("Transcribe an audio or video file…", systemImage: "waveform.badge.plus") }
                 }
-            } content: {
+                .disabled(!idle)
+            }) {
                 VStack(spacing: 16) {
                     switch voice.status {
                     case .denied:

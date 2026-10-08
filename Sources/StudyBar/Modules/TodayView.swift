@@ -57,7 +57,11 @@ struct TodayView: View {
     // MARK: body
 
     var body: some View {
-        ModulePane(title: greeting) { headerAccessory } content: {
+        ModulePane(title: greeting,
+                   primary: ModuleAction(title: "Plan my day", systemImage: "calendar.badge.clock",
+                                         help: "Block study time for today's work — you check the plan before it's added",
+                                         disabled: planLoading || (focus == nil && next7.isEmpty)) { generatePlan() },
+                   controls: { headerAccessory }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.l) {
                     // First thing on the surface, and focused when the popover opens: a
@@ -384,10 +388,6 @@ struct TodayView: View {
                 }
                 ForEach($planDrafts) { planRow($0) }
             }
-        } else if focus != nil || !next7.isEmpty {
-            Button { generatePlan() } label: {
-                Label("Plan my day", systemImage: "sparkles")
-            }.buttonStyle(.bordered).controlSize(.small)
         }
     }
 

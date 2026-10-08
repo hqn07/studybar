@@ -42,15 +42,13 @@ struct TimeFocusView: View {
     private let timerPresets = [25, 50, 90]
 
     var body: some View {
-        ModulePane(title: "Time & Focus") {
-            HStack(spacing: DS.Space.s) {
-                Button { withAnimation { showHistory.toggle() } } label: {
-                    Image(systemName: showHistory ? "chevron.left" : "clock.arrow.circlepath")
-                    .accessibilityLabel(showHistory ? "Back to timer" : "Session history")
-                }.help(showHistory ? "Back to timer" : "Session history")
-                AmbientButton()
-            }
-        } content: {
+        ModulePane(title: "Time & Focus", controls: {
+            Button { withAnimation { showHistory.toggle() } } label: {
+                Image(systemName: showHistory ? "chevron.left" : "clock.arrow.circlepath")
+                .accessibilityLabel(showHistory ? "Back to timer" : "Session history")
+            }.help(showHistory ? "Back to timer" : "Session history")
+            AmbientButton()
+        }) {
             if showHistory {
                 SessionsSection()
             } else {

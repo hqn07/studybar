@@ -14,13 +14,11 @@ struct KanbanView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Board") {
-                HStack(spacing: 8) {
-                    Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet").accessibilityLabel("List view") }
-                        .help("List view — same assignments")
-                    Text("\(state.data.assignments.filter { !$0.isArchived }.count) tasks").font(.caption).foregroundStyle(.secondary)
-                }
-            } content: {
+            ModulePane(title: "Board", controls: {
+                Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet").accessibilityLabel("List view") }
+                    .help("List view — same assignments")
+                Text("\(state.data.assignments.filter { !$0.isArchived }.count) tasks").font(.caption).foregroundStyle(.secondary)
+            }) {
                 if state.data.assignments.isEmpty {
                     EmptyState(symbol: "rectangle.split.3x1", title: "Board is empty",
                                subtitle: "Assignments appear here as cards. Drag them across columns, or tap ＋ in a column.")

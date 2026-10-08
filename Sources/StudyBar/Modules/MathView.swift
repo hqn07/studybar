@@ -29,7 +29,7 @@ struct MathView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Math") {
+            ModulePane(title: "Math", controls: {
                 // The one setting that changes an answer, so it sits in the header rather than
                 // in Settings: sin(30) is 0.5 in DEG and −0.988 in RAD. The graphs read the same
                 // mode, so a plotted sine matches the number in the tape.
@@ -39,7 +39,7 @@ struct MathView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 128)
                 .help("Radians or degrees — ° always means degrees whichever is selected")
-            } content: {
+            }) {
                 VStack(spacing: 0) {
                     Picker("", selection: $tab) {
                         ForEach(Tab.allCases) { Text($0.title).tag($0.rawValue) }

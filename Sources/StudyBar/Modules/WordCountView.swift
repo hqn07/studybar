@@ -38,12 +38,11 @@ struct WordCountView: View {
     }
 
     var body: some View {
-        ModulePane(title: "Word Count") {
-            HStack(spacing: 8) {
-                Button { paste() } label: { Image(systemName: "doc.on.clipboard").accessibilityLabel("Paste from clipboard") }.help("Paste from clipboard")
-                Button { text = "" } label: { Image(systemName: "trash").accessibilityLabel("Clear") }.disabled(text.isEmpty)
-            }
-        } content: {
+        ModulePane(title: "Word Count",
+                   primary: ModuleAction(title: "Paste", systemImage: "doc.on.clipboard", help: "Paste from clipboard") { paste() },
+                   more: {
+            Button { text = "" } label: { Label("Clear", systemImage: "trash") }.disabled(text.isEmpty)
+        }) {
             VStack(spacing: 0) {
                 TextEditor(text: $text)
                     .font(.body).padding(8).scrollContentBackground(.hidden).frame(minHeight: 120)

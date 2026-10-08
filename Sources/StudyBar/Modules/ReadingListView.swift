@@ -15,14 +15,12 @@ struct ReadingListView: View {
     }
 
     var body: some View {
-        ModulePane(title: "Library") {
-            HStack(spacing: 8) {
-                LibraryTabPicker()
-                Toggle("Unread", isOn: $hideRead).toggleStyle(.switch).controlSize(.mini)
-                Button { addCurrentTab() } label: { Image(systemName: "safari").accessibilityLabel("Add current browser tab") }
-                    .help("Add current browser tab")
-            }
-        } content: {
+        ModulePane(title: "Library",
+                   primary: ModuleAction(title: "Add current tab", systemImage: "safari", help: "Add the browser's current tab") { addCurrentTab() },
+                   controls: { LibraryTabPicker() },
+                   more: {
+            Toggle("Unread only", isOn: $hideRead)
+        }) {
             VStack(spacing: 0) {
                 HStack {
                     TextField("Paste a URL to read later…", text: $newURL, onCommit: addURL)

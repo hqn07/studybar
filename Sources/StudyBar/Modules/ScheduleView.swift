@@ -111,25 +111,21 @@ struct WeekGridView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Schedule") {
-                HStack(spacing: 8) {
-                    ScheduleModePicker()
-                    Menu {
-                        Toggle("Class periods (UF)", isOn: $useClassPeriods)
-                        Divider()
-                        Button { runImport() } label: { Label("Import from .ics…", systemImage: "square.and.arrow.down") }
-                        Button { pasting = true } label: { Label("Paste schedule…", systemImage: "doc.on.clipboard") }
-                        if mergeableCount > 0 {
-                            Divider()
-                            Button {
-                                mergeDuplicates()
-                            } label: { Label("Merge \(mergeableCount) duplicate \(mergeableCount == 1 ? "class" : "classes")", systemImage: "arrow.triangle.merge") }
-                        }
-                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Schedule actions") }
-                    Button { addClass(day: today, at: nil) } label: { Image(systemName: "plus").accessibilityLabel("Add a class") }
-                        .help("Add a class")
+            ModulePane(title: "Schedule",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "Add a class") { addClass(day: today, at: nil) },
+                       controls: { ScheduleModePicker() },
+                       more: {
+                Toggle("Class periods (UF)", isOn: $useClassPeriods)
+                Divider()
+                Button { runImport() } label: { Label("Import from .ics…", systemImage: "square.and.arrow.down") }
+                Button { pasting = true } label: { Label("Paste schedule…", systemImage: "doc.on.clipboard") }
+                if mergeableCount > 0 {
+                    Divider()
+                    Button {
+                        mergeDuplicates()
+                    } label: { Label("Merge \(mergeableCount) duplicate \(mergeableCount == 1 ? "class" : "classes")", systemImage: "arrow.triangle.merge") }
                 }
-            } content: {
+            }) {
                 if state.data.classes.isEmpty {
                     VStack(spacing: DS.Space.m) {
                         EmptyState(symbol: "calendar.badge.clock", title: "No classes yet",

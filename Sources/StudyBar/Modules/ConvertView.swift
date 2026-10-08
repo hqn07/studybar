@@ -46,12 +46,11 @@ struct ConvertView: View {
     private var allImages: Bool { !queue.files.isEmpty && kinds == ["image"] }
 
     var body: some View {
-        ModulePane(title: "Convert") {
-            HStack {
-                Button { askAddress() } label: { Label("Add web page…", systemImage: "globe") }
-                Button { pick() } label: { Label("Add files…", systemImage: "plus") }
-            }
-        } content: {
+        ModulePane(title: "Convert",
+                   primary: ModuleAction(title: "Add files…", systemImage: "plus") { pick() },
+                   more: {
+            Button { askAddress() } label: { Label("Add web page…", systemImage: "globe") }
+        }) {
             VStack(spacing: 0) {
                 if queue.files.isEmpty { dropHint } else { fileList }
                 if !results.isEmpty { Divider(); resultList }

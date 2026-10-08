@@ -1,17 +1,52 @@
 import SwiftUI
 
-/// Standard module container: title bar + optional trailing accessory + content.
-struct ModulePane<Content: View, Bar: View>: View {
+/// A module header's one labeled action — the thing the module is for (New, Plan my day…).
+struct ModuleAction {
     let title: String
-    @ViewBuilder var toolbar: () -> Bar
+    let systemImage: String
+    var shortcut: KeyboardShortcut? = nil
+    var help: String? = nil
+    var disabled = false
+    let action: () -> Void
+}
+
+/// Standard module container: a header bar, then the content. The header holds the title, a ⋯
+/// menu for everything used now and then (`more`), the view switchers that must stay in sight
+/// (`controls`), and at most one labeled `primary` action — six unlabeled icons became one
+/// obvious button and a menu.
+struct ModulePane<Content: View, Controls: View, More: View>: View {
+    let title: String
+    var primary: ModuleAction?
+    @ViewBuilder var controls: () -> Controls
+    @ViewBuilder var more: () -> More
     @ViewBuilder var content: () -> Content
+
+    init(title: String, primary: ModuleAction? = nil, @ViewBuilder controls: @escaping () -> Controls,
+         @ViewBuilder more: @escaping () -> More, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.primary = primary
+        self.controls = controls; self.more = more; self.content = content
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title).font(.title3.bold())
-                Spacer()
-                toolbar()
+            HStack(spacing: DS.Space.m) {
+                Text(title).font(.title3.bold()).lineLimit(1)
+                if More.self != EmptyView.self {
+                    Menu { more() } label: {
+                        Image(systemName: "ellipsis.circle").accessibilityLabel("More")
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("More")
+                }
+                Spacer(minLength: DS.Space.m)
+                controls()
+                if let p = primary {
+                    Button(action: p.action) { Label(p.title, systemImage: p.systemImage) }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                        .keyboardShortcut(p.shortcut)
+                        .help(p.help ?? p.title)
+                        .disabled(p.disabled)
+                }
             }
             .padding(.horizontal, 14)
             .modifier(ToolbarRow(inlinePadding: 10))
@@ -20,6 +55,24 @@ struct ModulePane<Content: View, Bar: View>: View {
             // The header spans the pane; only the content is held to the module's column.
             content().moduleColumn()
         }
+    }
+}
+
+extension ModulePane where Controls == EmptyView, More == EmptyView {
+    init(title: String, primary: ModuleAction? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, primary: primary, controls: { EmptyView() }, more: { EmptyView() }, content: content)
+    }
+}
+extension ModulePane where Controls == EmptyView {
+    init(title: String, primary: ModuleAction? = nil, @ViewBuilder more: @escaping () -> More,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, primary: primary, controls: { EmptyView() }, more: more, content: content)
+    }
+}
+extension ModulePane where More == EmptyView {
+    init(title: String, primary: ModuleAction? = nil, @ViewBuilder controls: @escaping () -> Controls,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, primary: primary, controls: controls, more: { EmptyView() }, content: content)
     }
 }
 

@@ -27,7 +27,7 @@ struct InsightsView: View {
     private var tracksTime: Bool { !state.data.timeEntries.isEmpty }
 
     var body: some View {
-        ModulePane(title: "Insights") { EmptyView() } content: {
+        ModulePane(title: "Insights") {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     if AIConfig.isReady { weeklyReviewCard }

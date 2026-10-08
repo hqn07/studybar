@@ -29,16 +29,14 @@ struct FilesView: View {
     }
 
     var body: some View {
-        ModulePane(title: "Library") {
-            HStack(spacing: 8) {
-                LibraryTabPicker()
-                Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
-                    Image(systemName: "pin.badge.plus").accessibilityLabel("Pin files into a group")
-                }.help("Pin files into a group")
-                Button { addFolder() } label: { Image(systemName: "folder.badge.plus").accessibilityLabel("Add a folder") }
-                    .help("Add a folder")
+        ModulePane(title: "Library",
+                   primary: ModuleAction(title: "Add folder", systemImage: "folder.badge.plus") { addFolder() },
+                   controls: { LibraryTabPicker() },
+                   more: {
+            Button { groupPrompt = GroupPrompt(name: "Syllabus", url: nil) } label: {
+                Label("Pin files into a group…", systemImage: "pin.badge.plus")
             }
-        } content: {
+        }) {
             VStack(spacing: 0) {
                 if mode != 1 { folderBar; Divider() }   // folders don't source Groups
                 Picker("", selection: $mode) {

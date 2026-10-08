@@ -105,8 +105,6 @@ struct StudyModuleView: View {
 
     var body: some View {
         ModulePane(title: "Study") {
-            EmptyView()
-        } content: {
             if state.data.courses.isEmpty {
                 EmptyState(symbol: "graduationcap", title: "Add a course to study",
                            subtitle: "Study works from a course's notes, slides, textbook and syllabus.")

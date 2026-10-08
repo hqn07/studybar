@@ -68,6 +68,18 @@ struct FlashcardsView: View {
         return state.data.decks.filter { c != nil && $0.courseID == c } + state.data.decks.filter { c == nil || $0.courseID != c }
     }
 
+    @State private var reviewingAll = false
+    private var dueNow: Int { StudyStats.cardsDueToday(state.data) }
+    /// Review when anything is due — that's what the module is for most days; otherwise the way
+    /// to get cards in the first place.
+    private var primaryAction: ModuleAction {
+        dueNow > 0
+            ? ModuleAction(title: "Review \(dueNow)", systemImage: "play.fill", help: "Review every card that's due") { reviewingAll = true }
+            : ModuleAction(title: "Make cards…", systemImage: "sparkles",
+                           help: "Pick notes — a lecture, a week, a whole course — and the AI writes cards you check before they're added",
+                           disabled: state.data.notes.isEmpty) { making = .init() }
+    }
+
     private func dueCount(_ deck: Deck) -> Int {
         state.data.flashcards.filter { $0.deckID == deck.id && $0.isDue }.count
     }
@@ -77,14 +89,15 @@ struct FlashcardsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ModulePane(title: "Flashcards") { EmptyView() } content: {
+            ModulePane(title: "Flashcards", primary: primaryAction, more: {
+                if dueNow > 0 {
+                    Button { making = .init() } label: { Label("Make cards from notes…", systemImage: "sparkles") }
+                        .disabled(state.data.notes.isEmpty)
+                }
+                Button { state.pendingImageCards = .init() } label: { Label("Make cards from a picture…", systemImage: "photo.on.rectangle.angled") }
+            }) {
                 VStack(spacing: 0) {
                     HStack {
-                        Button { making = .init() } label: { Label("Make cards from notes…", systemImage: "sparkles") }
-                            .buttonStyle(.borderedProminent).disabled(state.data.notes.isEmpty)
-                            .help("Pick notes — a lecture, a week, a whole course — and the AI writes cards you check before they're added")
-                        Button { state.pendingImageCards = .init() } label: { Label("From a picture…", systemImage: "photo.on.rectangle.angled") }
-                            .help("Cover the labels of a diagram, a map or a slide — a card for each")
                         TextField("New empty deck…", text: $newDeck, onCommit: addDeck)
                             .textFieldStyle(.roundedBorder)
                         Button("Add", action: addDeck).disabled(newDeck.isEmpty)
@@ -115,6 +128,7 @@ struct FlashcardsView: View {
                 }
             }
             .navigationDestination(for: Deck.self) { DeckView(deck: $0).moduleColumn() }
+            .navigationDestination(isPresented: $reviewingAll) { StudyView(deckID: nil).moduleColumn() }
             .navigationDestination(item: $editing) { CardEditor(card: $0).moduleColumn(DS.Width.form) }
             .sheet(item: $making) { MakeCardsView(request: $0) }
             .sheet(item: $state.pendingImageCards) { OcclusionEditor(request: $0) }

@@ -317,7 +317,7 @@ struct RootView: View {
                     if state.globalSearch.isEmpty {
                         content
                     } else {
-                        ModulePane(title: "Search") { EmptyView() } content: { UnifiedSearchView(query: state.globalSearch) }
+                        ModulePane(title: "Search") { UnifiedSearchView(query: state.globalSearch) }
                             .environment(\.isPrimaryPane, true)
                             .environment(\.titlebarTrailing, Self.searchRoom)
                     }

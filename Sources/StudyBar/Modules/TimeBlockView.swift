@@ -50,13 +50,9 @@ struct DayPlannerView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Schedule") {
-                HStack(spacing: 8) {
-                    ScheduleModePicker()
-                    Button { addBlock() } label: { Image(systemName: "plus").accessibilityLabel("Add a block") }
-                        .help("Add a block")
-                }
-            } content: {
+            ModulePane(title: "Schedule",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "Add a block") { addBlock() },
+                       controls: { ScheduleModePicker() }) {
                 VStack(spacing: 0) {
                     dayBar
                     unscheduledTray

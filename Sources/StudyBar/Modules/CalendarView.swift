@@ -78,25 +78,22 @@ struct CalendarView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Calendar") {
-                HStack(spacing: 8) {
-                    Button { viewMode = viewMode == "list" ? "week" : "list" } label: {
-                        Image(systemName: viewMode == "list" ? "calendar.day.timeline.left" : "list.bullet")
-                        .accessibilityLabel(viewMode == "list" ? "Week view" : "List view")
-                    }.help(viewMode == "list" ? "Week view" : "List view")
-                    Menu {
-                        ForEach([7, 14, 30], id: \.self) { d in
-                            Button("Next \(d) days") { rangeDays = d; reload() }
-                        }
-                    } label: { Image(systemName: "calendar.badge.clock").accessibilityLabel("How far ahead") }
-                        .help("Range: next \(rangeDays) days")
-                    Button { reload() } label: { Image(systemName: "arrow.clockwise").accessibilityLabel("Reload") }
-                    Button { showNewEvent = true } label: { Image(systemName: "calendar.badge.plus").accessibilityLabel("New calendar event") }
-                        .help("New calendar event")
-                    Button { showSources = true } label: { Image(systemName: "slider.horizontal.3").accessibilityLabel("Sources and filters") }
-                        .help("Sources & filters")
-                }
-            } content: {
+            ModulePane(title: "Calendar",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "New calendar event") { showNewEvent = true },
+                       controls: {
+                Button { viewMode = viewMode == "list" ? "week" : "list" } label: {
+                    Image(systemName: viewMode == "list" ? "calendar.day.timeline.left" : "list.bullet")
+                    .accessibilityLabel(viewMode == "list" ? "Week view" : "List view")
+                }.help(viewMode == "list" ? "Week view" : "List view")
+            }, more: {
+                Menu {
+                    ForEach([7, 14, 30], id: \.self) { d in
+                        Button { rangeDays = d; reload() } label: { Label("Next \(d) days", systemImage: rangeDays == d ? "checkmark" : "calendar") }
+                    }
+                } label: { Label("How far ahead", systemImage: "calendar.badge.clock") }
+                Button { reload() } label: { Label("Reload", systemImage: "arrow.clockwise") }
+                Button { showSources = true } label: { Label("Sources & filters…", systemImage: "slider.horizontal.3") }
+            }) {
                 VStack(spacing: 0) {
                     filterChips
                     Divider()

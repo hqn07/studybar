@@ -47,21 +47,19 @@ struct ReadingView: View {
 
     var body: some View {
         NavigationStack {
-            ModulePane(title: "Reading") {
-                HStack(spacing: 8) {
-                    Menu {
-                        ForEach(ReadingSort.allCases) { s in
-                            Button { sort = s } label: {
-                                Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down")
-                            }
+            ModulePane(title: "Reading",
+                       primary: ModuleAction(title: "New", systemImage: "plus", help: "Add a book manually (no search)") { showManualAdd.toggle() },
+                       more: {
+                Menu {
+                    ForEach(ReadingSort.allCases) { s in
+                        Button { sort = s } label: {
+                            Label(s.rawValue, systemImage: sort == s ? "checkmark" : "arrow.up.arrow.down")
                         }
-                        Divider()
-                        Button { goodreads = true } label: { Label("Import Goodreads CSV…", systemImage: "square.and.arrow.down") }
-                    } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Add a book") }
-                    Button { showManualAdd.toggle() } label: { Image(systemName: "plus").accessibilityLabel("Add a book manually") }
-                        .help("Add a book manually (no search)")
-                }
-            } content: {
+                    }
+                } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
+                Divider()
+                Button { goodreads = true } label: { Label("Import Goodreads CSV…", systemImage: "square.and.arrow.down") }
+            }) {
                 VStack(spacing: 0) {
                     if !state.data.reading.isEmpty { statsStrip }
                     bookSearchBar
