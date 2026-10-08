@@ -3,6 +3,12 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Study notes you can actually read** — notes from a lecture are now written for someone who missed the class: plain words, short paragraphs that explain how one idea leads to the next, and each formula shown once where it's explained, followed by what it means *in words*. The lecture's examples, demos and practice questions are worked step by step to the answer. The ideas that matter most stand out in a blue *Key idea* box, and mistakes the lecturer warns about in an orange *Watch out* box. Each note opens with an *In short* summary.
+- **No more extras you didn't ask for** — the notes no longer end with a formula list, likely exam questions or a review. Ask for them in *Focus* when you want them. Homework and deadlines the lecturer announced are still listed at the end, so they can go into Assignments.
+- **Fixed: "in two weeks" dated today** — an announced "Midterm in two weeks from today" was offered as due the same day. It's now dated two weeks on, and "in a week" or "3 days from now" work too.
+
 ## [2.7.0] — 2026-10-07
 
 - **Fixed: Save out of reach after a long lecture** — the *So far* summary grew every few minutes, and after a long lecture it pushed the transcript and *Save as note* below the window, with no way to scroll to them. It now keeps to a box that follows the newest points, folds away when you stop recording, and Voice Note scrolls if anything else doesn't fit. (Nothing was lost: an unsaved recording comes back with *Recover* after reopening StudyBar.)
