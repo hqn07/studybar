@@ -102,9 +102,15 @@ final class ModulePrefs: ObservableObject {
         let merged = completeCategories()
         if merged != categoryOrder { categoryOrder = merged }
     }
-    private func completeCategories() -> [String] {
+    private func completeCategories() -> [String] { Self.completedCategories(categoryOrder) }
+    /// A saved category order made whole: missing names appended in their default order. An
+    /// order saved before the groups changed (2.8.1 had ten; any name no longer in use) starts
+    /// over from the default — kept piecemeal, its surviving "Capture" and "Study" would sit
+    /// ahead of Plan and push Today down the sidebar. Pure.
+    static func completedCategories(_ stored: [String]) -> [String] {
         let all = ModuleCategory.allCases.map(\.rawValue)
-        return categoryOrder.filter { all.contains($0) } + all.filter { !categoryOrder.contains($0) }
+        let kept = stored.allSatisfy(all.contains) ? stored : []
+        return kept + all.filter { !kept.contains($0) }
     }
     /// Pure — safe to call during render.
     func orderedCategories() -> [ModuleCategory] {

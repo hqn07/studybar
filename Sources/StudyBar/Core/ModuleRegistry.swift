@@ -1,16 +1,13 @@
 import SwiftUI
 
+/// The sidebar's groups. Four, so a group is worth a header (see SidebarLayout); Settings is
+/// `system` and sits at the bottom of the sidebar, outside the groups.
 enum ModuleCategory: String, CaseIterable {
-    case overview    = "Overview"
-    case assignments = "Assignments"
-    case capture     = "Capture"
-    case time        = "Time & Focus"
-    case schedule    = "Schedule & Calendar"
-    case links       = "Links & Resources"
-    case research    = "Research"
-    case study       = "Study"
-    case organize    = "Organize"
-    case system      = "System"
+    case plan    = "Plan"
+    case capture = "Capture"
+    case study   = "Study"
+    case tools   = "Tools"
+    case system  = "System"
 }
 
 struct ModuleInfo: Identifiable {
@@ -28,18 +25,24 @@ struct ModuleInfo: Identifiable {
 enum ModuleRegistry {
     /// v1 modules. Order defines sidebar order within a category.
     static let all: [ModuleInfo] = [
-        // Overview
+        // Plan
         .init(id: "today", title: "Today", symbol: "sun.max",
-              category: .overview) { AnyView(TodayView()) },
+              category: .plan) { AnyView(TodayView()) },
         .init(id: "insights", title: "Insights", symbol: "chart.bar.xaxis",
-              category: .overview) { AnyView(InsightsView()) },
+              category: .plan) { AnyView(InsightsView()) },
         // NOTE: the Assistant is no longer a sidebar module — it's a summoned floating panel
         // (AssistantPanel, opened via ⌘K / AppActions.assistant). Cross-object AI jobs live
         // there; inline edits stay on the object (the ✨ menus). AssistantView/Chat is reused.
-
-        // Assignments
         .init(id: "assignments", title: "Assignments", symbol: "checklist",
-              category: .assignments) { AnyView(AssignmentsView()) },
+              category: .plan) { AnyView(AssignmentsView()) },
+        .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",
+              category: .plan, wide: true) { AnyView(ScheduleView()) },
+        .init(id: "calendar", title: "Calendar", symbol: "calendar",
+              category: .plan, wide: true) { AnyView(CalendarView()) },
+        .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",
+              category: .plan, wide: true) { AnyView(KanbanView()) },
+        .init(id: "courses", title: "Courses", symbol: "graduationcap",
+              category: .plan) { AnyView(CoursesView()) },
 
         // Capture
         .init(id: "notes", title: "Notes", symbol: "note.text",
@@ -51,31 +54,6 @@ enum ModuleRegistry {
         .init(id: "snippets", title: "Snippets", symbol: "text.badge.plus",
               category: .capture) { AnyView(SnippetsView()) },
 
-        // Time & Focus (unified: Pomodoro · Stopwatch · Focus · History + ambient noise)
-        .init(id: "timefocus", title: "Time & Focus", symbol: "timer",
-              category: .time) { AnyView(TimeFocusView()) },
-
-        // Schedule & Calendar
-        .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",
-              category: .schedule, wide: true) { AnyView(ScheduleView()) },
-        .init(id: "calendar", title: "Calendar", symbol: "calendar",
-              category: .schedule, wide: true) { AnyView(CalendarView()) },
-
-        // Links & resources
-        .init(id: "library", title: "Library", symbol: "books.vertical",
-              category: .links) { AnyView(LibraryView()) },
-
-        // Research
-        .init(id: "citations", title: "Citations", symbol: "quote.opening",
-              category: .research) { AnyView(CitationsView()) },
-        .init(id: "wordcount", title: "Word Count", symbol: "textformat",
-              category: .research) { AnyView(WordCountView()) },
-
-        .init(id: "math", title: "Math", symbol: "function",
-              category: .research) { AnyView(MathView()) },
-        .init(id: "convert", title: "Convert", symbol: "arrow.triangle.2.circlepath.doc.on.clipboard",
-              category: .research) { AnyView(ConvertView()) },
-
         // Study
         .init(id: "study", title: "Study", symbol: "brain.head.profile",
               category: .study, wide: true) { AnyView(StudyModuleView()) },
@@ -83,14 +61,23 @@ enum ModuleRegistry {
               category: .study) { AnyView(FlashcardsView()) },
         .init(id: "reading", title: "Reading", symbol: "book",
               category: .study) { AnyView(ReadingView()) },
+        .init(id: "library", title: "Library", symbol: "books.vertical",
+              category: .study) { AnyView(LibraryView()) },
+        // Time & Focus (unified: Pomodoro · Stopwatch · Focus · History + ambient noise)
+        .init(id: "timefocus", title: "Time & Focus", symbol: "timer",
+              category: .study) { AnyView(TimeFocusView()) },
 
-        // Organize
-        .init(id: "board", title: "Board", symbol: "rectangle.split.3x1",
-              category: .organize, wide: true) { AnyView(KanbanView()) },
-        .init(id: "courses", title: "Courses", symbol: "graduationcap",
-              category: .organize) { AnyView(CoursesView()) },
+        // Tools
+        .init(id: "citations", title: "Citations", symbol: "quote.opening",
+              category: .tools) { AnyView(CitationsView()) },
+        .init(id: "wordcount", title: "Word Count", symbol: "textformat",
+              category: .tools) { AnyView(WordCountView()) },
+        .init(id: "math", title: "Math", symbol: "function",
+              category: .tools) { AnyView(MathView()) },
+        .init(id: "convert", title: "Convert", symbol: "arrow.triangle.2.circlepath.doc.on.clipboard",
+              category: .tools) { AnyView(ConvertView()) },
 
-        // System
+        // System — pinned to the bottom of the sidebar, not listed in a group
         .init(id: "settings", title: "Settings", symbol: "gearshape",
               category: .system, wide: true) { AnyView(SettingsView()) },
     ]

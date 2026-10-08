@@ -31,6 +31,7 @@ enum ModuleAudit {
         d.set("system", forKey: "appearance")
         d.set("system", forKey: SurfaceTheme.storageKey)
         state.modulePrefs.order = .category
+        state.modulePrefs.categoryOrder = ModuleCategory.allCases.map(\.rawValue)
         state.modulePrefs.hidden = []
         state.modulePrefs.favorites = []
         // Always the seed: a fresh store already holds the starter "Getting Started" course, and

@@ -523,36 +523,44 @@ struct SidebarView: View {
     // One custom row list for both modes so collapsing only fades the labels
     // (no List relayout, no view-type swap) — the width animates smoothly.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                let favs = prefs.favorites.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
-                group("Favorites", favs, isFirst: true)
-                if prefs.order == .category {
-                    ForEach(prefs.orderedCategories(), id: \.self) { cat in
-                        group(cat.rawValue, ModuleRegistry.all.filter { $0.category == cat && prefs.isVisible($0.id) },
-                              isFirst: favs.isEmpty && cat == prefs.orderedCategories().first)
-                    }
-                } else {
-                    let flat = prefs.orderedIDs().compactMap { ModuleRegistry.info($0) }
-                        .filter { prefs.isVisible($0.id) && !prefs.isFavorite($0.id) }
-                    group(prefs.order == .mostUsed ? "Most Used" : "Modules", flat, isFirst: favs.isEmpty)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    let sections = SidebarLayout.sections(visible: visibleModules, favorites: prefs.favorites,
+                                                          flat: prefs.order != .category)
+                    ForEach(Array(sections.enumerated()), id: \.offset) { i, s in section(s, isFirst: i == 0) }
                 }
+                .padding(.vertical, DS.Space.s).padding(.horizontal, DS.Space.s)
             }
-            .padding(.vertical, DS.Space.s).padding(.horizontal, DS.Space.s)
+            .scrollIndicators(.hidden)
+            // Settings sits at the bottom, outside the groups, so it never needs a header of its own.
+            if let settings = ModuleRegistry.info("settings") {
+                Divider()
+                row(settings).padding(DS.Space.s)
+            }
         }
-        .scrollIndicators(.hidden)
     }
 
-    @ViewBuilder private func group(_ title: String, _ items: [ModuleInfo], isFirst: Bool) -> some View {
-        if !items.isEmpty {
-            if collapsed {
-                if !isFirst { Divider().padding(.horizontal, DS.Space.s).padding(.vertical, 3) }
-            } else {
-                Text(title.uppercased())
-                    .font(.caption2.weight(.bold)).tracking(0.5).foregroundStyle(.secondary)
-                    .padding(.horizontal, DS.Space.m).padding(.top, isFirst ? 2 : DS.Space.m).padding(.bottom, 2)
-            }
-            ForEach(items) { row($0) }
+    /// The shown modules in display order: by group in category order, or the flat order.
+    private var visibleModules: [ModuleInfo] {
+        let ids = prefs.order == .category
+            ? prefs.orderedCategories().flatMap { cat in ModuleRegistry.all.filter { $0.category == cat }.map(\.id) }
+            : prefs.orderedIDs()
+        return ids.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
+    }
+
+    @ViewBuilder private func section(_ s: SidebarSection, isFirst: Bool) -> some View {
+        if collapsed {
+            if !isFirst { Divider().padding(.horizontal, DS.Space.s).padding(.vertical, 3) }
+        } else if let title = s.title {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold)).tracking(0.5).foregroundStyle(.secondary)
+                .padding(.horizontal, DS.Space.m).padding(.top, isFirst ? 2 : DS.Space.l).padding(.bottom, 2)
+        } else if !isFirst {
+            Spacer().frame(height: DS.Space.l)
+        }
+        ForEach(s.ids, id: \.self) { id in
+            if let m = ModuleRegistry.info(id) { row(m) }
         }
     }
 
@@ -581,7 +589,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
             .background(sel ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: DS.Radius.control))
-            .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            .foregroundStyle(sel ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .overlay(alignment: .topTrailing) {
                 if collapsed, badge(for: m.id) != nil {
                     Circle().fill(.red).frame(width: 6, height: 6).offset(x: -4, y: 4)
