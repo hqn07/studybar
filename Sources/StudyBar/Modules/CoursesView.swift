@@ -98,8 +98,7 @@ struct CoursesView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: DS.Space.l) {
                             heroHeader
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.m),
-                                                GridItem(.flexible(), spacing: DS.Space.m)], spacing: DS.Space.m) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: DS.Space.m)], spacing: DS.Space.m) {
                                 ForEach(currentCourses) { c in
                                     CourseCard(course: c) { detailID = c.id }
                                 }
@@ -291,7 +290,7 @@ struct CourseCard: View {
         let occ = cs.flatMap { c in c.weekdays.map { (wd: $0, c: c) } }
         if let now = occ.filter({ $0.wd == today && $0.c.endMinutes >= mins }).sorted(by: { $0.c.startMinutes < $1.c.startMinutes }).first {
             let d = now.c.startMinutes - mins
-            return now.c.startMinutes <= mins ? "now" : (d < 60 ? "in \(d)m" : now.c.startString)
+            return now.c.startMinutes <= mins ? "now" : (d < 60 ? "in \(d)m" : "today \(now.c.startString)")
         }
         let up = occ.sorted { ($0.wd, $0.c.startMinutes) < ($1.wd, $1.c.startMinutes) }
         if let n = up.first(where: { $0.wd > today }) ?? up.first {
@@ -300,47 +299,81 @@ struct CourseCard: View {
         return nil
     }
 
+    /// The soonest open assignment due this week (today through six days on).
+    private var nextDue: (title: String, due: Date)? {
+        open.filter { ($0.daysUntilDue ?? -1) >= 0 && ($0.daysUntilDue ?? 99) <= 6 }
+            .min { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+            .flatMap { a in a.due.map { (a.title.isEmpty ? "Untitled" : a.title, $0) } }
+    }
+    private var grade: String? { pct.map { letterForPct($0) } ?? (course.grade.isEmpty ? nil : course.grade) }
+
     var body: some View {
-        Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: DS.Space.s) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        if !course.code.isEmpty { Text(course.code).font(.caption.weight(.medium)).foregroundStyle(course.color) }
-                        Text(course.name.isEmpty ? "Untitled" : course.name).font(.callout.weight(.medium)).lineLimit(2)
-                        Text([course.instructor, "\(gstr(course.credits)) cr"].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
+        let s = CourseSummary.make(grade: grade, nextClass: nextMeeting, nextDue: nextDue, overdue: overdue,
+                                   dueSoon: dueSoon, notes: notesCount, now: .now)
+        return Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                // A fixed-height top row, so a card with a grade puts its code at the same height
+                // as one without.
+                HStack {
+                    if !course.code.isEmpty { Text(course.code).font(.caption.weight(.semibold)).foregroundStyle(course.color) }
                     Spacer(minLength: DS.Space.xs)
-                    gradeRing
-                }
-                HStack(spacing: DS.Space.s) {
-                    if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
-                    else if let m = nextMeeting { Chip(m, .status(.neutral), systemImage: "clock") }
-                    if overdue == 0 && dueSoon > 0 { Text("\(dueSoon) due").font(.caption2).foregroundStyle(.secondary) }
-                    Spacer()
-                    if notesCount > 0 {
-                        Label("\(notesCount)", systemImage: "note.text").font(.caption2).foregroundStyle(.secondary)
+                    if let g = s.grade {
+                        Text(g).font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(course.color)
                     }
-                }.padding(.top, DS.Space.m)
+                }
+                .frame(height: 26)
+                Text(course.name.isEmpty ? "Untitled" : course.name).font(.callout.weight(.medium)).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: DS.Space.s)
+                Text(s.fact).font(.callout).lineLimit(1)
+                    .foregroundStyle(s.factIsAlert ? AnyShapeStyle(Color.dsNow)
+                                     : s.fact == CourseSummary.nothingDue ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                if !s.quiet.isEmpty { Text(s.quiet).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
-            .padding(DS.Space.m)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, DS.Space.l).padding(.leading, DS.Space.xl).padding(.trailing, DS.Space.l)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
             .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 2).fill(course.color).frame(width: 3).padding(.vertical, DS.Space.m)
             }
+            .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
+}
 
-    private var gradeRing: some View {
-        ZStack {
-            Circle().stroke(.quaternary, lineWidth: 4).frame(width: 40, height: 40)
-            if let p = pct {
-                Circle().trim(from: 0, to: min(1, p / 100)).stroke(course.color, style: .init(lineWidth: 4, lineCap: .round))
-                    .rotationEffect(.degrees(-90)).frame(width: 40, height: 40)
-            }
-            Text(pct.map { letterForPct($0) } ?? (course.grade.isEmpty ? "—" : course.grade))
-                .font(.caption.weight(.semibold)).foregroundStyle(pct != nil ? course.color : .secondary)
+/// What a course card says, in order of what matters: anything overdue; then, for a graded
+/// course, its next class; otherwise what's due next. One fact, so a grid of cards reads at a
+/// glance instead of as rings, chips and counts that are mostly empty. Pure.
+struct CourseSummary: Equatable {
+    static let nothingDue = "Nothing due this week"
+
+    var grade: String?
+    var fact: String
+    var factIsAlert: Bool
+    var quiet: String
+
+    static func make(grade: String?, nextClass: String?, nextDue: (title: String, due: Date)?, overdue: Int,
+                     dueSoon: Int, notes: Int, now: Date) -> CourseSummary {
+        let classLine = nextClass.map { "Class \($0)" }
+        let fact: String
+        if overdue > 0 { fact = "\(overdue) overdue" }
+        else if grade != nil, let classLine { fact = classLine }
+        else if let d = nextDue { fact = "Next: \(d.title) · \(when(d.due, now: now))" }
+        else { fact = nothingDue }
+        var quiet: [String] = []
+        if let classLine, fact != classLine { quiet.append(classLine) }
+        if fact == classLine, dueSoon > 0 { quiet.append("\(dueSoon) due") }
+        if notes > 0 { quiet.append(notes == 1 ? "1 note" : "\(notes) notes") }
+        return CourseSummary(grade: grade, fact: fact, factIsAlert: overdue > 0, quiet: quiet.joined(separator: " · "))
+    }
+
+    /// "today", "tomorrow", then the weekday — the assignment is at most six days out.
+    private static func when(_ due: Date, now: Date) -> String {
+        let cal = Calendar.current
+        switch cal.dateComponents([.day], from: cal.startOfDay(for: now), to: cal.startOfDay(for: due)).day ?? 0 {
+        case 0: return "today"
+        case 1: return "tomorrow"
+        default: return due.formatted(.dateTime.weekday(.abbreviated))
         }
     }
 }

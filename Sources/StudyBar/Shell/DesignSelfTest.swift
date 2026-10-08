@@ -45,6 +45,25 @@ enum DesignSelfTest {
         check("8 an order of current names is kept",
               ModulePrefs.completedCategories(["Study", "Plan"]), ["Study", "Plan", "Capture", "Tools", "System"])
 
+        // A course card's one fact. Thursday 2026-10-08, 12:15.
+        let now = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 12, minute: 15))!
+        check("c1 graded course leads with its class",
+              CourseSummary.make(grade: "B+", nextClass: "Fri 12:50 PM", nextDue: nil, overdue: 0, dueSoon: 3, notes: 8, now: now),
+              .init(grade: "B+", fact: "Class Fri 12:50 PM", factIsAlert: false, quiet: "3 due · 8 notes"))
+        check("c2 ungraded course leads with what's next",
+              CourseSummary.make(grade: nil, nextClass: "today 2:00 PM", nextDue: ("Lab report 4", now.addingTimeInterval(4 * 86_400)),
+                                 overdue: 0, dueSoon: 2, notes: 5, now: now),
+              .init(grade: nil, fact: "Next: Lab report 4 · Mon", factIsAlert: false, quiet: "Class today 2:00 PM · 5 notes"))
+        check("c3 overdue wins",
+              CourseSummary.make(grade: "A−", nextClass: "Tue 9:35 AM", nextDue: nil, overdue: 2, dueSoon: 0, notes: 0, now: now),
+              .init(grade: "A−", fact: "2 overdue", factIsAlert: true, quiet: "Class Tue 9:35 AM"))
+        check("c4 a course with nothing",
+              CourseSummary.make(grade: nil, nextClass: nil, nextDue: nil, overdue: 0, dueSoon: 0, notes: 0, now: now),
+              .init(grade: nil, fact: "Nothing due this week", factIsAlert: false, quiet: ""))
+        check("c5 due tomorrow",
+              CourseSummary.make(grade: nil, nextClass: nil, nextDue: ("Quiz 3", now.addingTimeInterval(86_400)), overdue: 0, dueSoon: 1, notes: 0, now: now).fact,
+              "Next: Quiz 3 · tomorrow")
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }
