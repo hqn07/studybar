@@ -378,6 +378,12 @@ struct StudyNotesSheet: View {
     @State private var failed = false
     @State private var task: Task<Void, Never>?
 
+    /// `result`: notes already written — for the layout snapshot.
+    init(text: String, course: UUID?, onReplace: @escaping (String) -> Void, result: String? = nil) {
+        self.text = text; self.course = course; self.onReplace = onReplace
+        _result = State(initialValue: result)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Study notes from this note").font(.headline)

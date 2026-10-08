@@ -1429,6 +1429,15 @@ enum StudySnapshot {
             func page(_ v: some View) -> some View { v.fixedSize(horizontal: false, vertical: true).padding(24).frame(maxHeight: .infinity, alignment: .top) }
             save(page(NotePreview(text: md)), "preview-light.png", CGSize(width: 760, height: h))
             save(page(NotePreview(text: md)).environment(\.colorScheme, .dark).background(Color(white: 0.13)), "preview-dark.png", CGSize(width: 760, height: h))
+            // The note's Study notes sheet with its notes written: Replace must be on screen.
+            save(StudyNotesSheet(text: "", course: nil, onReplace: { _ in }, result: md), "notes-sheet.png", CGSize(width: 620, height: 720))
+            // What a lecture's notes can hold that is wider than the sheet.
+            for (name, extra) in [("table", "| Use | Share of water | Example |\n|---|---|---|\n| Agriculture | about 70 percent | irrigating crops in dry regions |\n| Industry | about 19 percent | cooling power plants |\n| Homes | about 11 percent | drinking, washing and watering lawns |"),
+                                  ("formula", "$$Q_{\\text{out}} = Q_{\\text{in}} + P\\,A_{\\text{catchment}} - E\\,A_{\\text{surface}} - T\\,A_{\\text{vegetation}} - G_{\\text{infiltration}} - \\frac{\\Delta S_{\\text{reservoir}}}{\\Delta t}$$"),
+                                  ("link", "See https://www.sfwmd.gov/our-work/water-supply/alternative-water-supply-programs-and-underground-storage-chambers-for-the-dry-season for more.")] {
+                save(StudyNotesSheet(text: "", course: nil, onReplace: { _ in }, result: md + "\n\n" + extra), "notes-sheet-\(name).png", CGSize(width: 620, height: 720))
+                save(NotePreview(text: extra).padding(12), "narrow-\(name).png", CGSize(width: 380, height: 220))
+            }
         }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)

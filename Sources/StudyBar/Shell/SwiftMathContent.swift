@@ -69,8 +69,12 @@ private enum MathRows {
             }
             let latex = ns.substring(with: m.range(at: 1))
             guard let img = SwiftMathRender.image(latex, display: true, color: color, size: NotesTypography.size + 5) else { return nil }
+            // At its own size, smaller only when the column is narrower. A fixed-size image wider
+            // than the column pushed everything around it wider: a long formula in a lecture's
+            // notes slid the Study notes sheet off its own edges, Replace the note with it.
             rows.append(AnyView(
-                HStack { Spacer(minLength: 0); Image(nsImage: img); Spacer(minLength: 0) }
+                Image(nsImage: img).resizable().scaledToFit()
+                    .frame(maxWidth: img.size.width)
                     .frame(maxWidth: .infinity)))
             cursor = m.range.location + m.range.length
         }
