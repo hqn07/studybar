@@ -14,11 +14,7 @@ struct ModulePane<Content: View, Bar: View>: View {
                 toolbar()
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            // Opaque, and above the content in z-order: scrolled rows have to pass *under* a
-            // solid bar. Without this the first visible row reads as sliced in half — the
-            // divider alone is nearly invisible on a dark ground.
-            .background(.sbSurface)
+            .modifier(ToolbarRow(inlinePadding: 10))
             .zIndex(1)
             Divider()
             // The header spans the pane; only the content is held to the module's column.
@@ -50,7 +46,37 @@ struct SubHeader<Trailing: View>: View {
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .modifier(ToolbarRow(inlinePadding: 10, inlineFill: false))
+    }
+}
+
+/// A module's header: in the window's left pane it is the toolbar row — 44 pt, up in the
+/// titlebar beside the traffic lights and the search field, draggable where it's empty —
+/// and anywhere else (the popover, the right pane of a split) an ordinary bar.
+private struct ToolbarRow: ViewModifier {
+    var inlinePadding: CGFloat
+    /// The inline bar's surface fill (ModulePane has one; a pushed page's header doesn't).
+    var inlineFill = true
+    @Environment(\.isPrimaryPane) private var primary
+    @Environment(\.titlebarLeading) private var leading
+    @Environment(\.titlebarTrailing) private var trailing
+
+    func body(content: Content) -> some View {
+        if primary {
+            content
+                .frame(height: 44)
+                .padding(.leading, leading).padding(.trailing, trailing)
+                // Opaque and above the content: scrolled rows pass under a solid bar.
+                .background { ZStack { Rectangle().fill(.sbBase); WindowDragArea() } }
+        } else {
+            content
+                .padding(.vertical, inlinePadding)
+                // Opaque, and above the content in z-order: scrolled rows have to pass *under* a
+                // solid bar. Without this the first visible row reads as sliced in half — the
+                // divider alone is nearly invisible on a dark ground.
+                .background(inlineFill ? AnyShapeStyle(.sbSurface) : AnyShapeStyle(.clear))
+        }
     }
 }
 

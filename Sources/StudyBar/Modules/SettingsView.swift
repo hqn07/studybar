@@ -77,14 +77,18 @@ struct SettingsView: View {
     @State private var starterStatus = ""
 
     var body: some View {
-        HStack(spacing: 0) {
-            settingsSidebar
-            Divider()
-            // Diagnostics renders as its own scroll view (a Form won't bound its wide content).
-            if selectedTab == .diagnostics {
-                DiagnosticsView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Form { tabSections }.formStyle(.grouped)
+        // A module like the rest: its title is the toolbar row, so the first row of the form
+        // isn't under the traffic lights.
+        ModulePane(title: "Settings") { EmptyView() } content: {
+            HStack(spacing: 0) {
+                settingsSidebar
+                Divider()
+                // Diagnostics renders as its own scroll view (a Form won't bound its wide content).
+                if selectedTab == .diagnostics {
+                    DiagnosticsView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Form { tabSections }.formStyle(.grouped)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,8 +140,6 @@ struct SettingsView: View {
     private var settingsSidebar: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Settings").font(.title2.bold())
-                    .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 12)
                 navGroup([.general, .appearance, .shortcuts])
                 navSeparator
                 navGroup([.modules, .integrations, .intelligence])

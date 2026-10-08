@@ -106,6 +106,14 @@ extension ShapeStyle where Self == AnyShapeStyle {
         return t == .system ? AnyShapeStyle(.background.tertiary) : AnyShapeStyle(t.surface2)
     }
 
+    /// The window's own ground — what the toolbar row in the titlebar is painted with, so it
+    /// reads as one bar with the sidebar's top. Opaque in every preset (`.system` = the window
+    /// background), so content scrolling under it never shows through.
+    static var sbBase: AnyShapeStyle {
+        let t = SurfaceTheme.current
+        return t == .system ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(t.base)
+    }
+
     /// Hairline separating a card from its base — `.clear` (no-op) in the system preset.
     static var sbSurfaceStroke: AnyShapeStyle { AnyShapeStyle(SurfaceTheme.current.stroke) }
 }

@@ -90,13 +90,9 @@ struct RootView: View {
                 Divider()
                 popoverBody
             } else {
-                // Focus mode takes the whole shell down to the module: no header row, and
-                // windowBody drops the rail. `fullSizeContentView` leaves the traffic lights
-                // floating over the content, which is what a distraction-free surface wants.
-                if !state.focusMode {
-                    header
-                    Divider()
-                }
+                // No header row of its own: the left module's header is the toolbar row, up in
+                // the titlebar (see windowBody). Focus mode drops the rail and the toggle and
+                // search beside it, which is what a distraction-free surface wants.
                 windowBody
             }
             recordingBar
@@ -106,7 +102,7 @@ struct RootView: View {
         // The window is `fullSizeContentView` with a transparent titlebar, but SwiftUI still
         // inset the content below it — so the app drew an empty 28pt strip and then its own
         // header underneath, two rows of chrome before any content. Taking the top safe area
-        // lets the header sit *in* the titlebar; `header` leaves room for the traffic lights.
+        // lets the toolbar row sit *in* the titlebar; it leaves room for the traffic lights.
         .ignoresSafeArea(.container, edges: surface == .window && !win.tabBar ? .top : [])
         .background(baseFill)
         .tint(Color(hex: accentHex) ?? .accentColor)
@@ -158,7 +154,7 @@ struct RootView: View {
                 ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
                 : AnyShapeStyle(Color.clear)
         }
-        return AnyShapeStyle(theme.base)   // any preset paints its own base
+        return .sbBase   // any preset paints its own base
     }
 
     @ViewBuilder private var undoToast: some View {
@@ -201,37 +197,25 @@ struct RootView: View {
 
     // MARK: Header
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Button { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } } label: {
-                Image(systemName: "sidebar.leading").font(.system(size: 14))
-                .accessibilityLabel("Toggle sidebar")
-            }
-            .buttonStyle(.borderless).controlSize(.small)
-            .help(sidebarCollapsed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
-            Spacer(minLength: 8)
-            SearchField(text: $state.globalSearch).frame(maxWidth: 180)
-            Menu {
-                Button("Settings") { win.moduleID = "settings"; state.globalSearch = "" }
-                Divider()
-                Button("New Tab") { WindowManager.shared.newTab() }
-                Button("New Window") { WindowManager.shared.newWindow() }
-                Divider()
-                Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                .accessibilityLabel("Menu")
-            }.menuStyle(.borderlessButton).controlSize(.small).fixedSize().help("Menu")
+    /// Expand / collapse the sidebar — drawn in the toolbar row just right of the traffic lights.
+    private var sidebarToggle: some View {
+        Button { withAnimation(.snappy(duration: 0.28)) { sidebarCollapsed.toggle() } } label: {
+            Image(systemName: "sidebar.leading").font(.system(size: 14))
+            .accessibilityLabel("Toggle sidebar")
         }
-        // 78pt of leading room: the header now shares the titlebar strip with the traffic
-        // lights, which AppKit draws over the content.
-        .padding(.leading, win.tabBar ? 12 : 78).padding(.trailing, 12).padding(.vertical, 6)
-        .frame(height: 38)
-        // Hidden quit shortcut so ⌘Q still works even though the button is gone.
-        .background {
-            Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
-        }
+        .buttonStyle(.borderless).controlSize(.small)
+        .help(sidebarCollapsed ? "Expand sidebar (⌘\\)" : "Collapse sidebar (⌘\\)")
     }
+
+    /// The toolbar row's fixed parts: where the sidebar toggle sits (past the traffic lights,
+    /// or at the edge when tabs hold the titlebar), how much room the left module's header
+    /// leaves for them, and for the search field on the right.
+    private static let rowHeight: CGFloat = 44
+    private var toggleX: CGFloat { win.tabBar ? 12 : 84 }
+    private func titlebarLeading(sidebarWidth: CGFloat) -> CGFloat {
+        state.focusMode ? (win.tabBar ? 0 : 78) : max(0, toggleX + 34 - sidebarWidth)
+    }
+    private static let searchRoom: CGFloat = 180 + 12 + 12   // field + edge + gap
 
     // MARK: Content
 
@@ -243,11 +227,19 @@ struct RootView: View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 pane(win.moduleID)
+                    .environment(\.isPrimaryPane, true)
+                    // The search field sits over the right pane when there is one.
+                    .environment(\.titlebarTrailing, win.rightID == nil ? Self.searchRoom : 0)
                     .onPreferenceChange(StudyFocusKey.self) { f in win.focus = f }
                 if let right = win.rightID {
                     PaneDivider(width: Binding(get: { CGFloat(splitWidth) }, set: { splitWidth = Double($0) }),
                                 range: 320...max(320, geo.size.width - 360), resetTo: 420, inverted: true)
                     VStack(spacing: 0) {
+                        if !state.focusMode {
+                            // The toolbar row continues over this pane (the search field sits here).
+                            WindowDragArea().background(.sbBase).frame(height: Self.rowHeight)
+                            Divider()
+                        }
                         rightBar(right)
                         Divider()
                         if right == WindowModel.chat { ContextChatPane(win: win) } else { pane(right) }
@@ -302,27 +294,53 @@ struct RootView: View {
 
     // MARK: Window body (sidebar + content)
 
-    @ViewBuilder private var windowBody: some View {
-        if state.globalSearch.isEmpty {
-            GeometryReader { geo in
-                // 760, not 440: at a half-screen width the 176pt labelled sidebar pushed Notes
-                // under its 640pt split threshold, so a window sized to sit beside a PDF showed
-                // the list *instead of* the note. Railed, the same window fits list + editor.
-                let forced = geo.size.width < 760          // narrow window → auto-rail
-                let railed = forced || sidebarCollapsed
-                HStack(spacing: 0) {
-                    if !state.focusMode {
-                        SidebarView(prefs: state.modulePrefs, win: win, collapsed: railed)
-                            .frame(width: railed ? 48 : 176)
+    private var windowBody: some View {
+        GeometryReader { geo in
+            // 760, not 440: at a half-screen width the 176pt labelled sidebar pushed Notes
+            // under its 640pt split threshold, so a window sized to sit beside a PDF showed
+            // the list *instead of* the note. Railed, the same window fits list + editor.
+            let forced = geo.size.width < 760          // narrow window → auto-rail
+            let railed = forced || sidebarCollapsed
+            let sidebarWidth: CGFloat = state.focusMode ? 0 : (railed ? 48 : 176)
+            HStack(spacing: 0) {
+                if !state.focusMode {
+                    VStack(spacing: 0) {
+                        // The sidebar's share of the toolbar row: traffic lights, toggle, drag.
+                        WindowDragArea().background(.sbBase).frame(height: Self.rowHeight)
                         Divider()
+                        SidebarView(prefs: state.modulePrefs, win: win, collapsed: railed)
                     }
-                    content
+                    .frame(width: sidebarWidth)
+                    Divider()
                 }
-                .animation(.snappy(duration: 0.28), value: railed)
-                .animation(.easeInOut(duration: 0.2), value: state.focusMode)
+                Group {
+                    if state.globalSearch.isEmpty {
+                        content
+                    } else {
+                        ModulePane(title: "Search") { EmptyView() } content: { UnifiedSearchView(query: state.globalSearch) }
+                            .environment(\.isPrimaryPane, true)
+                            .environment(\.titlebarTrailing, Self.searchRoom)
+                    }
+                }
+                .environment(\.titlebarLeading, titlebarLeading(sidebarWidth: sidebarWidth))
             }
-        } else {
-            UnifiedSearchView(query: state.globalSearch)
+            // Fixed in the row whatever the module: the toggle past the lights, search at the
+            // right edge — one search field, so typing never loses it when results replace the module.
+            .overlay(alignment: .topLeading) {
+                if !state.focusMode { sidebarToggle.frame(height: Self.rowHeight).offset(x: toggleX) }
+            }
+            .overlay(alignment: .topTrailing) {
+                if !state.focusMode {
+                    SearchField(text: $state.globalSearch).frame(width: 180)
+                        .frame(height: Self.rowHeight).padding(.trailing, 12)
+                }
+            }
+            .animation(.snappy(duration: 0.28), value: railed)
+            .animation(.easeInOut(duration: 0.2), value: state.focusMode)
+        }
+        // Hidden quit shortcut so ⌘Q still works with no menu button for it in the window.
+        .background {
+            Button("") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
     }
 
@@ -533,12 +551,34 @@ struct SidebarView: View {
                 .padding(.vertical, DS.Space.s).padding(.horizontal, DS.Space.s)
             }
             .scrollIndicators(.hidden)
-            // Settings sits at the bottom, outside the groups, so it never needs a header of its own.
-            if let settings = ModuleRegistry.info("settings") {
-                Divider()
-                row(settings).padding(DS.Space.s)
+            // Settings sits at the bottom, outside the groups, so it never needs a header of its
+            // own — beside the app's menu, which the window's header row used to hold.
+            Divider()
+            Group {
+                if collapsed { VStack(spacing: 2) { settingsRow; appMenu } }
+                else { HStack(spacing: 2) { settingsRow; appMenu } }
             }
+            .padding(DS.Space.s)
         }
+    }
+
+    @ViewBuilder private var settingsRow: some View {
+        if let settings = ModuleRegistry.info("settings") { row(settings) }
+    }
+
+    private var appMenu: some View {
+        Menu {
+            Button("New Tab") { WindowManager.shared.newTab() }
+            Button("New Window") { WindowManager.shared.newWindow() }
+            Divider()
+            Button("Quit StudyBar") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        } label: {
+            Image(systemName: "ellipsis").accessibilityLabel("More")
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .help("New tab, new window, quit")
     }
 
     /// The shown modules in display order: by group in category order, or the flat order.

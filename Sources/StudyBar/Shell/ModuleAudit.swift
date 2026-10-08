@@ -56,6 +56,26 @@ enum ModuleAudit {
         for (look, name) in looks {
             shoot(RootView(surface: .popover), "popover", "popover-380-\(name).png", CGSize(width: 380, height: 560), look)
         }
+        // The toolbar row's other states: focus mode, tabs in the titlebar, a split, search results.
+        let size1280 = CGSize(width: 1280, height: height), size1440 = CGSize(width: 1440, height: height)
+        state.focusMode = true
+        for (look, name) in looks {
+            shoot(RootView(surface: .window, win: WindowModel(moduleID: "notes")), "notes", "notes-focus-1280-\(name).png", size1280, look)
+        }
+        state.focusMode = false
+        for (look, name) in looks {
+            let tabbed = WindowModel(moduleID: "today")
+            tabbed.tabBar = true
+            shoot(RootView(surface: .window, win: tabbed), "today", "today-tabbar-1280-\(name).png", size1280, look)
+        }
+        shoot(RootView(surface: .window, win: WindowModel(moduleID: "notes", rightID: WindowModel.chat)), "split",
+              "split-notes-chat-1440-dark.png", size1440, .darkAqua)
+        shoot(RootView(surface: .window, win: WindowModel(moduleID: "notes", rightID: "assignments")), "split",
+              "split-notes-assignments-1440-dark.png", size1440, .darkAqua)
+        state.globalSearch = "flux"
+        shoot(RootView(surface: .window, win: WindowModel(moduleID: "today")), "search", "search-1280-dark.png", size1280, .darkAqua)
+        state.globalSearch = ""
+
         // An empty store — a new student's first look at every screen.
         state.data = AppData()
         for m in ModuleRegistry.all {
