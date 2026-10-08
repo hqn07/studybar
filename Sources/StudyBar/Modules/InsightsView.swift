@@ -32,22 +32,26 @@ struct InsightsView: View {
                 VStack(alignment: .leading, spacing: DS.Space.xl) {
                     if AIConfig.isReady { weeklyReviewCard }
                     thisWeekCard
-                    section("Work finished", nil, "checkmark.circle") { completionsChart }
-                    if !doneByCourse.isEmpty {
-                        section("Finished this week by course", doneByCourse.count, "checklist") { doneCourseBars }
-                    }
-                    section("What's ahead", nil, "tray.full") { workloadCard }
-                    if tracksTime {
-                        weeklyGoalCard
-                        streakCard
-                        section("Study time, last 7 days", nil, "chart.bar.fill") { barChart }
-                        section("Time this week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
-                    }
-                    if !state.data.flashcards.isEmpty {
-                        section("Flashcard retention", nil, "brain.head.profile") { retentionCard }
-                    }
-                    if !state.data.reading.isEmpty {
-                        section("Reading", nil, "book") { readingCard }
+                    // Two columns once there's room for two charts side by side; one when narrow.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: DS.Space.l, alignment: .top)],
+                              alignment: .leading, spacing: DS.Space.xl) {
+                        section("Work finished", nil, "checkmark.circle") { completionsChart }
+                        if !doneByCourse.isEmpty {
+                            section("Finished this week by course", doneByCourse.count, "checklist") { doneCourseBars }
+                        }
+                        section("What's ahead", nil, "tray.full") { workloadCard }
+                        if tracksTime {
+                            weeklyGoalCard
+                            if !streakStats.allSatisfy(\.isEmpty) { glanceCard(GlanceRow(stats: streakStats)) }
+                            section("Study time, last 7 days", nil, "chart.bar.fill") { barChart }
+                            section("Time this week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
+                        }
+                        if !state.data.flashcards.isEmpty {
+                            section("Flashcard retention", nil, "brain.head.profile") { retentionCard }
+                        }
+                        if !state.data.reading.isEmpty {
+                            section("Reading", nil, "book") { readingCard }
+                        }
                     }
                 }.padding(DS.Space.l)
             }
@@ -57,21 +61,22 @@ struct InsightsView: View {
     // MARK: - The week, in what the app actually knows
 
     private var thisWeekCard: some View {
-        HStack(spacing: DS.Space.l) {
-            metric("\(doneWeek)", "finished this week", "checkmark.circle.fill")
-            Divider().frame(height: 30)
-            metric("\(StudyStats.completedTotal(state.data))", "finished in total", "tray.full.fill")
-            Divider().frame(height: 30)
-            metric("\(StudyStats.completionStreak(state.data))", "day streak", "flame.fill")
-            Divider().frame(height: 30)
-            metric("\(notesWeek.notes)", notesWeek.notes == 1 ? "note written" : "notes written", "note.text")
-            Divider().frame(height: 30)
-            metric(notesWeek.words >= 1000 ? "\(notesWeek.words / 1000)k" : "\(notesWeek.words)", "words", "text.alignleft")
-            Spacer()
-        }
-        .padding(DS.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        let total = StudyStats.completedTotal(state.data), streak = StudyStats.completionStreak(state.data)
+        return glanceCard(GlanceRow(stats: [
+            GlanceStat(value: "\(doneWeek)", label: "finished this week", isEmpty: doneWeek == 0),
+            GlanceStat(value: "\(total)", label: "finished in total", isEmpty: total == 0),
+            GlanceStat(value: "\(streak)", label: "day streak", isEmpty: streak == 0),
+            GlanceStat(value: "\(notesWeek.notes)", label: notesWeek.notes == 1 ? "note written" : "notes written", isEmpty: notesWeek.notes == 0),
+            GlanceStat(value: notesWeek.words >= 1000 ? String(format: "%.1fk", Double(notesWeek.words) / 1000) : "\(notesWeek.words)",
+                       label: "words", isEmpty: notesWeek.words == 0),
+        ], emptyText: "Nothing finished or written this week yet"))
+    }
+
+    /// A glance row on the card surface.
+    private func glanceCard(_ row: GlanceRow) -> some View {
+        row.padding(DS.Space.l)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     /// Completions per day. Empty until something is checked off, so it says how to fill it
@@ -140,17 +145,11 @@ struct InsightsView: View {
     }
 
     private var workloadCard: some View {
-        HStack(spacing: DS.Space.l) {
-            metric("\(load.week)", "due in 7 days", "calendar")
-            Divider().frame(height: 30)
-            metric("\(load.overdue)", "overdue", "exclamationmark.triangle")
-            Divider().frame(height: 30)
-            metric("\(load.open)", "open in total", "tray.full")
-            Spacer()
-        }
-        .padding(DS.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        glanceCard(GlanceRow(stats: [
+            GlanceStat(value: "\(load.week)", label: "due in 7 days", isEmpty: load.week == 0),
+            GlanceStat(value: "\(load.overdue)", label: "overdue", isEmpty: load.overdue == 0),
+            GlanceStat(value: "\(load.open)", label: "open in total", isEmpty: load.open == 0),
+        ], emptyText: "Nothing open — you're clear"))
     }
 
     // MARK: - Weekly review (AI habit hook)
@@ -209,40 +208,23 @@ struct InsightsView: View {
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
     }
 
-    // MARK: - Metric tiles (mono-accent — semantic color is state only)
+    // MARK: - Glance rows
 
-    /// Today's counters — moved here from the Today module (which is now glance-first).
-    private var todayCard: some View {
-        HStack(spacing: DS.Space.m) {
-            metric(timeStr(StudyStats.secondsToday(state.data)), "studied today", "clock")
-            metric("\(StudyStats.pomodorosToday(state.data))", "pomodoros", "timer")
-            metric("\(state.data.assignments.filter { $0.status != .done }.count)", "open tasks", "checklist")
-        }
-    }
-
-    private var streakCard: some View {
-        HStack(spacing: DS.Space.m) {
-            metric("\(StudyStats.currentStreak(state.data))", "current streak", "flame.fill")
-            metric("\(StudyStats.longestStreak(state.data))", "longest", "trophy.fill")
-            metric(timeStr(weekTotal), "this week", "clock.fill")
-        }
+    private var streakStats: [GlanceStat] {
+        let current = StudyStats.currentStreak(state.data), longest = StudyStats.longestStreak(state.data)
+        return [GlanceStat(value: "\(current)", label: "current streak, days", isEmpty: current == 0),
+                GlanceStat(value: "\(longest)", label: "longest streak, days", isEmpty: longest == 0),
+                GlanceStat(value: timeStr(weekTotal), label: "studied this week", isEmpty: weekTotal < 60)]
     }
 
     private var readingCard: some View {
-        HStack(spacing: DS.Space.m) {
-            metric("\(StudyStats.readingStreak(state.data))", "reading streak", "flame.fill")
-            metric("\(StudyStats.pagesThisWeek(state.data))", "pages this wk", "book.pages")
-            metric("\(StudyStats.booksThisYear(state.data))", "books in \(Calendar.current.component(.year, from: .now))", "checkmark.seal.fill")
-        }
-    }
-
-    private func metric(_ v: String, _ l: String, _ icon: String) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: icon).font(.callout).foregroundStyle(.tint)
-            Text(v).font(.title3.bold().monospacedDigit())
-            Text(l).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }.frame(maxWidth: .infinity).padding(.vertical, DS.Space.l)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        let streak = StudyStats.readingStreak(state.data), pages = StudyStats.pagesThisWeek(state.data)
+        let books = StudyStats.booksThisYear(state.data)
+        return glanceCard(GlanceRow(stats: [
+            GlanceStat(value: "\(streak)", label: "reading streak, days", isEmpty: streak == 0),
+            GlanceStat(value: "\(pages)", label: "pages this week", isEmpty: pages == 0),
+            GlanceStat(value: "\(books)", label: "books in \(Calendar.current.component(.year, from: .now))", isEmpty: books == 0),
+        ], emptyText: "No reading logged yet"))
     }
 
     // MARK: - 7-day study chart
@@ -323,12 +305,13 @@ struct InsightsView: View {
 
     private var retentionCard: some View {
         let ret = StudyStats.flashcardRetention(state.data)
-        return VStack(spacing: DS.Space.m) {
-            HStack(spacing: DS.Space.m) {
-                metric(ret.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "retention", "target")
-                metric("\(StudyStats.cardsDueToday(state.data))", "due now", "tray.full")
-                metric("\(state.data.flashcards.count)", "cards", "rectangle.on.rectangle")
-            }
+        let due = StudyStats.cardsDueToday(state.data)
+        return VStack(alignment: .leading, spacing: DS.Space.m) {
+            GlanceRow(stats: [
+                GlanceStat(value: ret.map { "\(Int(($0 * 100).rounded()))%" } ?? "", label: "retention", isEmpty: ret == nil),
+                GlanceStat(value: "\(due)", label: "due now", isEmpty: due == 0),
+                GlanceStat(value: "\(state.data.flashcards.count)", label: "cards"),
+            ])
             if let ret {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
@@ -338,6 +321,9 @@ struct InsightsView: View {
                 }.frame(height: 6)
             }
         }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     // MARK: - Helpers

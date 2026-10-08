@@ -150,48 +150,39 @@ struct CoursesView: View {
         let gpa = termGPA(currentCourses, state.data)
         let overdue = state.data.assignments.filter { $0.isOpen && $0.isOverdue && isCurrentCourse($0.courseID) }.count
         let credits = currentCourses.reduce(0) { $0 + $1.credits }
-        return VStack(alignment: .leading, spacing: DS.Space.s) {
-            HStack(spacing: DS.Space.s) {
+        let n = currentCourses.count
+        return VStack(alignment: .leading, spacing: DS.Space.m) {
+            HStack(alignment: .center, spacing: DS.Space.xl) {
                 Text(currentTerm.isEmpty ? "This term" : currentTerm).font(.title3.weight(.semibold))
-                Spacer()
+                // No GPA until there's a grade, no weeks left until the term has dates: a "—"
+                // takes the room of a number and says nothing.
+                GlanceRow(stats: [
+                    GlanceStat(value: gpa.map { String(format: "%.2f", $0) } ?? "", label: "GPA", isEmpty: gpa == nil),
+                    GlanceStat(value: "\(n)", label: n == 1 ? "course" : "courses"),
+                    GlanceStat(value: gstr(credits), label: "credits", isEmpty: credits == 0),
+                    GlanceStat(value: "\(weeksLeft ?? 0)", label: weeksLeft == 1 ? "week left" : "weeks left", isEmpty: (weeksLeft ?? 0) == 0),
+                ])
+                Spacer(minLength: 0)
+                if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
             }
-            VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(spacing: DS.Space.l) {
-                    heroStat(gpa.map { String(format: "%.2f", $0) } ?? "—", "GPA")
-                    heroSep
-                    heroStat("\(currentCourses.count)", "courses")
-                    heroSep
-                    heroStat(gstr(credits), "credits")
-                    Spacer()
-                    if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
-                }
-                termTimeline
-            }
-            .padding(DS.Space.l)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            termTimeline
         }
+        .padding(DS.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
-    /// Term progress — folded in from the old Semester module. Shows a slim progress bar
-    /// and weeks-left when the term dates are set, or a one-tap prompt to set them.
+    /// Term progress — folded in from the old Semester module: the dates and a slim bar when
+    /// they're set, or a one-tap prompt to set them.
     @ViewBuilder private var termTimeline: some View {
         if let s = termStart, let e = termEnd, e > s {
-            Divider()
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                HStack {
-                    Text("\(s.formatted(date: .abbreviated, time: .omitted)) – \(e.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Spacer()
-                    if let w = weeksLeft {
-                        Text(w == 0 ? "term over" : "\(w) week\(w == 1 ? "" : "s") left")
-                            .font(.caption2.weight(.medium)).foregroundStyle(.tint)
-                    }
-                }
+            HStack(spacing: DS.Space.l) {
+                Text("\(s.formatted(date: .abbreviated, time: .omitted)) – \(e.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize()
                 ProgressView(value: termProgress)
+                if weeksLeft == 0 { Text("term over").font(.caption).foregroundStyle(.secondary).fixedSize() }
             }
         } else {
-            Divider()
             Button { editingTerm = true } label: {
                 Label("Set term dates", systemImage: "calendar.badge.plus").font(.caption)
             }.buttonStyle(.borderless)
@@ -201,14 +192,6 @@ struct CoursesView: View {
         guard let id, let c = state.data.courses.first(where: { $0.id == id }) else { return true }
         return isCurrent(c)
     }
-    private func heroStat(_ v: String, _ l: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(v).font(.title2.weight(.semibold).monospacedDigit())
-            Text(l).font(.caption2).foregroundStyle(.secondary)
-        }
-    }
-    private var heroSep: some View { Rectangle().fill(.separator).frame(width: 0.5, height: 30) }
-
     // MARK: past terms
 
     private var pastSection: some View {
@@ -240,7 +223,7 @@ struct CoursesView: View {
                             Text(c.name.isEmpty ? "Untitled" : c.name).font(.callout).lineLimit(1)
                             if !c.code.isEmpty { Text(c.code).font(.caption2).foregroundStyle(.secondary) }
                             Spacer()
-                            Text(c.grade.isEmpty ? "—" : c.grade).font(.callout.weight(.medium)).foregroundStyle(c.color)
+                            if !c.grade.isEmpty { Text(c.grade).font(.callout.weight(.medium)).foregroundStyle(c.color) }
                         }.contentShape(Rectangle()).padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
                     }.buttonStyle(.plain)
                 }

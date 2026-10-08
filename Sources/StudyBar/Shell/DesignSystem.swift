@@ -175,6 +175,51 @@ struct SectionHeader: View {
     }
 }
 
+// MARK: - Glance numbers
+
+extension Font {
+    /// The one style for a number worth seeing at a glance — a GPA, what's due, a streak. Large,
+    /// so the hierarchy comes from type rather than from a box drawn around it.
+    static let dsGlance = Font.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit()
+}
+
+/// A number and what it counts. `isEmpty` marks a zero or a missing value: it is left out
+/// rather than drawn as "0" or "—", which take the same room as data and say nothing.
+struct GlanceStat: Identifiable {
+    let value: String
+    let label: String
+    var isEmpty = false
+    var id: String { label }
+}
+
+/// A row of glance numbers, value over label. Stats marked empty are left out; when all are,
+/// `emptyText` says so in one line (or the row draws nothing). Wraps to a grid when narrow.
+struct GlanceRow: View {
+    let stats: [GlanceStat]
+    var emptyText: String? = nil
+
+    var body: some View {
+        let shown = stats.filter { !$0.isEmpty }
+        if shown.isEmpty {
+            if let emptyText { Text(emptyText).font(.callout).foregroundStyle(.secondary) }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 32) { ForEach(shown) { stat($0) } }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading,
+                          spacing: DS.Space.l) { ForEach(shown) { stat($0) } }
+            }
+        }
+    }
+
+    private func stat(_ s: GlanceStat) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(s.value).font(.dsGlance).lineLimit(1)
+            Text(s.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 // MARK: - Card container
 
 extension View {
