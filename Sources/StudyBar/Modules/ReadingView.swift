@@ -114,8 +114,8 @@ struct ReadingView: View {
                     }
                 }
             }
-            .navigationDestination(isPresented: $goodreads) { GoodreadsImportView() }
-            .navigationDestination(item: $openBookID) { ReadingDetailView(itemID: $0) }
+            .navigationDestination(isPresented: $goodreads) { GoodreadsImportView().moduleColumn(DS.Width.form) }
+            .navigationDestination(item: $openBookID) { ReadingDetailView(itemID: $0).moduleColumn() }
             .onAppear { if let p = state.pendingBook { openBookID = p.id; if p.page == nil { state.pendingBook = nil } } }
             .onChange(of: state.pendingBook) { _, p in if let p { openBookID = p.id; if p.page == nil { state.pendingBook = nil } } }
         }
@@ -388,7 +388,7 @@ struct ReadingDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
-        .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()) }
+        .navigationDestination(isPresented: $editing) { ReadingEditor(item: item ?? ReadingItem()).moduleColumn(DS.Width.form) }
         .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID, startPage: readerStart) }
         // A search hit inside the book opens it at that page.
         .onAppear {

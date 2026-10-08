@@ -162,10 +162,10 @@ struct AssignmentsView: View {
                     }
                 }
             }
-            .navigationDestination(item: $editing) { AssignmentEditor(assignment: $0) }
-            .navigationDestination(isPresented: $classifying) { ClassifyView() }
-            .navigationDestination(isPresented: $deduping) { DuplicateReviewView() }
-            .navigationDestination(isPresented: $triaging) { TriageReviewView() }
+            .navigationDestination(item: $editing) { AssignmentEditor(assignment: $0).moduleColumn(DS.Width.form) }
+            .navigationDestination(isPresented: $classifying) { ClassifyView().moduleColumn() }
+            .navigationDestination(isPresented: $deduping) { DuplicateReviewView().moduleColumn() }
+            .navigationDestination(isPresented: $triaging) { TriageReviewView().moduleColumn() }
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
         }

@@ -114,8 +114,8 @@ struct FlashcardsView: View {
                     }
                 }
             }
-            .navigationDestination(for: Deck.self) { DeckView(deck: $0) }
-            .navigationDestination(item: $editing) { CardEditor(card: $0) }
+            .navigationDestination(for: Deck.self) { DeckView(deck: $0).moduleColumn() }
+            .navigationDestination(item: $editing) { CardEditor(card: $0).moduleColumn(DS.Width.form) }
             .sheet(item: $making) { MakeCardsView(request: $0) }
             .sheet(item: $state.pendingImageCards) { OcclusionEditor(request: $0) }
         }
@@ -247,11 +247,11 @@ struct DeckView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
-        .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll) }
-        .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id) }
-        .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id) }
-        .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
-        .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id) }
+        .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll).moduleColumn() }
+        .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id).moduleColumn() }
+        .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id).moduleColumn() }
+        .navigationDestination(item: $editingCard) { CardEditor(card: $0).moduleColumn(DS.Width.form) }
+        .navigationDestination(isPresented: $importing) { CSVImportView(deckID: deck.id).moduleColumn(DS.Width.form) }
         .sheet(isPresented: $generating) { MakeCardsView(request: .init(course: deck.courseID, deck: deck.id)) }
         .sheet(isPresented: $picturing) { OcclusionEditor(request: .init(deck: deck.id, course: deck.courseID)) }
     }
@@ -914,7 +914,7 @@ struct StudyView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
-        .navigationDestination(item: $editingCard) { CardEditor(card: $0) }
+        .navigationDestination(item: $editingCard) { CardEditor(card: $0).moduleColumn(DS.Width.form) }
         .onAppear {
             if queue.isEmpty {
                 queue = state.data.flashcards

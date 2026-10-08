@@ -53,7 +53,7 @@ struct SnippetsView: View {
                     if searched.isEmpty { emptyState } else { snippetList }
                 }
             }
-            .navigationDestination(item: $editing) { SnippetEditor(snippet: $0) }
+            .navigationDestination(item: $editing) { SnippetEditor(snippet: $0).moduleColumn(DS.Width.form) }
         }
         .onAppear(perform: migrateCategories)
     }

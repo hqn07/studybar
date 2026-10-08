@@ -19,6 +19,31 @@ enum DS {
     enum Width { static let content: CGFloat = 1200; static let prose: CGFloat = 680; static let form: CGFloat = 760 }
 }
 
+/// How wide a module's page may grow. `ModulePane` holds a module's main page to its column; a
+/// page pushed inside the module (an editor, a detail page) has no ModulePane, so it calls
+/// `.moduleColumn()` — or `.moduleColumn(DS.Width.form)` for a form — itself.
+enum ModuleColumn {
+    /// The page's own width, never past the module's cap; with no cap (the popover, a spatial
+    /// module) the page is left alone. Pure.
+    static func width(_ requested: CGFloat?, cap: CGFloat?) -> CGFloat? {
+        guard let cap else { return nil }
+        return min(requested ?? cap, cap)
+    }
+}
+
+private struct ModuleColumnModifier: ViewModifier {
+    let width: CGFloat?
+    @Environment(\.moduleContentCap) private var cap
+    func body(content: Content) -> some View {
+        content.frame(maxWidth: ModuleColumn.width(width, cap: cap) ?? .infinity).frame(maxWidth: .infinity)
+    }
+}
+
+extension View {
+    /// Hold this page to its module's column (see `ModuleColumn`).
+    func moduleColumn(_ width: CGFloat? = nil) -> some View { modifier(ModuleColumnModifier(width: width)) }
+}
+
 private struct ModuleContentCapKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
 extension EnvironmentValues {
     /// How wide a module's content may grow — set by the window for non-spatial modules,

@@ -61,7 +61,7 @@ struct CitationsView: View {
                     }
                 }
             }
-            .navigationDestination(item: $editing) { ReferenceEditor(reference: $0) }
+            .navigationDestination(item: $editing) { ReferenceEditor(reference: $0).moduleColumn(DS.Width.form) }
         }
     }
 

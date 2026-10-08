@@ -108,9 +108,9 @@ struct CoursesView: View {
                     }
                 }
             }
-            .navigationDestination(item: $editing) { CourseEditor(course: $0) }
-            .navigationDestination(item: $detailID) { CourseDetailView(courseID: $0) }
-            .navigationDestination(isPresented: $editingTerm) { TermEditor() }
+            .navigationDestination(item: $editing) { CourseEditor(course: $0).moduleColumn(DS.Width.form) }
+            .navigationDestination(item: $detailID) { CourseDetailView(courseID: $0).moduleColumn() }
+            .navigationDestination(isPresented: $editingTerm) { TermEditor().moduleColumn(DS.Width.form) }
         }
         .overlay { if archiving { archiveCard } }
         .overlay { if pastPrompt { pastCard } }
@@ -155,12 +155,7 @@ struct CoursesView: View {
                 Text(currentTerm.isEmpty ? "This term" : currentTerm).font(.title3.weight(.semibold))
                 // No GPA until there's a grade, no weeks left until the term has dates: a "—"
                 // takes the room of a number and says nothing.
-                GlanceRow(stats: [
-                    GlanceStat(value: gpa.map { String(format: "%.2f", $0) } ?? "", label: "GPA", isEmpty: gpa == nil),
-                    GlanceStat(value: "\(n)", label: n == 1 ? "course" : "courses"),
-                    GlanceStat(value: gstr(credits), label: "credits", isEmpty: credits == 0),
-                    GlanceStat(value: "\(weeksLeft ?? 0)", label: weeksLeft == 1 ? "week left" : "weeks left", isEmpty: (weeksLeft ?? 0) == 0),
-                ])
+                GlanceRow(stats: Self.termStats(gpa: gpa, courses: n, credits: credits, weeksLeft: weeksLeft))
                 Spacer(minLength: 0)
                 if overdue > 0 { Chip("\(overdue) overdue", .status(.now)) }
             }
@@ -169,6 +164,15 @@ struct CoursesView: View {
         .padding(DS.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+    }
+
+    /// The term summary's numbers — each left out when it has nothing to say (no GPA before a
+    /// grade, no courses once the term's are all past, no weeks left without term dates). Pure.
+    static func termStats(gpa: Double?, courses n: Int, credits: Double, weeksLeft: Int?) -> [GlanceStat] {
+        [GlanceStat(value: gpa.map { String(format: "%.2f", $0) } ?? "", label: "GPA", isEmpty: gpa == nil),
+         GlanceStat(value: "\(n)", label: n == 1 ? "course" : "courses", isEmpty: n == 0),
+         GlanceStat(value: gstr(credits), label: "credits", isEmpty: credits == 0),
+         GlanceStat(value: "\(weeksLeft ?? 0)", label: weeksLeft == 1 ? "week left" : "weeks left", isEmpty: (weeksLeft ?? 0) == 0)]
     }
 
     /// Term progress — folded in from the old Semester module: the dates and a slim bar when
@@ -453,8 +457,8 @@ struct CourseDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
-        .navigationDestination(item: $editing) { CourseEditor(course: $0) }
-        .navigationDestination(item: $editingAssignment) { AssignmentEditor(assignment: $0) }
+        .navigationDestination(item: $editing) { CourseEditor(course: $0).moduleColumn(DS.Width.form) }
+        .navigationDestination(item: $editingAssignment) { AssignmentEditor(assignment: $0).moduleColumn(DS.Width.form) }
     }
 
     private func headerCard(_ c: Course) -> some View {

@@ -80,6 +80,30 @@ enum DesignSelfTest {
               CourseSummary.make(grade: nil, nextClass: nil, nextDue: ("Quiz 3", now.addingTimeInterval(86_400)), overdue: 0, dueSoon: 1, notes: 0, now: now).fact,
               "Next: Quiz 3 · tomorrow")
 
+        // The audit replaces the store it runs on: it must never run on a real one. An empty
+        // STUDYBAR_DATA_DIR counts as unset (AppState then opens the real store).
+        check("a1 audit refuses without a data folder",
+              ModuleAudit.mayRun(env: [:], bundleID: "com.studybar.StudyBar.test"), false)
+        check("a2 audit refuses an empty data folder",
+              ModuleAudit.mayRun(env: ["STUDYBAR_DATA_DIR": ""], bundleID: "com.studybar.StudyBar.test"), false)
+        check("a3 audit refuses the real app",
+              ModuleAudit.mayRun(env: ["STUDYBAR_DATA_DIR": "/tmp/x"], bundleID: "com.studybar.StudyBar"), false)
+        check("a4 audit runs from a test copy with a data folder",
+              ModuleAudit.mayRun(env: ["STUDYBAR_DATA_DIR": "/tmp/x"], bundleID: "com.studybar.StudyBar.test"), true)
+
+        // The term summary: no "0 courses" once every course is in a past term.
+        check("t1 no current courses shows no count",
+              CoursesView.termStats(gpa: nil, courses: 0, credits: 0, weeksLeft: nil).filter { !$0.isEmpty }.map(\.label), [])
+        check("t2 a term in progress",
+              CoursesView.termStats(gpa: 3.5, courses: 6, credits: 20, weeksLeft: 9).filter { !$0.isEmpty }.map(\.value),
+              ["3.50", "6", "20", "9"])
+
+        // Pages pushed inside a capped module: a form keeps to its width, nothing outgrows the cap,
+        // and with no cap (the popover, a spatial module) a page is left alone.
+        check("w1 a form in a capped module", ModuleColumn.width(DS.Width.form, cap: DS.Width.content), DS.Width.form)
+        check("w2 a page in a capped module", ModuleColumn.width(nil, cap: DS.Width.content), DS.Width.content)
+        check("w3 no cap, no limit", ModuleColumn.width(DS.Width.form, cap: nil), nil)
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }

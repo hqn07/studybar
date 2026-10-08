@@ -68,7 +68,7 @@ struct LinksView: View {
                     }
                 }
             }
-            .navigationDestination(item: $editing) { LinkEditor(link: $0) }
+            .navigationDestination(item: $editing) { LinkEditor(link: $0).moduleColumn(DS.Width.form) }
         }
     }
 

@@ -15,8 +15,7 @@ enum ModuleAudit {
 
     @MainActor
     static func run(state: AppState, out: String) -> Int32 {
-        guard ProcessInfo.processInfo.environment["STUDYBAR_DATA_DIR"] != nil,
-              Bundle.main.bundleIdentifier == "com.studybar.StudyBar.test" else {
+        guard mayRun(env: ProcessInfo.processInfo.environment, bundleID: Bundle.main.bundleIdentifier) else {
             print("Run this through scripts/module-audit.sh — it needs a test copy (bundle id com.studybar.StudyBar.test) and STUDYBAR_DATA_DIR.")
             return 1
         }
@@ -67,6 +66,12 @@ enum ModuleAudit {
         writeIndex(shots, to: dir.appendingPathComponent("index.html"))
         print("Module audit: \(shots.count) renders in \(dir.path)")
         return 0
+    }
+
+    /// The audit replaces the store it runs on, so only a test copy with its own data folder may
+    /// run it. An empty STUDYBAR_DATA_DIR counts as none: AppState then opens the real store.
+    static func mayRun(env: [String: String], bundleID: String?) -> Bool {
+        bundleID == "com.studybar.StudyBar.test" && !(env["STUDYBAR_DATA_DIR"] ?? "").isEmpty
     }
 
     /// Draw a view offscreen at a fixed size and write it as a PNG.
