@@ -1400,8 +1400,15 @@ enum StudyRun {
             print("--- \(took()) · \(action.label) ---\n\(out ?? "FAILED")")
             return out == nil ? 1 : 0
         case "notes":
-            // `notes <transcript>`: study notes from a lecture, and the deadlines read from them.
-            let out = await LectureNotes.run(units.map(\.text).joined(separator: "\n\n"), job: .lecture, provider: provider, mode: mode) { _, _, _ in }
+            // `notes <transcript> [--detail Standard] [--shape Notes] [--fill Light] [--focus "…"]`: study
+            // notes from a lecture, and the deadlines read from them.
+            var style = LectureNotes.Style()
+            func flag(_ f: String) -> String? { args.firstIndex(of: f).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
+            if let v = flag("--detail").flatMap(LectureNotes.Style.Detail.init(rawValue:)) { style.detail = v }
+            if let v = flag("--shape").flatMap(LectureNotes.Style.Shape.init(rawValue:)) { style.shape = v }
+            if let v = flag("--fill").flatMap(LectureNotes.Style.FillIn.init(rawValue:)) { style.fillIn = v }
+            if let v = flag("--focus") { style.focus = v }
+            let out = await LectureNotes.run(units.map(\.text).joined(separator: "\n\n"), job: .lecture, provider: provider, mode: mode, style: style) { _, _, _ in }
             print("--- \(took()) ---\n\(out ?? "FAILED")")
             var note = Note(title: "Lecture", body: out ?? ""); note.createdAt = .now
             print("--- announced, as assignments ---")

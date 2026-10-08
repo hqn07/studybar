@@ -1422,6 +1422,14 @@ enum StudySnapshot {
         voice.status = .idle
         voice.transcript = ""
         voice.soFar = []
+        // A study note as the reading view draws it, light and dark: SB_PREVIEW_MD=<markdown file>.
+        if let md = ProcessInfo.processInfo.environment["SB_PREVIEW_MD"].flatMap({ try? String(contentsOfFile: $0, encoding: .utf8) }) {
+            // Its whole height: a frame shorter than the note squeezes every line to one, cut with "…".
+            let h = CGFloat(max(900, md.count))
+            func page(_ v: some View) -> some View { v.fixedSize(horizontal: false, vertical: true).padding(24).frame(maxHeight: .infinity, alignment: .top) }
+            save(page(NotePreview(text: md)), "preview-light.png", CGSize(width: 760, height: h))
+            save(page(NotePreview(text: md)).environment(\.colorScheme, .dark).background(Color(white: 0.13)), "preview-dark.png", CGSize(width: 760, height: h))
+        }
         AIUsage.add(model: "gpt-5.6-luna", input: 412_000, output: 38_500)
         AIUsage.add(model: "claude-sonnet-5-5", input: 52_000, output: 9_100)
         AIUsage.add(model: "my-custom-model", input: 3_000, output: 800)
