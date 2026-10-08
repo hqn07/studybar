@@ -44,7 +44,7 @@ struct LinksView: View {
                         Divider()
                         ScrollView {
                             if !search.isEmpty {
-                                LazyVStack(spacing: 6) {
+                                LazyVStack(spacing: 0) {
                                     ForEach(searchResults) { link in LinkRow(link: link) { editing = link } }
                                 }.padding(.vertical, 8)
                             } else {
@@ -104,7 +104,7 @@ struct LinkRow: View {
                 .buttonStyle(.borderless).foregroundStyle(.secondary)
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .sbRowSeparator(leading: DS.Space.m)
         .padding(.horizontal, DS.Space.m)
     }
     private func open() {

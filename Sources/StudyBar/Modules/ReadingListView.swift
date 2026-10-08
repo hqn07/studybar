@@ -38,7 +38,7 @@ struct ReadingListView: View {
                                subtitle: "Save articles and pages to read later. Use the Safari button to grab the current tab.")
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 5) {
+                        LazyVStack(spacing: 0) {
                             ForEach(items) { item in ReadingListRow(item: item) }
                         }.padding(10)
                     }
@@ -98,7 +98,7 @@ struct ReadingListRow: View {
                 .accessibilityLabel("Remove from Read later")
             }.buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
         }
-        .padding(DS.Space.m).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(DS.Space.m).sbRowSeparator(leading: DS.Space.m)
     }
     private func toggle() {
         guard let i = state.data.readingList.firstIndex(where: { $0.id == item.id }) else { return }

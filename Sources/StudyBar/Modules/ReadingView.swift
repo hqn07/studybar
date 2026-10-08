@@ -89,7 +89,7 @@ struct ReadingView: View {
                                        subtitle: state.data.reading.isEmpty ? "Search for a book above to auto-fill cover, author and pages — or tap ＋ to add one manually." : "Try another shelf or search.")
                         } else {
                             ScrollView {
-                                LazyVStack(spacing: 8) {
+                                LazyVStack(spacing: 0) {
                                     ForEach(items) { item in
                                         Button { openBookID = item.id } label: { BookCard(item: item) }.buttonStyle(.plain)
                                             .contextMenu {
@@ -175,7 +175,7 @@ struct ReadingView: View {
                 Text(bookError).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading).padding(10)
             }
             ScrollView {
-                LazyVStack(spacing: 6) {
+                LazyVStack(spacing: 0) {
                     ForEach(Array(bookResults.enumerated()), id: \.offset) { _, info in
                         Button { addFoundBook(info) } label: {
                             HStack(spacing: 10) {
@@ -190,7 +190,7 @@ struct ReadingView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(8).contentShape(Rectangle())
-                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .sbRowSeparator(leading: DS.Space.m)
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
@@ -276,7 +276,7 @@ struct BookCard: View {
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(10).contentShape(Rectangle())
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: 10))
+        .sbRowSeparator(leading: DS.Space.m)
     }
 }
 

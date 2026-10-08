@@ -252,7 +252,7 @@ struct TodayView: View {
                 else if isNext { Chip("Next", .status(.week)) }
             }
             .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .sbRowSeparator(leading: DS.Space.m)
         }.buttonStyle(.plain)
     }
 
@@ -272,7 +272,7 @@ struct TodayView: View {
                 if !label.isEmpty { Chip(label, .status(status)) }
             }
             .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .sbRowSeparator(leading: DS.Space.m)
         }.buttonStyle(.plain)
         .contextMenu {
             Button { plan(a) } label: { Label("Add to today's plan", systemImage: "calendar.badge.plus") }
@@ -537,9 +537,9 @@ struct TodayView: View {
     }
 
     @ViewBuilder private func section<C: View>(_ title: String, _ count: Int, _ icon: String, @ViewBuilder _ c: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: title, count: count, systemImage: icon)
-            c()
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title: title, count: count, systemImage: icon).padding(.bottom, DS.Space.s)
+            c()   // plain rows: a hairline apart, not a gap
         }
     }
 }

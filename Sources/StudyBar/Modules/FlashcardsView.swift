@@ -118,7 +118,7 @@ struct FlashcardsView: View {
                                    action: state.data.notes.isEmpty ? nil : { making = .init() })
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 6) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(decks) { deck in
                                     NavigationLink(value: deck) { deckRow(deck) }.buttonStyle(.plain)
                                 }
@@ -152,7 +152,7 @@ struct FlashcardsView: View {
                        subtitle: "Fronts, backs and tags of every deck are searched.")
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     Text("\(cards.count) card\(cards.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
                     ForEach(cards.prefix(200)) { card in
                         Button { editing = card } label: {
@@ -167,7 +167,7 @@ struct FlashcardsView: View {
                                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                             }
                             .padding(DS.Space.m).contentShape(Rectangle())
-                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .sbRowSeparator(leading: DS.Space.m)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -194,7 +194,7 @@ struct FlashcardsView: View {
             if due > 0 { Chip("\(due) due", .status(.week)) }
             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(DS.Space.m).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .padding(DS.Space.m).sbRowSeparator(leading: DS.Space.m)
     }
 
     private func addDeck() {

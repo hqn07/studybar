@@ -138,14 +138,17 @@ struct Chip: View {
 
 // MARK: - SBRow — the canonical list item
 
-/// Icon · title · subtitle · trailing. One height, one radius, one surface.
-/// Every module's list row should be this.
+/// Icon · title · subtitle · trailing — a plain line, not a card: no fill, a hairline below,
+/// the surface only under the pointer. Every module's list row should be this (or carry
+/// `.sbRowSeparator()` when its layout is its own). Cards are for things you pick up and act on.
 struct SBRow<Trailing: View>: View {
     var systemImage: String? = nil
     let title: String
     var subtitle: String? = nil
     var iconTint: Color = .accentColor
+    var separator = true
     @ViewBuilder var trailing: () -> Trailing
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 11) {
@@ -166,15 +169,33 @@ struct SBRow<Trailing: View>: View {
             Spacer(minLength: DS.Space.s)
             trailing()
         }
-        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.m + 1)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.sbSurfaceStroke, lineWidth: 0.5))
+        .padding(DS.Space.m)
+        .background(hovering ? AnyShapeStyle(.sbSurface) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .modifier(RowSeparator(leading: separator ? DS.Space.m + (systemImage == nil ? 0 : 30 + 11) : nil))
     }
 }
 extension SBRow where Trailing == EmptyView {
-    init(systemImage: String? = nil, title: String, subtitle: String? = nil, iconTint: Color = .accentColor) {
-        self.init(systemImage: systemImage, title: title, subtitle: subtitle, iconTint: iconTint) { EmptyView() }
+    init(systemImage: String? = nil, title: String, subtitle: String? = nil, iconTint: Color = .accentColor, separator: Bool = true) {
+        self.init(systemImage: systemImage, title: title, subtitle: subtitle, iconTint: iconTint, separator: separator) { EmptyView() }
     }
+}
+
+/// The hairline under a list row, inset to where its text starts.
+private struct RowSeparator: ViewModifier {
+    let leading: CGFloat?
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottom) {
+            if let leading { Divider().padding(.leading, leading) }
+        }
+    }
+}
+
+extension View {
+    /// The list-row hairline for a row whose layout `SBRow` can't express.
+    func sbRowSeparator(leading: CGFloat = 0) -> some View { modifier(RowSeparator(leading: leading)) }
 }
 
 // MARK: - SectionHeader — collapsible group label

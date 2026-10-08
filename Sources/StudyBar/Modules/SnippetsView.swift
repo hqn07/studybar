@@ -202,7 +202,7 @@ struct SnippetRow: View {
             .help("Copy (expands placeholders)")
             .accessibilityLabel(copied ? "Copied" : "Copy snippet")
         }
-        .padding(.horizontal, DS.Space.xs).padding(.vertical, DS.Space.m)
+        .padding(.horizontal, DS.Space.xs).padding(.vertical, DS.Space.m).sbRowSeparator()
         .contentShape(Rectangle())
         .onTapGesture(perform: onEdit)   // the row edits; copy is the one explicit control
     }

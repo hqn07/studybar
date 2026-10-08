@@ -138,7 +138,7 @@ struct AssignmentsView: View {
                     } else {
                         ScrollViewReader { proxy in
                             ScrollView {
-                                LazyVStack(spacing: DS.Space.s) {
+                                LazyVStack(spacing: 0) {
                                     ForEach(list) { a in
                                         AssignmentRow(assignment: a) { editing = a }
                                             .kbSelected(a.id == selectedID)
@@ -410,7 +410,7 @@ struct AssignmentRow: View {
                 .accessibilityLabel("Edit assignment")
         }
         .padding(DS.Space.m)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .sbRowSeparator(leading: DS.Space.m)
         .contextMenu {
             Button { toggleDone() } label: {
                 Label(done ? "Mark not done" : "Mark done", systemImage: done ? "arrow.uturn.backward" : "checkmark")

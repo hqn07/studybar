@@ -292,7 +292,7 @@ struct NotesView: View {
                 notesEmptyState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 6) {
+                    LazyVStack(spacing: 0) {
                         ForEach(notesSections, id: \.id) { sec in
                             if let t = sec.title { sectionHeader(t) }
                             ForEach(sec.notes) { n in NoteRow(note: n, showCreated: sort == .created) { editing = OpenNote(note: n, preview: true) } }
@@ -334,7 +334,7 @@ struct NotesView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 6) {
+                        LazyVStack(spacing: 0) {
                             ForEach(notesSections, id: \.id) { sec in
                                 if let t = sec.title { sectionHeader(t) }
                                 ForEach(sec.notes) { n in
@@ -503,7 +503,7 @@ struct NoteRow: View {
                 .padding(DS.Space.m)
             }
             .contentShape(Rectangle())
-            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.sbSurface),
+            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear),
                         in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay {
                 if selected {
@@ -511,6 +511,7 @@ struct NoteRow: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))   // clip the spine to the card corners
+            .sbRowSeparator(leading: DS.Space.m)
         }.buttonStyle(.plain)
     }
 

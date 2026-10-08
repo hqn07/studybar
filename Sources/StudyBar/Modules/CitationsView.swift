@@ -52,7 +52,7 @@ struct CitationsView: View {
                                    subtitle: state.data.references.isEmpty ? "Type a paper/book title above to search, or paste a DOI, URL or ISBN." : "Try a different search.")
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 6) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(references) { r in
                                     ReferenceRow(reference: r, style: style) { editing = r }
                                 }
@@ -198,7 +198,7 @@ struct CitationsView: View {
                 Button("Clear") { searchResults = []; grabText = "" }.font(.caption).buttonStyle(.borderless)
             }.padding(.horizontal, 12).padding(.vertical, 6)
             ScrollView {
-                LazyVStack(spacing: 6) {
+                LazyVStack(spacing: 0) {
                     ForEach(searchResults) { r in
                         Button { editing = r; searchResults = []; grabText = "" } label: {
                             HStack(spacing: 8) {
@@ -212,7 +212,7 @@ struct CitationsView: View {
                                 Image(systemName: "plus.circle.fill").foregroundStyle(.tint)
                             }
                             .padding(9).contentShape(Rectangle())
-                            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                            .sbRowSeparator(leading: DS.Space.m)
                         }.buttonStyle(.plain)
                     }
                 }.padding(10)
@@ -258,7 +258,7 @@ struct ReferenceRow: View {
             }.font(.caption)
         }
         .padding(DS.Space.m)
-        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .sbRowSeparator(leading: DS.Space.m)
     }
 
     // Strip markdown emphasis markers for plain display/copy.
