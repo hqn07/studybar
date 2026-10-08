@@ -9,6 +9,11 @@ this project uses [semantic versioning](https://semver.org).
 - **A shorter, quieter sidebar** — modules sit in four groups — Plan, Capture, Study and Tools — with Settings at the bottom, and headers only where a group is big enough to need one. The short starter list has none at all.
 - **Numbers you can read at a glance, and no empty ones** — the term summary in Courses and the numbers in Insights are now large and plain, without a box around each. A number with nothing in it yet — no GPA before a grade, a streak of 0 — is left out instead of shown as "0" or "—"; if a whole row is empty it says so in one line.
 - **Course cards that say one thing** — each card shows the most useful fact about the course: what's overdue, else its next class (when it has a grade), else what's due next, or "Nothing due this week". The grade shows only when there is one; the empty rings and chips are gone.
+- **One toolbar row** — each screen's title and buttons now sit up in the window's title bar beside the traffic lights, with the search field always in the same spot on the right — one row of chrome instead of two. Drag the empty part of the bar to move the window. New Tab, New Window and Quit moved to the ⋯ beside Settings at the bottom of the sidebar.
+- **One clear button, the rest in ⋯** — every screen has at most one labeled action — *New*, *Review 24*, *Plan my day* — and everything used now and then is in the ⋯ menu beside the title, with words instead of unlabeled icons.
+- **Calmer lists** — assignments, notes, links, books, decks, citations and snippets are plain rows with a thin line between them instead of a box around each; cards are kept for courses, Today's top item and Insights.
+- **Counts you can click** — Assignments shows *14 this week · 2 overdue · 34 all* as large numbers; click one to see those. Flashcards opens on how many cards are due and your retention, with *Review* one click away.
+- **Today on one screen** — in a wide window, Today shows the one thing worth a head start beside your next class, what's due, cards due and focus so far, then today and the rest of the week side by side. The menu-bar view stays a single column.
 
 ## [2.8.1] — 2026-10-08
 
