@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.8.0] — 2026-10-07
 
 - **Study notes you can actually read** — notes from a lecture are now written for someone who missed the class: plain words, short paragraphs that explain how one idea leads to the next, and each formula shown once where it's explained, followed by what it means *in words*. The lecture's examples, demos and practice questions are worked step by step to the answer. The ideas that matter most stand out in a blue *Key idea* box, and mistakes the lecturer warns about in an orange *Watch out* box. Each note opens with an *In short* summary.
 - **No more extras you didn't ask for** — the notes no longer end with a formula list, likely exam questions or a review. Ask for them in *Focus* when you want them. Homework and deadlines the lecturer announced are still listed at the end, so they can go into Assignments.
