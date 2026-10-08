@@ -3,7 +3,9 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.7.0] — 2026-10-07
+
+- **Fixed: Save out of reach after a long lecture** — the *So far* summary grew every few minutes, and after a long lecture it pushed the transcript and *Save as note* below the window, with no way to scroll to them. It now keeps to a box that follows the newest points, folds away when you stop recording, and Voice Note scrolls if anything else doesn't fit. (Nothing was lost: an unsaved recording comes back with *Recover* after reopening StudyBar.)
 
 - **Image cards** — make flashcards from a picture: a labelled diagram, a map, a slide, a photo of the board. Drag over the parts you want to learn, or click *Cover the Labels* and every word on the picture is covered, with its text as the answer. Each part becomes a card: in review the part asked about is orange, the others grey, and the answer outlines it. Find it as *Picture…* beside *Add card* in a deck, *From a picture…* on the Flashcards screen, *Cover parts* under a PDF slide beside its note, or *Make Image Cards…* after grabbing part of the screen. Pictures come from a file, the clipboard, part of the screen, or a photo taken with your iPhone.
 
