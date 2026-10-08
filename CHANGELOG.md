@@ -3,6 +3,10 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [2.8.1] — 2026-10-08
+
+- **Fixed: Study notes sheet slid off the screen** — when a lecture's notes held a long formula, the *Study notes* sheet grew wider than itself, its edges went off screen and *Replace the note* couldn't be reached. A formula now shrinks to fit, in the sheet and in the note.
+
 ## [2.8.0] — 2026-10-07
 
 - **Study notes you can actually read** — notes from a lecture are now written for someone who missed the class: plain words, short paragraphs that explain how one idea leads to the next, and each formula shown once where it's explained, followed by what it means *in words*. The lecture's examples, demos and practice questions are worked step by step to the answer. The ideas that matter most stand out in a blue *Key idea* box, and mistakes the lecturer warns about in an orange *Watch out* box. Each note opens with an *In short* summary.
