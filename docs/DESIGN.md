@@ -25,8 +25,9 @@ it matters (see *Surfaces*):
 
 - **Radius** — `control 6` (pills/buttons) · `card 10` (rows/panels) · `modal 14` (overlays). Nothing else.
 - **Space** — base-4 step: `xs 4 · s 6 · m 8 · l 12 · xl 16`.
+- **Width** — `content 1200` caps a module's lists and dashboards on a wide window · `prose 680` is the reading measure for running text (notes, tutor answers, study guides, articles; the note editor's text matches it) · `form 760` is for question-and-answer layouts (quizzes, progress, glossary). Lists and grids are fluid up to `content`; only prose keeps a measure.
 - **Color** — one accent (`.tint`; the system accent, or a theme preset — see *Customization*). Semantic colors are **state only**: `.dsNow` (red) · `.dsWeek` (orange) · `.dsDone` (teal). Never use them as decoration.
-- **Type** — one 3-role scale: `title3/semibold` module titles · `callout/medium` row titles · `caption` secondary/preview · `caption2 mono` labels & keywords.
+- **Type** — one 3-role scale: `title3/semibold` module titles · `callout/medium` row titles · `caption` secondary/preview · `caption2 mono` labels & keywords. Plus `Font.dsGlance` (26 pt rounded semibold) for a number worth seeing at a glance.
 
 ## Components
 
@@ -36,6 +37,7 @@ Compose these — do not hand-roll a new chip/row/radius/spacing.
 - **`SBRow`** — icon · title · subtitle · trailing. The canonical list item; one height, one radius, one surface.
 - **`SectionHeader(title:count:systemImage:)`** — uppercase group label + count; pair with `DisclosureGroup` for collapsible groups.
 - **`.dsCard()`** — standard panel surface (card radius + secondary background).
+- **`GlanceRow(stats:emptyText:)`** of **`GlanceStat(value:label:isEmpty:)`** — numbers that matter, value over label in `dsGlance`, no tile around them. **Zeros are hidden:** mark a zero or missing value `isEmpty` and it's left out rather than drawn as "0" or "—"; when every stat is empty the row says so in one line (`emptyText`) or draws nothing.
 - **`ConfirmCard`** (existing) — every inline confirm/prompt. No sheets/alerts/color panels (they dismiss the popover).
 - **`EmptyState`** (existing, `ContentUnavailableView`) — every module ships one with a next action.
 - **Buttons** — native styles, mapped: primary `.borderedProminent` · secondary `.bordered` · ghost `.borderless` (tinted) · danger `role: .destructive`.
@@ -49,6 +51,13 @@ Compose these — do not hand-roll a new chip/row/radius/spacing.
 5. **Three radii, one grid.** 6 / 10 / 14; spacing on the base-4 scale; nothing off-grid.
 6. **Native materials & motion.** System vibrancy, SF Symbols at one weight, one spring for reveals (folds, flips).
 7. **Earn the empty state.** Real `EmptyState` with a next action — never a blank pane.
+
+## The window's frame
+
+- **Every module header spans the pane.** `ModuleInfo.wide` means *spatial* — two-pane editors, calendars, boards (Notes, Schedule, Calendar, Study, Board, Settings) fill the pane; every other module's content sits in a column capped at `DS.Width.content`, centered, under a header that still spans. `ModulePane` applies the cap from the environment, so the popover is never capped.
+- **Grids grow columns, not rows.** Use `GridItem(.adaptive(minimum:))` so a wide window adds a column (Courses: 2 at the narrowest, 4 at 1200; Insights' cards: 1 → 2) instead of stretching one row across the screen.
+- **The sidebar** has four groups — Plan, Capture, Study, Tools — with Settings pinned at the bottom. A group gets a header only when it has three or more rows and more than eight modules show (`SidebarLayout`, pinned by `--design-selftest`); unselected rows are secondary, so navigation recedes and the work stays in focus.
+- **Check every screen before a release:** `scripts/module-audit.sh <out-dir>` renders every module at 720 / 1280 / 1680 pt in dark and light, each on an empty store, and the popover, with an `index.html` to look through. It runs from a test copy with its own preferences and throwaway data.
 
 ## Surfaces
 

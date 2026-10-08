@@ -3,6 +3,13 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **A wide window uses its width** — every module's title bar now runs the full width of the window, and lists and dashboards widen with it up to a comfortable column instead of sitting in a narrow strip. Courses adds a column as the window grows (four on a wide screen) and Insights puts its cards side by side. Notes, study guides and tutor answers keep a readable line length.
+- **A shorter, quieter sidebar** — modules sit in four groups — Plan, Capture, Study and Tools — with Settings at the bottom, and headers only where a group is big enough to need one. The short starter list has none at all.
+- **Numbers you can read at a glance, and no empty ones** — the term summary in Courses and the numbers in Insights are now large and plain, without a box around each. A number with nothing in it yet — no GPA before a grade, a streak of 0 — is left out instead of shown as "0" or "—"; if a whole row is empty it says so in one line.
+- **Course cards that say one thing** — each card shows the most useful fact about the course: what's overdue, else its next class (when it has a grade), else what's due next, or "Nothing due this week". The grade shows only when there is one; the empty rings and chips are gone.
+
 ## [2.8.1] — 2026-10-08
 
 - **Fixed: Study notes sheet slid off the screen** — when a lecture's notes held a long formula, the *Study notes* sheet grew wider than itself, its edges went off screen and *Replace the note* couldn't be reached. A formula now shrinks to fit, in the sheet and in the note.
