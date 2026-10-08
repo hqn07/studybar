@@ -115,6 +115,15 @@ enum DesignSelfTest {
         check("g2 the selected filter stays even at zero",
               GlanceFilter.shown([item("week", 0), item("overdue", 0, true)]).map(\.id), ["overdue"])
 
+        // Today's brief: four glance tiles, each left out when it has nothing to say.
+        check("t1 all tiles", TodayBrief.tiles(nextClass: ("12:50", "PHY2049 · in 35 min"), dueWeek: 12, dueToday: 3, cardsDue: 24,
+                                               focusSeconds: 4800).map(\.value),
+              ["12:50", "12", "24", "1h 20m"])
+        check("t2 zeros drop", TodayBrief.tiles(nextClass: nil, dueWeek: 12, dueToday: 0, cardsDue: 0, focusSeconds: 0).map(\.label),
+              ["due this week"])
+        check("t3 nothing at all", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 0).count, 0)
+        check("t4 short focus", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 2700).map(\.value), ["45m"])
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }

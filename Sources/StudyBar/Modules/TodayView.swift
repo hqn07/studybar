@@ -62,7 +62,18 @@ struct TodayView: View {
                                          help: "Block study time for today's work — you check the plan before it's added",
                                          disabled: planLoading || (focus == nil && next7.isEmpty)) { generatePlan() },
                    controls: { headerAccessory }) {
-            ScrollView {
+            // Wide (the window): one screen — the next thing, glance tiles, the day and the
+            // week. Narrow (the popover, a split pane): the single column.
+            GeometryReader { geo in
+                ScrollView {
+                    if geo.size.width >= 900 { brief(width: geo.size.width) } else { column }
+                }
+            }
+        }
+        .task(id: focus?.id) { await refreshAILine() }
+    }
+
+    private var column: some View {
                 VStack(alignment: .leading, spacing: DS.Space.l) {
                     // First thing on the surface, and focused when the popover opens: a
                     // student reaching for the menu bar mid-lecture wants to type, not to
@@ -84,9 +95,101 @@ struct TodayView: View {
                         }
                     }
                 }.padding(DS.Space.l)
+    }
+
+    // MARK: - The brief (wide)
+
+    private func brief(width: CGFloat) -> some View {
+        let third = (width - 2 * DS.Space.l - 2 * DS.Space.l) / 3
+        let tiles = briefTiles
+        let dueToday = state.data.assignments.filter { $0.isOpen && $0.daysUntilDue == 0 }
+            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+        let later = next7.filter { $0.daysUntilDue != 0 }
+        return VStack(alignment: .leading, spacing: DS.Space.l) {
+            quickAddBlock
+            if !overdue.isEmpty { overdueBanner }
+            HStack(alignment: .top, spacing: DS.Space.l) {
+                heroCard.frame(maxWidth: .infinity, alignment: .topLeading)
+                if !tiles.isEmpty {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.Space.l), GridItem(.flexible())], spacing: DS.Space.l) {
+                        ForEach(tiles) { tile($0) }
+                    }
+                    .frame(width: third)
+                }
             }
+            HStack(alignment: .top, spacing: DS.Space.l) {
+                // The day by time: classes (the past ones faded), then what's due today.
+                VStack(alignment: .leading, spacing: 0) {
+                    if !todayClasses.isEmpty || !dueToday.isEmpty {
+                        section("Today", todayClasses.count + dueToday.count, "clock") {
+                            ForEach(todayClasses) { c in classRow(c).opacity(c.endMinutes < nowMinutes ? 0.45 : 1) }
+                            ForEach(dueToday) { assignmentRow($0) }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 0) {
+                    if !later.isEmpty {
+                        // Six rows keep the brief to one screen; the rest are a click away.
+                        section("Next 7 days", later.count, "calendar") {
+                            ForEach(later.prefix(6)) { assignmentRow($0) }
+                            if later.count > 6 {
+                                Button {
+                                    UserDefaults.standard.set(AssignmentScope.week.rawValue, forKey: "assignmentScope")
+                                    state.selectedModuleID = "assignments"
+                                } label: {
+                                    Text("\(later.count - 6) more this week").font(.caption)
+                                }
+                                .buttonStyle(.borderless).padding(.top, DS.Space.s)
+                            }
+                        }
+                    }
+                }
+                .frame(width: third, alignment: .topLeading)
+            }
+            planSection
+            wrapUpSection
         }
-        .task(id: focus?.id) { await refreshAILine() }
+        .padding(DS.Space.l)
+    }
+
+    private var briefTiles: [TodayBrief.Tile] {
+        let open = state.data.assignments.filter(\.isOpen)
+        let next = nextClass.map { c -> (time: String, detail: String) in
+            let code = state.course(c.courseID).map { $0.code.isEmpty ? $0.name : $0.code } ?? c.title
+            let until = c.startMinutes - nowMinutes
+            let when: String? = inSession(c) ? "now" : (until > 0 && until < 60 ? "in \(until) min" : nil)
+            return (c.startString, [code, when, c.room.isEmpty ? nil : c.room].compactMap { $0 }.joined(separator: " · "))
+        }
+        return TodayBrief.tiles(nextClass: next,
+                                dueWeek: open.filter { (0...7).contains($0.daysUntilDue ?? -1) }.count,
+                                dueToday: open.filter { $0.daysUntilDue == 0 }.count,
+                                cardsDue: StudyStats.cardsDueToday(state.data),
+                                focusSeconds: StudyStats.secondsToday(state.data))
+    }
+
+    private func tile(_ t: TodayBrief.Tile) -> some View {
+        Button {
+            switch t.kind {
+            case .nextClass: state.selectedModuleID = "schedule"
+            case .due:
+                UserDefaults.standard.set(AssignmentScope.week.rawValue, forKey: "assignmentScope")
+                state.selectedModuleID = "assignments"
+            case .cards: state.selectedModuleID = "flashcards"
+            case .focus: state.selectedModuleID = "timefocus"
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(t.value).font(.dsGlance).lineLimit(1).minimumScaleFactor(0.7)
+                Text(t.label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+            .padding(DS.Space.l)
+            .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
     }
 
     /// Fetch the AI hero line for the current focus item (falls back silently to `reason`).
@@ -521,7 +624,7 @@ struct TodayView: View {
                 .buttonStyle(.plain)
                 .help("Weekly study goal — \(StudyGoal.label(StudyStats.secondsThisWeek(state.data) / 60)) of \(StudyGoal.label(weeklyGoal))")
             }
-            streakChip
+            if streak > 0 { streakChip }   // a 0-day streak says nothing (B6)
         }
     }
 
@@ -541,5 +644,32 @@ struct TodayView: View {
             SectionHeader(title: title, count: count, systemImage: icon).padding(.bottom, DS.Space.s)
             c()   // plain rows: a hairline apart, not a gap
         }
+    }
+}
+
+/// Today's glance tiles in the window: the next class, what's due, cards due, focus so far — each
+/// left out when it has nothing to say (B6), so a quiet day shows the hero alone. Pure.
+enum TodayBrief {
+    struct Tile: Identifiable {
+        enum Kind { case nextClass, due, cards, focus }
+        let kind: Kind
+        let value: String
+        let label: String
+        var id: Kind { kind }
+    }
+
+    static func tiles(nextClass: (time: String, detail: String)?, dueWeek: Int, dueToday: Int, cardsDue: Int,
+                      focusSeconds: Int) -> [Tile] {
+        var out: [Tile] = []
+        if let c = nextClass { out.append(Tile(kind: .nextClass, value: c.time, label: c.detail)) }
+        if dueWeek > 0 {
+            out.append(Tile(kind: .due, value: "\(dueWeek)", label: dueToday > 0 ? "due this week · \(dueToday) today" : "due this week"))
+        }
+        if cardsDue > 0 { out.append(Tile(kind: .cards, value: "\(cardsDue)", label: "flashcards due")) }
+        if focusSeconds >= 60 {
+            let h = focusSeconds / 3600, m = (focusSeconds % 3600) / 60
+            out.append(Tile(kind: .focus, value: h > 0 ? "\(h)h \(m)m" : "\(m)m", label: "focused today"))
+        }
+        return out
     }
 }
