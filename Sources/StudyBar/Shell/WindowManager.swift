@@ -20,6 +20,12 @@ final class WindowModel: ObservableObject {
     /// Whether this window shows a tab bar. The header is drawn up into the titlebar strip;
     /// with a tab bar there too, it would sit under the tabs.
     @Published var tabBar = false
+    /// What the toolbar field narrows the left pane's list to; cleared when the module changes.
+    @Published var filter = ListFilter()
+    /// A request for the filter field to take focus (/ and ⌘F in a list); the field clears it.
+    @Published var focusFilter = false
+    /// Bumped to hand focus to the left pane's list (↩ in the field with no suggestion).
+    @Published var listFocusRequest = 0
     static let chat = "chat"
 
     init(moduleID: String, rightID: String? = nil) {

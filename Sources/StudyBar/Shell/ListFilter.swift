@@ -56,3 +56,35 @@ extension EnvironmentValues {
         set { self[ListFilterKey.self] = newValue }
     }
 }
+
+private struct ListFocusRequestKey: EnvironmentKey { static let defaultValue = 0 }
+extension EnvironmentValues {
+    /// Changes when the window wants its left pane's list to take the keyboard.
+    var listFocusRequest: Int {
+        get { self[ListFocusRequestKey.self] }
+        set { self[ListFocusRequestKey.self] = newValue }
+    }
+}
+
+/// "3 of 58 notes · Clear · Esc" over a filtered list — the field is far from the list, so the
+/// list says it's narrowed. Nothing when the filter is off.
+struct FilterStatus: View {
+    let shown: Int
+    let total: Int
+    let noun: String
+    @Environment(\.listFilter) private var filter
+    @Environment(\.workspace) private var workspace
+
+    var body: some View {
+        if filter.isActive {
+            HStack(spacing: DS.Space.s) {
+                Text("\(shown) of \(total) \(noun)")
+                Spacer(minLength: DS.Space.s)
+                Button("Clear · Esc") { workspace?.filter = ListFilter() }
+                    .buttonStyle(.borderless)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
+        }
+    }
+}

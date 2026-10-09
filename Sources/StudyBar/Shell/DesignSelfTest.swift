@@ -184,6 +184,9 @@ enum DesignSelfTest {
         check("f6 empty text suggests nothing", ListFilter.suggestions(for: "  ", courses: cs), [])
         check("f7 a deleted course's token is dropped", f.pruned(courses: [cwr]).course, nil)
         check("f8 no course", ListFilter.suggestions(for: "no c", courses: cs), [.noCourse, .searchEverywhere("no c")])
+        check("f9 the field widens while it's in use, not in a narrow window",
+              [RootView.searchWidth(narrow: false, expanded: false), RootView.searchWidth(narrow: false, expanded: true),
+               RootView.searchWidth(narrow: true, expanded: true)], [180, 280, 120])
 
         // Today's hero: the heavy deliverable a few days out beats the quick quiz due tomorrow.
         var heroData = AppData()

@@ -30,6 +30,7 @@ struct RootView: View {
     @AppStorage("breakScreen") private var breakScreen = true
     @State private var showPalette = false
     @State private var showShortcuts = false
+    @State private var filterExpanded = false
 
     private var inBreak: Bool {
         state.pomodoro.running &&
@@ -65,7 +66,15 @@ struct RootView: View {
             }
             // Focus mode belongs to writing. Leaving Notes with the chrome hidden would
             // strand a module with no rail, no header and no button to bring them back.
-            .onChange(of: win.moduleID) { _, id in if id != "notes" { state.focusMode = false } }
+            .onChange(of: win.moduleID) { _, id in
+                if id != "notes" { state.focusMode = false }
+                win.filter = ListFilter()   // a filter belongs to the list it was typed over
+            }
+            // A token for a course that was just deleted would leave the list empty.
+            .onChange(of: state.data.courses) { _, cs in
+                let p = win.filter.pruned(courses: cs)
+                if p != win.filter { win.filter = p }
+            }
             // Drive the window appearance at the AppKit level so switching to "Device"
             // reliably re-follows the system (preferredColorScheme(nil) alone doesn't).
             .onChange(of: appearance) { _, _ in applyAppearanceSetting() }
@@ -215,9 +224,12 @@ struct RootView: View {
     private func titlebarLeading(sidebarWidth: CGFloat) -> CGFloat {
         state.focusMode ? (win.tabBar ? 0 : 78) : max(0, toggleX + 34 - sidebarWidth)
     }
-    /// The search field: narrower in a narrow window, so the module's title keeps its room.
-    /// The row leaves it the field plus 12 pt of edge and 12 pt of gap.
-    private static func searchWidth(narrow: Bool) -> CGFloat { narrow ? 120 : 180 }
+    /// The search field: narrower in a narrow window, so the module's title keeps its room, and
+    /// wider while a list's filter is in use (focused, or holding a course token). The row
+    /// leaves it the field plus 12 pt of edge and 12 pt of gap.
+    static func searchWidth(narrow: Bool, expanded: Bool = false) -> CGFloat { narrow ? 120 : (expanded ? 280 : 180) }
+    /// The toolbar field filters the left module's list (not while search results are showing).
+    private var filtering: Bool { state.globalSearch.isEmpty && (ModuleRegistry.info(win.moduleID)?.filters ?? false) }
 
     // MARK: Content
 
@@ -230,6 +242,8 @@ struct RootView: View {
             HStack(spacing: 0) {
                 pane(win.moduleID)
                     .environment(\.isPrimaryPane, true)
+                    .environment(\.listFilter, win.filter.pruned(courses: state.data.courses))
+                    .environment(\.listFocusRequest, win.listFocusRequest)
                     // The search field sits over the right pane when there is one.
                     .transformEnvironment(\.titlebarTrailing) { if win.rightID != nil { $0 = 0 } }
                     .onPreferenceChange(StudyFocusKey.self) { f in win.focus = f }
@@ -324,7 +338,7 @@ struct RootView: View {
                     }
                 }
                 .environment(\.titlebarLeading, titlebarLeading(sidebarWidth: sidebarWidth))
-                .environment(\.titlebarTrailing, Self.searchWidth(narrow: forced) + 24)
+                .environment(\.titlebarTrailing, Self.searchWidth(narrow: forced, expanded: filtering && filterExpanded) + 24)
             }
             // Fixed in the row whatever the module: the toggle past the lights, search at the
             // right edge — one search field, so typing never loses it when results replace the module.
@@ -333,8 +347,17 @@ struct RootView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if !state.focusMode {
-                    SearchField(text: $state.globalSearch).frame(width: Self.searchWidth(narrow: forced))
-                        .frame(height: Self.rowHeight).padding(.trailing, 12)
+                    Group {
+                        if filtering, let m = ModuleRegistry.info(win.moduleID) {
+                            FilterField(win: win, courses: state.data.courses, placeholder: "Filter \(m.title.lowercased())",
+                                        expanded: $filterExpanded)
+                        } else {
+                            SearchField(text: $state.globalSearch)
+                        }
+                    }
+                    .frame(width: Self.searchWidth(narrow: forced, expanded: filtering && filterExpanded))
+                    .frame(height: Self.rowHeight).padding(.trailing, 12)
+                    .animation(.snappy(duration: 0.2), value: filterExpanded)
                 }
             }
             .animation(.snappy(duration: 0.28), value: railed)

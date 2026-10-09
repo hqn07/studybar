@@ -19,6 +19,8 @@ struct ModuleInfo: Identifiable {
     /// module's content sits in a column capped at `DS.Width.content`. The header spans
     /// either way (see RootView.pane and ModulePane).
     var wide: Bool = false
+    /// A list module: the toolbar field filters its list instead of searching everywhere.
+    var filters: Bool = false
     let make: () -> AnyView
 }
 
@@ -34,7 +36,7 @@ enum ModuleRegistry {
         // (AssistantPanel, opened via ⌘K / AppActions.assistant). Cross-object AI jobs live
         // there; inline edits stay on the object (the ✨ menus). AssistantView/Chat is reused.
         .init(id: "assignments", title: "Assignments", symbol: "checklist",
-              category: .plan) { AnyView(AssignmentsView()) },
+              category: .plan, filters: true) { AnyView(AssignmentsView()) },
         .init(id: "schedule", title: "Schedule", symbol: "calendar.day.timeline.left",
               category: .plan, wide: true) { AnyView(ScheduleView()) },
         .init(id: "calendar", title: "Calendar", symbol: "calendar",
@@ -46,30 +48,30 @@ enum ModuleRegistry {
 
         // Capture
         .init(id: "notes", title: "Notes", symbol: "note.text",
-              category: .capture, wide: true) { AnyView(NotesView()) },
+              category: .capture, wide: true, filters: true) { AnyView(NotesView()) },
         .init(id: "voice", title: "Voice Note", symbol: "mic",
               category: .capture) { AnyView(VoiceView()) },
         // Snippets — managed from Settings ▸ Snippets; kept off the starter sidebar. The
         // expansion engine (keyword typing + system Services) runs regardless.
         .init(id: "snippets", title: "Snippets", symbol: "text.badge.plus",
-              category: .capture) { AnyView(SnippetsView()) },
+              category: .capture, filters: true) { AnyView(SnippetsView()) },
 
         // Study
         .init(id: "study", title: "Study", symbol: "brain.head.profile",
               category: .study, wide: true) { AnyView(StudyModuleView()) },
         .init(id: "flashcards", title: "Flashcards", symbol: "rectangle.on.rectangle.angled",
-              category: .study) { AnyView(FlashcardsView()) },
+              category: .study, filters: true) { AnyView(FlashcardsView()) },
         .init(id: "reading", title: "Reading", symbol: "book",
-              category: .study) { AnyView(ReadingView()) },
+              category: .study, filters: true) { AnyView(ReadingView()) },
         .init(id: "library", title: "Library", symbol: "books.vertical",
-              category: .study) { AnyView(LibraryView()) },
+              category: .study, filters: true) { AnyView(LibraryView()) },
         // Time & Focus (unified: Pomodoro · Stopwatch · Focus · History + ambient noise)
         .init(id: "timefocus", title: "Time & Focus", symbol: "timer",
               category: .study) { AnyView(TimeFocusView()) },
 
         // Tools
         .init(id: "citations", title: "Citations", symbol: "quote.opening",
-              category: .tools) { AnyView(CitationsView()) },
+              category: .tools, filters: true) { AnyView(CitationsView()) },
         .init(id: "wordcount", title: "Word Count", symbol: "textformat",
               category: .tools) { AnyView(WordCountView()) },
         .init(id: "math", title: "Math", symbol: "function",
