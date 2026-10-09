@@ -29,13 +29,48 @@ enum ModuleColumn {
         guard let cap else { return nil }
         return min(requested ?? cap, cap)
     }
+
+    /// The pane's empty margin either side of a centred column. Pure.
+    static func margin(pane: CGFloat, column: CGFloat?) -> CGFloat {
+        column.map { max(0, (pane - $0) / 2) } ?? 0
+    }
 }
 
 private struct ModuleColumnModifier: ViewModifier {
     let width: CGFloat?
     @Environment(\.moduleContentCap) private var cap
+    /// True only for a page pushed in the window's left pane (ModulePane turns it off for its
+    /// own content): that page's header is the toolbar row.
+    @Environment(\.isPrimaryPane) private var isPrimaryPane
+    @Environment(\.titlebarLeading) private var leading
+    @Environment(\.titlebarTrailing) private var trailing
+    @State private var pane: CGFloat = 0
+
     func body(content: Content) -> some View {
-        content.frame(maxWidth: ModuleColumn.width(width, cap: cap) ?? .infinity).frame(maxWidth: .infinity)
+        let column = ModuleColumn.width(width, cap: cap)
+        let margin = ModuleColumn.margin(pane: pane, column: column)
+        content
+            // The lights and the search field sit at the pane's edges: the header keeps room
+            // only for the part of them that reaches over the column.
+            .environment(\.titlebarLeading, max(0, leading - margin))
+            .environment(\.titlebarTrailing, max(0, trailing - margin))
+            .frame(maxWidth: column ?? .infinity).frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pane = $0 }
+            // A column narrower than the pane: the toolbar row and its hairline still span it,
+            // and its empty margins still drag the window.
+            .background(alignment: .top) {
+                if isPrimaryPane && margin > 0 {
+                    // The hairline only beside the column: under it the page draws its own.
+                    VStack(spacing: 0) {
+                        WindowDragArea().frame(height: 44)
+                        HStack(spacing: 0) {
+                            VStack { Divider() }.frame(width: margin)
+                            Spacer(minLength: 0)
+                            VStack { Divider() }.frame(width: margin)
+                        }
+                    }
+                }
+            }
     }
 }
 

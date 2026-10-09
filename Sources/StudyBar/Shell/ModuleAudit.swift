@@ -94,6 +94,11 @@ enum ModuleAudit {
         if let note = state.data.notes.first {
             shoot(pushed(NoteEditor(note: note, startInPreview: true), 720), "pushed", "pushed-note-720-dark.png", CGSize(width: 720, height: height), .darkAqua)
         }
+        // A form is narrower than a wide pane: the toolbar row must still span the pane.
+        if let a = state.data.assignments.first {
+            shoot(pushed(AssignmentEditor(assignment: a).moduleColumn(DS.Width.form), 1280), "pushed", "pushed-form-1280-dark.png",
+                  CGSize(width: 1280, height: height), .darkAqua)
+        }
         shoot(PlanDaySheet(date: Date()).environment(\.isPrimaryPane, true).environment(\.titlebarTrailing, 204),
               "pushed", "sheet-planday-dark.png", CGSize(width: 520, height: 480), .darkAqua)
 
