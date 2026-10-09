@@ -255,6 +255,7 @@ struct RootView: View {
                     // The search field sits over the right pane when there is one.
                     .transformEnvironment(\.titlebarTrailing) { if win.rightID != nil { $0 = 0 } }
                     .onPreferenceChange(StudyFocusKey.self) { f in win.focus = f }
+                    .onPreferenceChange(SelectionKey.self) { s in win.selection = s }
                 if let right = win.rightID {
                     PaneDivider(width: Binding(get: { CGFloat(splitWidth) }, set: { splitWidth = Double($0) }),
                                 range: 320...max(320, geo.size.width - 360), resetTo: 420, inverted: true)

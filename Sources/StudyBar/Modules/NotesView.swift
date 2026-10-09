@@ -720,10 +720,12 @@ struct NoteEditor: View {
             editor.onFixWord = { picked in persist(); fixingWord = .init(find: picked, course: draft.courseID) }
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
+            runPendingAction()
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
         // flushes on teardown (e.g. switching modules from the sidebar).
+        .onChange(of: state.pendingNoteAction) { _, _ in runPendingAction() }
         .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
         .onChange(of: tagText)             { _, _ in scheduleAutosave() }
         .onChange(of: draft.pinned)        { _, _ in scheduleAutosave() }
@@ -1621,6 +1623,19 @@ struct NoteEditor: View {
     }
 
     /// Flashcards from this note — or from what's selected in it, when something is.
+    /// ⌘K or a row's menu asked for something only the open note's editor does.
+    private func runPendingAction() {
+        guard let p = state.pendingNoteAction, p.id == draft.id else { return }
+        state.pendingNoteAction = nil
+        switch p.kind {
+        case .makeCards: cardsFromNote()
+        case .quizMe: quizMe()
+        case .studyNotes: persist(); writingNotes = true
+        case .exportPDF: exportPDF()
+        case .edit: showPreview = false
+        }
+    }
+
     private func cardsFromNote() {
         persist()
         let picked = showPreview ? "" : editor.selectedString.trimmingCharacters(in: .whitespacesAndNewlines)

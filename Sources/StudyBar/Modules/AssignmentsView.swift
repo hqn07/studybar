@@ -423,12 +423,7 @@ struct AssignmentRow: View {
         }
     }
 
-    private func setArchived(_ on: Bool) {
-        state.withUndo(on ? "Archived assignment" : "Restored assignment") {
-            guard let i = state.data.assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
-            state.data.assignments[i].archived = on ? true : nil
-        }
-    }
+    private func setArchived(_ on: Bool) { ItemActions.setArchived(assignment.id, on, state: state) }
 
     @ViewBuilder private var statusChip: some View {
         if !done {
@@ -455,20 +450,8 @@ struct AssignmentRow: View {
         switch days { case 0: return "Today"; case 1: return "1d"; default: return "\(days)d" }
     }
 
-    private func toggleDone() {
-        guard let i = state.data.assignments.firstIndex(where: { $0.id == assignment.id }) else { return }
-        let nowDone = state.data.assignments[i].status != .done
-        state.data.assignments[i].setDone(nowDone)
-        // (12) Recurring: on completion, spawn next week's copy.
-        if nowDone, state.data.assignments[i].recurring, let due = state.data.assignments[i].due {
-            var next = state.data.assignments[i]
-            next.id = UUID()
-            next.status = .todo
-            next.due = Calendar.current.date(byAdding: .day, value: 7, to: due)
-            next.checklist = next.checklist.map { var c = $0; c.done = false; return c }
-            state.data.assignments.append(next)
-        }
-    }
+    /// (12) Recurring: finishing a weekly item adds next week's copy — shared with ⌘K.
+    private func toggleDone() { ItemActions.toggleDone(assignment.id, state: state) }
 
     private func open(_ s: String) {
         guard let url = URL(string: s.contains("://") ? s : "https://\(s)") else { return }

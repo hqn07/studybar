@@ -26,6 +26,8 @@ final class WindowModel: ObservableObject {
     @Published var focusFilter = false
     /// Bumped to hand focus to the left pane's list (↩ in the field with no suggestion).
     @Published var listFocusRequest = 0
+    /// The left pane list's selected row (`SelectionKey`) — what ⌘K offers actions for.
+    @Published var selection: ItemRef?
     static let chat = "chat"
 
     init(moduleID: String, rightID: String? = nil) {

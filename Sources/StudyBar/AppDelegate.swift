@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             exit(StudySnapshot.run(state: state, out: CommandLine.arguments[i + 1]))
         }
         if CommandLine.arguments.contains("--design-selftest") {
-            exit(DesignSelfTest.run())
+            exit(DesignSelfTest.run(state: state))
         }
         if CommandLine.arguments.contains("--switch-bench") {
             exit(SwitchBench.run(state: state))

@@ -4,7 +4,7 @@ import Foundation
 /// sidebar groups get a header, what a course card says. Looks are checked by the module audit.
 enum DesignSelfTest {
     @MainActor
-    static func run() -> Int32 {
+    static func run(state: AppState) -> Int32 {
         // It writes preferences (check 9), and by the time any flag is read the app has built
         // its state from the real data file and preferences: only ever from a test copy.
         guard Bundle.main.bundleIdentifier == "com.studybar.StudyBar.test" else {
@@ -191,6 +191,20 @@ enum DesignSelfTest {
         check("k4 ⌘1–9 follow the sidebar, favorites first, no Settings",
               SidebarLayout.shortcutOrder(visible: M(all), favorites: ["notes"], flat: false),
               ["notes", "today", "insights", "assignments", "schedule", "calendar", "board", "courses", "voice"])
+        // One action list per kind feeds the row's menu and ⌘K. The store is the test copy's throwaway.
+        let tn = Note(title: "Week 5 — Electric field lines", body: "Field lines start on positive charges.")
+        var ta = Assignment(title: "Lab report 4", due: Date().addingTimeInterval(86_400))
+        ta.status = .todo
+        let td = Deck(name: "PHY2049")
+        state.data.notes.append(tn); state.data.assignments.append(ta); state.data.decks.append(td)
+        check("i1 a note's actions — kept menu items before the destructive one", ItemActions.actions(for: .note(tn.id), state: state).map(\.title),
+              ["Open", "Make flashcards…", "Quiz me", "Study notes…", "Edit", "Export as PDF", "Open in New Tab", "Open in New Window", "Move to Trash"])
+        // `ta` has a due date and is open, so its snooze actions are offered.
+        check("i2 an assignment's", ItemActions.actions(for: .assignment(ta.id), state: state).prefix(8).map(\.title),
+              ["Mark done", "Snooze 1 day", "Snooze 1 week", "Add to today's plan", "Start focus", "Edit…", "Archive", "Delete"])
+        check("i3 a gone item has none", ItemActions.actions(for: .note(UUID()), state: state).isEmpty, true)
+        check("i4 recent keys round-trip", ItemRef(recentKey: ItemRef.deck(td.id).recentKey), .deck(td.id))
+        check("i5 decks have no delete", ItemActions.actions(for: .deck(td.id), state: state).contains { $0.destructive }, false)
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])

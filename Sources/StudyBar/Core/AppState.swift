@@ -41,6 +41,12 @@ final class AppState: ObservableObject {
     /// Image cards to make from a picture that came from elsewhere — a screen grab, a slide, a
     /// board photo. Flashcards shows the editor.
     @Published var pendingImageCards: ImageCardsRequest?
+    /// With `pendingDeck`: start reviewing it once it's open (⌘K's Review).
+    @Published var pendingReview = false
+    /// A note action for the note's editor to run once the note is open (⌘K, a row's menu).
+    @Published var pendingNoteAction: PendingNoteAction?
+    /// An item whose editor its module should open (⌘K's and the row menus' Edit…).
+    @Published var pendingEdit: ItemRef?
     struct PendingBook: Equatable { let id: UUID; let page: Int? }
     @Published var pendingBook: PendingBook?
     /// Play a note's recording from a moment, once the note is open — a card's source.
