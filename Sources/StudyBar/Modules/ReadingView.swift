@@ -17,7 +17,8 @@ struct ReadingView: View {
     @EnvironmentObject var state: AppState
     @State private var newTitle = ""
     @State private var shelf = 0            // 0 all, 1 to-read, 2 reading, 3 finished
-    @State private var query = ""
+    @Environment(\.listFilter) private var filter
+    @State private var selectedBook: UUID?
     @State private var sort = ReadingSort.recent
     @State private var goodreads = false
     @State private var showManualAdd = false
@@ -33,9 +34,7 @@ struct ReadingView: View {
     private var items: [ReadingItem] {
         var list = state.data.reading
         if shelf != 0 { list = list.filter { $0.shelf == shelf - 1 } }
-        if !query.isEmpty {
-            list = list.filter { $0.title.localizedCaseInsensitiveContains(query) || $0.author.localizedCaseInsensitiveContains(query) }
-        }
+        list = list.filter { Self.matches($0, filter: filter) }
         switch sort {
         case .recent:   list.sort { $0.updatedAt > $1.updatedAt }
         case .progress: list.sort { $0.progress > $1.progress }
@@ -43,6 +42,11 @@ struct ReadingView: View {
         case .rating:   list.sort { $0.rating > $1.rating }
         }
         return list
+    }
+
+    /// The toolbar filter on a book: title or author, in the token's course. Pure.
+    static func matches(_ b: ReadingItem, filter: ListFilter) -> Bool {
+        filter.matches(courseID: b.courseID, fields: [b.title, b.author])
     }
 
     var body: some View {
@@ -78,40 +82,41 @@ struct ReadingView: View {
                                 Button("Add") { add(); showManualAdd = false }.disabled(newTitle.isEmpty)
                             }.padding(.horizontal, 10).padding(.top, 8)
                         }
-                        if state.data.reading.count > 4 { SearchField(text: $query).padding(.horizontal, 10).padding(.top, 8) }
                         Picker("", selection: $shelf) {
                             Text("All").tag(0); Text("To-Read").tag(1); Text("Reading").tag(2); Text("Finished").tag(3)
                         }.pickerStyle(.segmented).labelsHidden().padding(10)
                         Divider()
+                        FilterStatus(shown: items.count, total: state.data.reading.count, noun: "books")
                         if items.isEmpty {
                             EmptyState(symbol: "books.vertical",
                                        title: state.data.reading.isEmpty ? "Your bookshelf is empty" : "Nothing on this shelf",
                                        subtitle: state.data.reading.isEmpty ? "Search for a book above to auto-fill cover, author and pages — or tap ＋ to add one manually." : "Try another shelf or search.")
                         } else {
-                            ScrollView {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(items) { item in
-                                        Button { openBookID = item.id } label: { BookCard(item: item) }.buttonStyle(.plain)
-                                            .contextMenu {
-                                                Button { state.toggleReadingDone(item.id) } label: {
-                                                    Label(item.done ? "Mark unread" : "Mark done",
-                                                          systemImage: item.done ? "arrow.uturn.left" : "checkmark.circle")
-                                                }
-                                                Button { state.addToReadingList(item) } label: {
-                                                    Label("Add to Reading List", systemImage: "bookmark")
-                                                }
-                                                Divider()
-                                                Button(role: .destructive) { state.withUndo("Deleted book") { state.data.reading.removeAll { $0.id == item.id } } } label: {
-                                                    Label("Delete book", systemImage: "trash")
-                                                }
-                                            }
-                                    }
-                                }.padding(10)
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    LazyVStack(spacing: 0) {
+                                        ForEach(items) { item in
+                                            Button { openBookID = item.id } label: { BookCard(item: item) }.buttonStyle(.plain)
+                                                .kbSelected(item.id == selectedBook)
+                                                .itemContextMenu(.book(item.id), state: state)
+                                                .id(item.id)
+                                        }
+                                    }.padding(10)
+                                }
+                                .keyboardListNav(ids: items.map(\.id), selection: $selectedBook,
+                                                 onActivate: { openBookID = $0 },
+                                                 onRemove: { id in state.withUndo("Deleted book") { state.data.reading.removeAll { $0.id == id } } },
+                                                 onEscape: { selectedBook = nil })
+                                .onChange(of: selectedBook) { _, id in
+                                    if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
+                                }
                             }
                         }
                     }
                 }
             }
+            .preference(key: SelectionKey.self, value: selectedBook.map(ItemRef.book))
+            .onChange(of: state.pendingEdit) { _, e in if case .book(let id) = e { state.pendingEdit = nil; openBookID = id } }
             .navigationDestination(isPresented: $goodreads) { GoodreadsImportView().moduleColumn(DS.Width.form) }
             .navigationDestination(item: $openBookID) { ReadingDetailView(itemID: $0).moduleColumn() }
             .onAppear { if let p = state.pendingBook { openBookID = p.id; if p.page == nil { state.pendingBook = nil } } }

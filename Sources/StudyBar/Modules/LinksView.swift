@@ -3,7 +3,8 @@ import SwiftUI
 struct LinksView: View {
     @EnvironmentObject var state: AppState
     @State private var editing: QuickLink?
-    @State private var search = ""
+    @Environment(\.listFilter) private var filter
+    @State private var selectedLink: UUID?
     @State private var note = ""
 
     private var grouped: [(String, [QuickLink])] {
@@ -17,11 +18,13 @@ struct LinksView: View {
         }
         return out
     }
-    private var searchResults: [QuickLink] {
-        state.data.links.filter {
-            $0.title.localizedCaseInsensitiveContains(search) || $0.url.localizedCaseInsensitiveContains(search)
-        }
+    /// The toolbar filter on a link: title or URL, in the token's course. Pure.
+    static func matches(_ l: QuickLink, filter: ListFilter) -> Bool {
+        filter.matches(courseID: l.courseID, fields: [l.title, l.url])
     }
+    private var filtered: [QuickLink] { state.data.links.filter { Self.matches($0, filter: filter) } }
+    /// The rows top to bottom, for the keyboard: flat while filtered, by group otherwise.
+    private var rowIDs: [UUID] { filter.isActive ? filtered.map(\.id) : grouped.flatMap { $0.1.map(\.id) } }
 
     var body: some View {
         NavigationStack {
@@ -36,16 +39,16 @@ struct LinksView: View {
                                subtitle: "Pin your LMS, library, email and course pages. Use the Safari button to grab the current tab.")
                 } else {
                     VStack(spacing: 0) {
-                        if state.data.links.count > 4 { SearchField(text: $search).padding(8) }
+                        FilterStatus(shown: filtered.count, total: state.data.links.count, noun: "links")
                         if !note.isEmpty {
                             Text(note).font(.caption2).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 4)
                         }
                         Divider()
                         ScrollView {
-                            if !search.isEmpty {
+                            if filter.isActive {
                                 LazyVStack(spacing: 0) {
-                                    ForEach(searchResults) { link in LinkRow(link: link) { editing = link } }
+                                    ForEach(filtered) { link in row(link) }
                                 }.padding(.vertical, 8)
                             } else {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -58,16 +61,36 @@ struct LinksView: View {
                                                     .buttonStyle(.borderless)
                                             }
                                         }.padding(.horizontal, 12).padding(.top, 4)
-                                        ForEach(items) { link in LinkRow(link: link) { editing = link } }
+                                        ForEach(items) { link in row(link) }
                                     }
                                 }.padding(.vertical, 8)
                             }
                         }
+                        // ↩ and Space open the link; ⌫ deletes it (Undo, Trash).
+                        .keyboardListNav(ids: rowIDs, selection: $selectedLink,
+                                         onActivate: { id in if let l = state.data.links.first(where: { $0.id == id }) { open(l.url) } },
+                                         onRemove: { id in state.withUndo("Deleted link") { state.data.links.removeAll { $0.id == id } } },
+                                         onEscape: { selectedLink = nil })
                     }
                 }
             }
             .navigationDestination(item: $editing) { LinkEditor(link: $0).moduleColumn(DS.Width.form) }
+            .preference(key: SelectionKey.self, value: selectedLink.map(ItemRef.link))
+            .onAppear(perform: consumeEdit)
+            .onChange(of: state.pendingEdit) { _, _ in consumeEdit() }
         }
+    }
+
+    private func row(_ link: QuickLink) -> some View {
+        LinkRow(link: link, selected: link.id == selectedLink) { editing = link }
+            .kbSelected(link.id == selectedLink, radius: DS.Radius.control)
+            .itemContextMenu(.link(link.id), state: state)
+    }
+
+    private func consumeEdit() {
+        guard case .link(let id) = state.pendingEdit else { return }
+        state.pendingEdit = nil
+        editing = state.data.links.first { $0.id == id }
     }
 
     private func addCurrentTab() {
@@ -87,7 +110,12 @@ struct LinksView: View {
 struct LinkRow: View {
     @EnvironmentObject var state: AppState
     let link: QuickLink
+    var selected = false
     let onEdit: () -> Void
+
+    init(link: QuickLink, selected: Bool = false, onEdit: @escaping () -> Void) {
+        self.link = link; self.selected = selected; self.onEdit = onEdit
+    }
     var body: some View {
         HStack(spacing: 10) {
             FaviconView(urlString: link.url, fallbackSymbol: link.symbol.isEmpty ? "link" : link.symbol, size: 18)
@@ -100,10 +128,14 @@ struct LinkRow: View {
             }.buttonStyle(.plain)
             Spacer()
             if link.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
-            Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit link") }
-                .buttonStyle(.borderless).foregroundStyle(.secondary)
+            RowActions {
+                Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit link") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s + 1)
+        .rowActionsHost(selected: selected)
+        .accessibilityActions { Button("Edit link", action: onEdit) }
         .sbRowSeparator(leading: DS.Space.m)
         .padding(.horizontal, DS.Space.m)
     }

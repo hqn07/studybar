@@ -224,6 +224,13 @@ enum DesignSelfTest {
         let dk1 = Deck(name: "Gauss's law", courseID: phy.id), dk2 = Deck(name: "Weirs", courseID: cwr.id)
         check("fc1 decks by name", FlashcardsView.decksMatching([dk1, dk2], filter: ListFilter(text: "weir")).map(\.name), ["Weirs"])
         check("fc2 decks by course", FlashcardsView.decksMatching([dk1, dk2], filter: ListFilter(course: .course(phy.id))).map(\.name), ["Gauss's law"])
+        var serway = ReadingItem(title: "Physics for Scientists"); serway.author = "Serway"; serway.courseID = phy.id
+        check("rd1 a book by its author", ReadingView.matches(serway, filter: ListFilter(text: "serw")), true)
+        check("rd2 not in another course", ReadingView.matches(serway, filter: ListFilter(course: .course(cwr.id))), false)
+        let usgs = QuickLink(title: "Stream gauges", url: "https://waterdata.usgs.gov")
+        check("lk1 a link by its URL", LinksView.matches(usgs, filter: ListFilter(text: "usgs")), true)
+        var later = ReadingListItem(title: "Open channel hydraulics", url: "https://example.edu/och"); later.courseID = cwr.id
+        check("rl1 read later by course", ReadingListView.matches(later, filter: ListFilter(course: .course(cwr.id))), true)
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])

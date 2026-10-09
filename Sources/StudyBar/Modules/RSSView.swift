@@ -13,6 +13,8 @@ struct RSSView: View {
     @State private var reader: Article?
     @State private var unreadOnly = false
     @State private var folder: String? = nil    // nil = all folders
+    @Environment(\.listFilter) private var filter
+    @State private var selectedArticle: UUID?
 
     // MARK: Derived
 
@@ -26,6 +28,8 @@ struct RSSView: View {
         articles.filter { a in
             (folder == nil || folderOf(source: a.source) == folder!)
                 && (!unreadOnly || !state.isRead(a.link))
+                // Articles have no course: the toolbar's text narrows them, a course token doesn't.
+                && ListFilter(text: filter.text).matches(courseID: nil, fields: [a.title, a.source])
         }
     }
     private var unreadCount: Int { articles.filter { !state.isRead($0.link) }.count }
@@ -93,9 +97,13 @@ struct RSSView: View {
                 ScrollView {
                     if loading { ProgressView().padding(.top, 8) }
                     LazyVStack(spacing: 6) {
-                        ForEach(visible) { articleRow($0) }
+                        ForEach(visible) { a in articleRow(a).kbSelected(a.id == selectedArticle) }
                     }.padding(10)
                 }
+                // ↩ and Space open the article in the reader.
+                .keyboardListNav(ids: visible.map(\.id), selection: $selectedArticle,
+                                 onActivate: { id in reader = visible.first { $0.id == id } },
+                                 onEscape: { selectedArticle = nil })
             }
         }
     }

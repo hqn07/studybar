@@ -23,9 +23,12 @@ struct FilesView: View {
         ("images", "Images", ["png","jpg","jpeg","gif","heic","tiff","tif","bmp","webp","svg"]),
         ("code", "Code", ["swift","py","js","ts","java","kt","c","cpp","cc","h","hpp","cs","go","rb","rs","php","html","css","json","xml","yml","yaml","sh"]),
     ]
+    @Environment(\.listFilter) private var filter
     private var filteredRecent: [FolderAccess.FileItem] {
-        guard typeFilter != "all", let set = fileTypes.first(where: { $0.0 == typeFilter })?.2 else { return recent }
-        return recent.filter { set.contains($0.url.pathExtension.lowercased()) }
+        // The toolbar's text narrows the files by name ("Search PDFs" looks inside them).
+        let named = recent.filter { ListFilter(text: filter.text).matches(courseID: nil, fields: [$0.url.lastPathComponent]) }
+        guard typeFilter != "all", let set = fileTypes.first(where: { $0.0 == typeFilter })?.2 else { return named }
+        return named.filter { set.contains($0.url.pathExtension.lowercased()) }
     }
 
     var body: some View {

@@ -5,12 +5,17 @@ struct ReadingListView: View {
     @State private var newURL = ""
     @State private var hideRead = false
     @State private var note = ""
-    @State private var search = ""
+    @Environment(\.listFilter) private var filter
+    @State private var selectedItem: UUID?
+
+    /// The toolbar filter on a saved page: title or URL, in the token's course. Pure.
+    static func matches(_ item: ReadingListItem, filter: ListFilter) -> Bool {
+        filter.matches(courseID: item.courseID, fields: [item.title, item.url])
+    }
 
     private var items: [ReadingListItem] {
         state.data.readingList
-            .filter { !hideRead || !$0.read }
-            .filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.url.localizedCaseInsensitiveContains(search) }
+            .filter { (!hideRead || !$0.read) && Self.matches($0, filter: filter) }
             .sorted { $0.addedAt > $1.addedAt }
     }
 
@@ -27,24 +32,39 @@ struct ReadingListView: View {
                         .textFieldStyle(.roundedBorder)
                     Button("Add", action: addURL).disabled(newURL.isEmpty)
                 }.padding(10)
-                if state.data.readingList.count > 4 { SearchField(text: $search).padding(.horizontal, 10).padding(.bottom, 8) }
                 if !note.isEmpty {
                     Text(note).font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12)
                 }
                 Divider()
+                FilterStatus(shown: items.count, total: state.data.readingList.count, noun: "pages")
                 if items.isEmpty {
                     EmptyState(symbol: "books.vertical", title: "Nothing saved",
                                subtitle: "Save articles and pages to read later. Use the Safari button to grab the current tab.")
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(items) { item in ReadingListRow(item: item) }
+                            ForEach(items) { item in
+                                ReadingListRow(item: item)
+                                    .kbSelected(item.id == selectedItem, radius: DS.Radius.control)
+                                    .itemContextMenu(.readLater(item.id), state: state)
+                            }
                         }.padding(10)
                     }
+                    // ↩ and Space open the page; ⌫ removes it (Undo, Trash).
+                    .keyboardListNav(ids: items.map(\.id), selection: $selectedItem,
+                                     onActivate: { id in if let i = items.first(where: { $0.id == id }) { open(i.url) } },
+                                     onRemove: { id in state.withUndo("Removed from Read later") { state.data.readingList.removeAll { $0.id == id } } },
+                                     onEscape: { selectedItem = nil })
                 }
             }
         }
+        .preference(key: SelectionKey.self, value: selectedItem.map(ItemRef.readLater))
+    }
+
+    private func open(_ s: String) {
+        let u = s.contains("://") ? s : "https://\(s)"
+        if let url = URL(string: u) { NSWorkspace.shared.open(url) }
     }
 
     private func addURL() {
