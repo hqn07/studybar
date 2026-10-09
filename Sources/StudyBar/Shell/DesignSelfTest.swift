@@ -69,7 +69,8 @@ enum DesignSelfTest {
         check("c2 ungraded course leads with what's next",
               CourseSummary.make(grade: nil, nextClass: "today 2:00 PM", nextDue: ("Lab report 4", now.addingTimeInterval(4 * 86_400)),
                                  overdue: 0, dueSoon: 2, notes: 5, now: now),
-              .init(grade: nil, fact: "Next: Lab report 4 · Mon", factIsAlert: false, quiet: "Class today 2:00 PM · 5 notes"))
+              .init(grade: nil, fact: "Next: Lab report 4 · \(now.addingTimeInterval(4 * 86_400).formatted(.dateTime.weekday(.abbreviated)))",
+                    factIsAlert: false, quiet: "Class today 2:00 PM · 5 notes"))
         check("c3 overdue wins",
               CourseSummary.make(grade: "A−", nextClass: "Tue 9:35 AM", nextDue: nil, overdue: 2, dueSoon: 0, notes: 0, now: now),
               .init(grade: "A−", fact: "2 overdue", factIsAlert: true, quiet: "Class Tue 9:35 AM"))
@@ -79,6 +80,11 @@ enum DesignSelfTest {
         check("c5 due tomorrow",
               CourseSummary.make(grade: nil, nextClass: nil, nextDue: ("Quiz 3", now.addingTimeInterval(86_400)), overdue: 0, dueSoon: 1, notes: 0, now: now).fact,
               "Next: Quiz 3 · tomorrow")
+        // A week out is the same weekday as today: the date says which one.
+        let weekOut = now.addingTimeInterval(7 * 86_400)
+        check("c6 due a week out",
+              CourseSummary.make(grade: nil, nextClass: nil, nextDue: ("Essay", weekOut), overdue: 0, dueSoon: 1, notes: 0, now: now).fact,
+              "Next: Essay · \(weekOut.dayMonth)")
 
         // The audit replaces the store it runs on: it must never run on a real one. An empty
         // STUDYBAR_DATA_DIR counts as unset (AppState then opens the real store).

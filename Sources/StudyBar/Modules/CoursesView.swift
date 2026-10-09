@@ -281,7 +281,7 @@ struct CourseCard: View {
     private var pct: Double? { courseCurrentPct(course.id, state.data) }
     private var open: [Assignment] { state.data.assignments.filter { $0.courseID == course.id && $0.isOpen } }
     private var overdue: Int { open.filter { $0.isOverdue }.count }
-    private var dueSoon: Int { open.filter { ($0.daysUntilDue ?? 99) >= 0 && ($0.daysUntilDue ?? 99) <= 7 }.count }
+    private var dueSoon: Int { open.filter { CourseSummary.week.contains($0.daysUntilDue ?? -1) }.count }
     private var notesCount: Int { state.data.notes.filter { $0.courseID == course.id }.count }
 
     /// Next meeting this week for the course: today's upcoming one, else the soonest weekday.
@@ -304,9 +304,9 @@ struct CourseCard: View {
         return nil
     }
 
-    /// The soonest open assignment due this week (today through six days on).
+    /// The soonest open assignment due this week — the same week `dueSoon` counts.
     private var nextDue: (title: String, due: Date)? {
-        open.filter { ($0.daysUntilDue ?? -1) >= 0 && ($0.daysUntilDue ?? 99) <= 6 }
+        open.filter { CourseSummary.week.contains($0.daysUntilDue ?? -1) }
             .min { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
             .flatMap { a in a.due.map { (a.title.isEmpty ? "Untitled" : a.title, $0) } }
     }
@@ -318,15 +318,17 @@ struct CourseCard: View {
         return Button(action: onOpen) {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 // A fixed-height top row, so a card with a grade puts its code at the same height
-                // as one without.
-                HStack {
-                    if !course.code.isEmpty { Text(course.code).font(.caption.weight(.semibold)).foregroundStyle(course.color) }
-                    Spacer(minLength: DS.Space.xs)
-                    if let g = s.grade {
-                        Text(g).font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(course.color)
+                // as one without — and no row at all when there's neither to show.
+                if !course.code.isEmpty || s.grade != nil {
+                    HStack {
+                        if !course.code.isEmpty { Text(course.code).font(.caption.weight(.semibold)).foregroundStyle(course.color) }
+                        Spacer(minLength: DS.Space.xs)
+                        if let g = s.grade {
+                            Text(g).font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(course.color)
+                        }
                     }
+                    .frame(height: 26)
                 }
-                .frame(height: 26)
                 Text(course.name.isEmpty ? "Untitled" : course.name).font(.callout.weight(.medium)).lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: DS.Space.s)
@@ -351,6 +353,8 @@ struct CourseCard: View {
 /// glance instead of as rings, chips and counts that are mostly empty. Pure.
 struct CourseSummary: Equatable {
     static let nothingDue = "Nothing due this week"
+    /// Today through seven days on — Assignments ▸ This week's dated part.
+    static let week = 0...7
 
     var grade: String?
     var fact: String
@@ -372,12 +376,13 @@ struct CourseSummary: Equatable {
         return CourseSummary(grade: grade, fact: fact, factIsAlert: overdue > 0, quiet: quiet.joined(separator: " · "))
     }
 
-    /// "today", "tomorrow", then the weekday — the assignment is at most six days out.
+    /// "today", "tomorrow", then the weekday — and the date a week out, which falls on today's weekday.
     private static func when(_ due: Date, now: Date) -> String {
         let cal = Calendar.current
         switch cal.dateComponents([.day], from: cal.startOfDay(for: now), to: cal.startOfDay(for: due)).day ?? 0 {
         case 0: return "today"
         case 1: return "tomorrow"
+        case 7...: return due.dayMonth
         default: return due.formatted(.dateTime.weekday(.abbreviated))
         }
     }
