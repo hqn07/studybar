@@ -18,6 +18,28 @@ enum AssignmentScope: String, CaseIterable, Identifiable {
         case .all: "tray.full"; case .archived: "archivebox"
         }
     }
+
+    /// Whether `a` is in this scope — one rule for the list, the number on its glance, and
+    /// Today's tile and banner that open it, so a number you click is the list you land on.
+    /// Counts leave `showDone` off: they count open work.
+    func includes(_ a: Assignment, hideBusywork: Bool, showDone: Bool = false) -> Bool {
+        // Attendance and admin stay in the store and in All — they're just not what you
+        // open the app to look at.
+        if hideBusywork, a.isBusywork, self == .week || self == .overdue { return false }
+        switch self {
+        case .archived: return a.isArchived
+        case .all:      return !a.isArchived && (showDone || a.status != .done)
+        case .overdue:  return a.isOpen && a.isOverdue
+        case .week:     return !a.isArchived && (showDone || a.status != .done) && Self.isThisWeek(a)
+        }
+    }
+
+    /// Due within the next week, already overdue, or undated (a captured task) — i.e. the
+    /// things there is any point looking at today.
+    static func isThisWeek(_ a: Assignment) -> Bool {
+        guard let days = a.daysUntilDue else { return true }   // no due date = a loose task
+        return days <= 7
+    }
 }
 
 struct AssignmentsView: View {
@@ -42,44 +64,23 @@ struct AssignmentsView: View {
     private var sortMode: AssignmentSort { AssignmentSort(rawValue: sort) ?? .due }
     private var scopeMode: AssignmentScope { AssignmentScope(rawValue: scope) ?? .week }
 
-    /// Open, not archived — the working set every count and scope is drawn from.
-    private var live: [Assignment] {
-        state.data.assignments.filter(\.isOpen)
-    }
-
-    /// Due within the next week, already overdue, or undated (a captured task) — i.e. the
-    /// things there is any point looking at today.
-    static func isThisWeek(_ a: Assignment) -> Bool {
-        guard let days = a.daysUntilDue else { return true }   // no due date = a loose task
-        return days <= 7
-    }
-
-    private var weekCount: Int { live.filter(Self.isThisWeek).count }
-    private var overdueCount: Int { live.filter(\.isOverdue).count }
-    private var archivedCount: Int { state.data.assignments.filter(\.isArchived).count }
-
     /// Imported rather than typed, and more than a week past due: the tail that makes the
     /// list unusable. A week is the line because anything imported that is still untouched
     /// after one is not going to be done in here. Offered, never archived automatically.
     private var stale: [Assignment] {
-        live.filter { $0.sourceUID != nil && ($0.daysUntilDue ?? 0) < -7 }
+        state.data.assignments.filter { $0.isOpen && $0.sourceUID != nil && ($0.daysUntilDue ?? 0) < -7 }
     }
 
     private var triagedCount: Int { state.data.assignments.filter { $0.kind != nil }.count }
-    private var busyworkCount: Int { state.data.assignments.filter { $0.isOpen && $0.isBusywork }.count }
+    /// The housekeeping this scope leaves out — what "N housekeeping hidden" counts.
+    private var busyworkCount: Int {
+        state.data.assignments.filter {
+            scopeMode.includes($0, hideBusywork: false, showDone: showDone) && !scopeMode.includes($0, hideBusywork: true, showDone: showDone)
+        }.count
+    }
 
     private var list: [Assignment] {
-        let base = state.data.assignments.filter { a in
-            // Attendance and admin stay in the store and in All — they're just not what you
-            // open the app to look at.
-            if hideBusywork, a.isBusywork, scopeMode == .week || scopeMode == .overdue { return false }
-            switch scopeMode {
-            case .archived: return a.isArchived
-            case .all:      return !a.isArchived && (showDone || a.status != .done)
-            case .overdue:  return !a.isArchived && a.status != .done && a.isOverdue
-            case .week:     return !a.isArchived && (showDone || a.status != .done) && Self.isThisWeek(a)
-            }
-        }
+        let base = state.data.assignments.filter { scopeMode.includes($0, hideBusywork: hideBusywork, showDone: showDone) }
         switch sortMode {
         case .due:
             return base.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
@@ -193,12 +194,7 @@ struct AssignmentsView: View {
     }
 
     private func count(for s: AssignmentScope) -> Int {
-        switch s {
-        case .week: weekCount
-        case .overdue: overdueCount
-        case .all: live.count
-        case .archived: archivedCount
-        }
+        state.data.assignments.filter { s.includes($0, hideBusywork: hideBusywork) }.count
     }
 
     private func help(for s: AssignmentScope) -> String {

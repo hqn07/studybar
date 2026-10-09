@@ -466,7 +466,7 @@ struct DayPlannerView: View {
     }
 
     private var openAssignments: [Assignment] {
-        state.data.assignments.filter { $0.status != .done }
+        state.data.assignments.filter(\.isOpen)
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
             .prefix(12).map { $0 }
     }

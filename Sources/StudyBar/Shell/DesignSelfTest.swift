@@ -115,14 +115,43 @@ enum DesignSelfTest {
         check("g2 the selected filter stays even at zero",
               GlanceFilter.shown([item("week", 0), item("overdue", 0, true)]).map(\.id), ["overdue"])
 
+        // Assignments' scopes: one rule for a list, the number on its glance, and Today's tile and
+        // banner that open it. Archived and done work is never overdue; housekeeping hides from
+        // This week and Overdue only.
+        let day: TimeInterval = 86_400
+        func work(_ title: String, due days: Double?, archived: Bool = false, done: Bool = false,
+                  kind: AssignmentTriage.Kind? = nil) -> Assignment {
+            var a = Assignment(title: title, due: days.map { Date().addingTimeInterval($0 * day) })
+            if archived { a.archived = true }
+            if done { a.status = .done }
+            a.kind = kind?.rawValue
+            return a
+        }
+        let late = work("late", due: -3), shelved = work("shelved", due: -3, archived: true),
+            finished = work("finished", due: -3, done: true), roll = work("roll call", due: -1, kind: .attendance),
+            soon = work("soon", due: 2), loose = work("loose", due: nil), far = work("far", due: 30)
+        let pile = [late, shelved, finished, roll, soon, loose, far]
+        func scope(_ s: AssignmentScope, hide: Bool = true) -> [String] {
+            pile.filter { s.includes($0, hideBusywork: hide) }.map(\.title)
+        }
+        check("s1 overdue is open work only", scope(.overdue), ["late"])
+        check("s2 housekeeping shows when not hidden", scope(.overdue, hide: false), ["late", "roll call"])
+        check("s3 this week: overdue, soon, undated", scope(.week), ["late", "soon", "loose"])
+        check("s4 all keeps housekeeping", scope(.all), ["late", "roll call", "soon", "loose", "far"])
+        check("s5 archived", scope(.archived), ["shelved"])
+        check("s6 Today's banner counts what Overdue lists", TodayBrief.overdue(pile, hideBusywork: true).map(\.title), ["late"])
+        let hero = work("hero", due: 0), other = work("other", due: 0), gone = work("gone", due: 0, archived: true)
+        check("s7 Today's agenda leaves out the hero and archived work",
+              TodayBrief.dueToday([hero, other, gone], hero: hero.id).map(\.title), ["other"])
+
         // Today's brief: four glance tiles, each left out when it has nothing to say.
-        check("t1 all tiles", TodayBrief.tiles(nextClass: ("12:50", "PHY2049 · in 35 min"), dueWeek: 12, dueToday: 3, cardsDue: 24,
+        check("t1 all tiles", TodayBrief.tiles(nextClass: ("12:50", "PHY2049 · in 35 min"), week: 12, dueToday: 3, cardsDue: 24,
                                                focusSeconds: 4800).map(\.value),
               ["12:50", "12", "24", "1h 20m"])
-        check("t2 zeros drop", TodayBrief.tiles(nextClass: nil, dueWeek: 12, dueToday: 0, cardsDue: 0, focusSeconds: 0).map(\.label),
-              ["due this week"])
-        check("t3 nothing at all", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 0).count, 0)
-        check("t4 short focus", TodayBrief.tiles(nextClass: nil, dueWeek: 0, dueToday: 0, cardsDue: 0, focusSeconds: 2700).map(\.value), ["45m"])
+        check("t2 zeros drop", TodayBrief.tiles(nextClass: nil, week: 12, dueToday: 0, cardsDue: 0, focusSeconds: 0).map(\.label),
+              ["this week"])
+        check("t3 nothing at all", TodayBrief.tiles(nextClass: nil, week: 0, dueToday: 0, cardsDue: 0, focusSeconds: 0).count, 0)
+        check("t4 short focus", TodayBrief.tiles(nextClass: nil, week: 0, dueToday: 0, cardsDue: 0, focusSeconds: 2700).map(\.value), ["45m"])
 
         // Plan my day: a fresh plan would throw away the drafts on screen and ask the AI again.
         check("p1 plan when there's work", TodayBrief.canPlan(loading: false, hasDrafts: false, hasWork: true), true)

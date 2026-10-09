@@ -14,6 +14,8 @@ struct TodayView: View {
     @State private var aiForID: UUID?
     @AppStorage("scheduleMode") private var scheduleMode = "week"
     @AppStorage("weeklyStudyGoalMinutes") private var weeklyGoal = 0
+    /// Assignments' "housekeeping hidden" switch: Today counts what those lists show.
+    @AppStorage("assignmentHideBusywork") private var hideBusywork = true
 
     // Plan my day (propose → accept study blocks)
     @State private var planDrafts: [DailyPlan.PlanBlockDraft] = []
@@ -38,10 +40,7 @@ struct TodayView: View {
     }
 
     private var focus: Assignment? { TodayFocus.top(state.data) }
-    private var overdue: [Assignment] {
-        state.data.assignments.filter { $0.status != .done && $0.isOverdue }
-            .sorted { ($0.due ?? .distantPast) < ($1.due ?? .distantPast) }
-    }
+    private var overdue: [Assignment] { TodayBrief.overdue(state.data.assignments, hideBusywork: hideBusywork) }
     private var todayClasses: [ClassSession] {
         state.data.classes.filter { $0.meets(on: todayWeekday) }.sorted { $0.startMinutes < $1.startMinutes }
     }
@@ -50,7 +49,7 @@ struct TodayView: View {
 
     private var next7: [Assignment] {
         state.data.assignments
-            .filter { $0.status != .done }
+            .filter(\.isOpen)
             .filter { if let d = $0.daysUntilDue { return d >= 0 && d <= 7 } else { return false } }
             .filter { $0.id != focus?.id }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
@@ -105,8 +104,7 @@ struct TodayView: View {
     private func brief(width: CGFloat) -> some View {
         let third = (width - 2 * DS.Space.l - 2 * DS.Space.l) / 3
         let tiles = briefTiles
-        let dueToday = state.data.assignments.filter { $0.isOpen && $0.daysUntilDue == 0 }
-            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+        let dueToday = TodayBrief.dueToday(state.data.assignments, hero: focus?.id)
         let later = next7.filter { $0.daysUntilDue != 0 }
         return VStack(alignment: .leading, spacing: DS.Space.l) {
             quickAddBlock
@@ -157,7 +155,7 @@ struct TodayView: View {
     }
 
     private var briefTiles: [TodayBrief.Tile] {
-        let open = state.data.assignments.filter(\.isOpen)
+        let week = state.data.assignments.filter { AssignmentScope.week.includes($0, hideBusywork: hideBusywork) }
         let next = nextClass.map { c -> (time: String, detail: String) in
             let code = state.course(c.courseID).map { $0.code.isEmpty ? $0.name : $0.code } ?? c.title
             let until = c.startMinutes - nowMinutes
@@ -165,8 +163,8 @@ struct TodayView: View {
             return (c.startString, [code, when, c.room.isEmpty ? nil : c.room].compactMap { $0 }.joined(separator: " · "))
         }
         return TodayBrief.tiles(nextClass: next,
-                                dueWeek: open.filter { (0...7).contains($0.daysUntilDue ?? -1) }.count,
-                                dueToday: open.filter { $0.daysUntilDue == 0 }.count,
+                                week: week.count,
+                                dueToday: week.filter { $0.daysUntilDue == 0 }.count,
                                 cardsDue: StudyStats.cardsDueToday(state.data),
                                 focusSeconds: StudyStats.secondsToday(state.data))
     }
@@ -295,7 +293,10 @@ struct TodayView: View {
     // MARK: - Overdue flag
 
     private var overdueBanner: some View {
-        Button { state.selectedModuleID = "assignments" } label: {
+        Button {
+            UserDefaults.standard.set(AssignmentScope.overdue.rawValue, forKey: "assignmentScope")
+            state.selectedModuleID = "assignments"
+        } label: {
             HStack(spacing: DS.Space.m) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.dsNow)
                 Text("\(overdue.count) overdue").font(.callout.weight(.semibold))
@@ -657,6 +658,18 @@ enum TodayBrief {
     /// would throw away the drafts being edited and ask the AI again. Pure.
     static func canPlan(loading: Bool, hasDrafts: Bool, hasWork: Bool) -> Bool { !loading && !hasDrafts && hasWork }
 
+    /// The overdue banner lists what Assignments ▸ Overdue lists — the scope it opens. Pure.
+    static func overdue(_ all: [Assignment], hideBusywork: Bool) -> [Assignment] {
+        all.filter { AssignmentScope.overdue.includes($0, hideBusywork: hideBusywork) }
+            .sorted { ($0.due ?? .distantPast) < ($1.due ?? .distantPast) }
+    }
+
+    /// Open work due today, less the hero card already showing it. Pure.
+    static func dueToday(_ all: [Assignment], hero: UUID?) -> [Assignment] {
+        all.filter { $0.isOpen && $0.daysUntilDue == 0 && $0.id != hero }
+            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+    }
+
     struct Tile: Identifiable {
         enum Kind { case nextClass, due, cards, focus }
         let kind: Kind
@@ -665,12 +678,14 @@ enum TodayBrief {
         var id: Kind { kind }
     }
 
-    static func tiles(nextClass: (time: String, detail: String)?, dueWeek: Int, dueToday: Int, cardsDue: Int,
+    /// `week` is Assignments ▸ This week's number — overdue and undated work included — because
+    /// that's the list the tile opens.
+    static func tiles(nextClass: (time: String, detail: String)?, week: Int, dueToday: Int, cardsDue: Int,
                       focusSeconds: Int) -> [Tile] {
         var out: [Tile] = []
         if let c = nextClass { out.append(Tile(kind: .nextClass, value: c.time, label: c.detail)) }
-        if dueWeek > 0 {
-            out.append(Tile(kind: .due, value: "\(dueWeek)", label: dueToday > 0 ? "due this week · \(dueToday) today" : "due this week"))
+        if week > 0 {
+            out.append(Tile(kind: .due, value: "\(week)", label: dueToday > 0 ? "this week · \(dueToday) due today" : "this week"))
         }
         if cardsDue > 0 { out.append(Tile(kind: .cards, value: "\(cardsDue)", label: "flashcards due")) }
         if focusSeconds >= 60 {

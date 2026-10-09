@@ -319,7 +319,7 @@ struct CalendarView: View {
         }
         // Assignments
         if showAssignments {
-            for a in state.data.assignments where a.status != .done {
+            for a in state.data.assignments where a.isOpen {
                 guard let due = a.due, due >= now.addingTimeInterval(-86400), due <= end else { continue }
                 out.append(AgendaItem(
                     id: "asg-\(a.id)", start: due, end: nil, allDay: false,
