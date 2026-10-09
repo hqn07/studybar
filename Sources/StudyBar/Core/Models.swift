@@ -69,13 +69,28 @@ struct Note: Identifiable, Codable, Hashable {
 extension Note {
     /// The plaintext `body` cleaned of editor markup for list rows / previews: fold and
     /// divider markers removed, `[[link]]`→link, `$math$`→its source, list markers tidied.
-    var previewText: String {
+    var previewText: String { cleaned.text }
+    /// Fifteen regex passes over a whole note — a lecture runs to tens of KB — and a list row read
+    /// the result eight times a render: switching to Notes took ~450 ms. Cached by note and body,
+    /// so an edit is seen at once and an unchanged note is cleaned once.
+    private var cleaned: CleanedText {
+        let key = "\(id.uuidString)#\(body.hashValue)" as NSString
+        if let hit = Note.cleanedCache.object(forKey: key) { return hit }
         var s = body
         for (re, tmpl) in Note.previewSubstitutions {
             s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: tmpl)
         }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = CleanedText(text: s, words: s.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count)
+        Note.cleanedCache.setObject(c, forKey: key)
+        return c
     }
+    private final class CleanedText {
+        let text: String, words: Int
+        init(text: String, words: Int) { self.text = text; self.words = words }
+    }
+    /// NSCache: thread-safe (Spotlight indexes off the main thread) and trimmed under memory pressure.
+    private static let cleanedCache = NSCache<NSString, CleanedText>()
     /// Precompiled once (was 6 regex compiles per call, per visible list row, per render).
     private static let previewSubstitutions: [(NSRegularExpression, String)] = [
         (try! NSRegularExpression(pattern: #"(?m)^\s*\[\[/?fold:?[^\]]*\]\]\s*$"#), ""),
@@ -100,7 +115,7 @@ extension Note {
         return previewText.split(separator: "\n").first.map(String.init) ?? "Untitled"
     }
     /// Word count of the cleaned text (for the editor's metadata line).
-    var wordCount: Int { previewText.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count }
+    var wordCount: Int { cleaned.words }
 }
 
 // MARK: - Clipboard history (5)

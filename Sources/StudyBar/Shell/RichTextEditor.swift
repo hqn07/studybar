@@ -1909,6 +1909,12 @@ enum MathSelfTest {
         // And a list row must show the source, not the delimiters.
         let note = Note(body: #"Flux is \(\Phi_E\) through \[S\]"#)
         check("previewText strips both", note.previewText, "Flux is \\Phi_E through S")
+        // The preview is cached per note: an edit must still show at once, word count included.
+        var edited = note
+        edited.body = "Flux is **zero** here"
+        check("an edited note's preview follows the edit", edited.previewText, "Flux is zero here")
+        check("and so does its word count", "\(edited.wordCount)", "4")
+        check("the unedited copy keeps its own", note.previewText, "Flux is \\Phi_E through S")
 
         // The table out of a real note: indented, six columns, separator rule. It rendered
         // as raw pipes because the reading view took the native row path, which has no table
