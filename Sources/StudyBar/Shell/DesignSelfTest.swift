@@ -169,6 +169,22 @@ enum DesignSelfTest {
         check("s7 Today's agenda leaves out the hero and archived work",
               TodayBrief.dueToday([hero, other, gone], hero: hero.id).map(\.title), ["other"])
 
+        // The toolbar filter: a course token AND the text; suggestions for the field.
+        let phy = Course(name: "Physics II (Calculus-Based)", code: "PHY2049")
+        let cwr = Course(name: "Water Resources Engineering", code: "CWR3201")
+        let cgn = Course(name: "Introduction to Civil Engineering and the Built Environment", code: "CGN2002")
+        let cs = [phy, cwr, cgn]
+        var f = ListFilter(); f.course = .course(phy.id); f.text = "flux"
+        check("f1 token and text both match", f.matches(courseID: phy.id, fields: ["Week 5 — flux"]), true)
+        check("f2 wrong course", f.matches(courseID: cwr.id, fields: ["flux"]), false)
+        check("f3 no-course token", ListFilter(text: "", course: .noCourse).matches(courseID: nil, fields: []), true)
+        check("f4 suggestions by name", ListFilter.suggestions(for: "eng", courses: cs),
+              [.course(cwr.id), .course(cgn.id), .searchEverywhere("eng")])
+        check("f5 by code first", ListFilter.suggestions(for: "phy", courses: cs), [.course(phy.id), .searchEverywhere("phy")])
+        check("f6 empty text suggests nothing", ListFilter.suggestions(for: "  ", courses: cs), [])
+        check("f7 a deleted course's token is dropped", f.pruned(courses: [cwr]).course, nil)
+        check("f8 no course", ListFilter.suggestions(for: "no c", courses: cs), [.noCourse, .searchEverywhere("no c")])
+
         // Today's hero: the heavy deliverable a few days out beats the quick quiz due tomorrow.
         var heroData = AppData()
         heroData.assignments = [Assignment(title: "Quiz 3", due: Date().addingTimeInterval(1 * 86_400)),
