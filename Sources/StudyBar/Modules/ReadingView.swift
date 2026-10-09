@@ -119,18 +119,17 @@ struct ReadingView: View {
         }
     }
 
+    /// Zeros are left out (B6): a "0 day streak" takes the room of a number and says nothing.
     private var statsStrip: some View {
-        HStack(spacing: 0) {
-            miniStat("\(StudyStats.readingStreak(state.data))", "day streak", "flame.fill", .orange)
-            miniStat("\(StudyStats.pagesThisWeek(state.data))", "pages / wk", "book.pages", .accentColor)
-            miniStat("\(StudyStats.booksThisYear(state.data))", "read \(Calendar.current.component(.year, from: .now))", "checkmark.seal.fill", .green)
-        }.padding(.horizontal, 10).padding(.top, 8)
-    }
-    private func miniStat(_ v: String, _ l: String, _ icon: String, _ c: Color) -> some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 3) { Image(systemName: icon).font(.caption2).foregroundStyle(c); Text(v).font(.callout.bold()) }
-            Text(l).font(.caption2).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity)
+        let streak = StudyStats.readingStreak(state.data), pages = StudyStats.pagesThisWeek(state.data)
+        let books = StudyStats.booksThisYear(state.data)
+        return GlanceRow(stats: [
+            GlanceStat(value: "\(streak)", label: "day streak", isEmpty: streak == 0),
+            GlanceStat(value: "\(pages)", label: "pages this week", isEmpty: pages == 0),
+            GlanceStat(value: "\(books)", label: "read in \(Calendar.current.component(.year, from: .now))", isEmpty: books == 0),
+        ])
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DS.Space.l).padding(.top, DS.Space.m)
     }
 
     private func add() {

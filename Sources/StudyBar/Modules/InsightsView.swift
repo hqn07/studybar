@@ -96,8 +96,11 @@ struct InsightsView: View {
                 Text("Nothing checked off yet").font(.callout.weight(.medium))
                 Text("Mark an assignment done and this fills in — Assignments ▸ This week is the short list.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Open this week") { state.selectedModuleID = "assignments" }
-                    .buttonStyle(.borderedProminent).controlSize(.small).padding(.top, 2)
+                Button("Open this week") {
+                    UserDefaults.standard.set(AssignmentScope.week.rawValue, forKey: "assignmentScope")
+                    state.selectedModuleID = "assignments"
+                }
+                .buttonStyle(.borderedProminent).controlSize(.small).padding(.top, 2)
             }
             .padding(DS.Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,43 +234,45 @@ struct InsightsView: View {
 
     private var barChart: some View {
         let avg = weekAvgMin
-        return Chart {
-            ForEach(week7, id: \.day) { item in
-                BarMark(x: .value("Day", item.day, unit: .day),
-                        y: .value("Minutes", item.minutes),
-                        width: .ratio(0.62))
-                    .foregroundStyle(Calendar.current.isDateInToday(item.day)
-                                     ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.4)))
-                    .cornerRadius(4)
-                    .annotation(position: .top, spacing: 2) {
-                        if item.minutes > 0 {
-                            Text("\(item.minutes)").font(.system(size: 9)).foregroundStyle(.secondary)
+        // The average sits above the plot, not over it: in the plot's corner it covered today's
+        // bar value once the chart was a half-width column.
+        return VStack(alignment: .trailing, spacing: 0) {
+            if avg > 0 { Text("avg \(avg)m").font(.caption2).foregroundStyle(.secondary) }
+            Chart {
+                ForEach(week7, id: \.day) { item in
+                    BarMark(x: .value("Day", item.day, unit: .day),
+                            y: .value("Minutes", item.minutes),
+                            width: .ratio(0.62))
+                        .foregroundStyle(Calendar.current.isDateInToday(item.day)
+                                         ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.4)))
+                        .cornerRadius(4)
+                        .annotation(position: .top, spacing: 2) {
+                            if item.minutes > 0 {
+                                Text("\(item.minutes)").font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
                         }
-                    }
+                }
+                if avg > 0 {
+                    RuleMark(y: .value("Average", avg))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .foregroundStyle(.tint.opacity(0.55))
+                }
             }
-            if avg > 0 {
-                RuleMark(y: .value("Average", avg))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.tint.opacity(0.55))
-            }
-        }
-        .chartXAxis {
-            AxisMarks(values: week7.map(\.day)) { value in
-                AxisValueLabel {
-                    if let d = value.as(Date.self) {
-                        Text(dayLabel(d)).font(.system(size: 9))
-                            .foregroundStyle(Calendar.current.isDateInToday(d) ? .primary : .secondary)
+            .chartXAxis {
+                AxisMarks(values: week7.map(\.day)) { value in
+                    AxisValueLabel {
+                        if let d = value.as(Date.self) {
+                            Text(dayLabel(d)).font(.system(size: 9))
+                                .foregroundStyle(Calendar.current.isDateInToday(d) ? .primary : .secondary)
+                        }
                     }
                 }
             }
+            .chartYAxis(.hidden)
+            .frame(height: 128)
+            .animation(.snappy, value: week7.map(\.minutes))   // Swift Charts eases data changes
         }
-        .chartYAxis(.hidden)
-        .frame(height: 128)
-        .animation(.snappy, value: week7.map(\.minutes))   // Swift Charts eases data changes
         .dsCard()
-        .overlay(alignment: .topTrailing) {
-            if avg > 0 { Text("avg \(avg)m").font(.caption2).foregroundStyle(.secondary).padding(DS.Space.m) }
-        }
     }
 
     // MARK: - Time by course (course color = identity, allowed)
