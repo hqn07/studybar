@@ -23,6 +23,9 @@ final class ModulePrefs: ObservableObject {
 
     /// Modules that can never be hidden (needed to reach settings / home).
     static let locked: Set<String> = ["today", "settings"]
+    /// Settings is pinned to the bottom of the sidebar, outside the list: it takes no place in
+    /// any order and can't be starred. Its group, System, holds nothing else.
+    static let pinned = "settings"
 
     /// The calm starter set shown to a brand-new user — everything else is hidden but one
     /// tap away in Settings ▸ Modules (philosophy: calm default, breadth opt-in).
@@ -91,12 +94,12 @@ final class ModulePrefs: ObservableObject {
     }
 
     func move(_ id: String, up: Bool) {
-        var arr = completeCustom()
+        var arr = completeCustom().filter { $0 != Self.pinned }
         guard let i = arr.firstIndex(of: id) else { return }
         let j = up ? i - 1 : i + 1
         guard arr.indices.contains(j) else { return }
         arr.swapAt(i, j)
-        custom = arr
+        custom = arr + [Self.pinned]
     }
 
     // MARK: Categories
@@ -120,12 +123,13 @@ final class ModulePrefs: ObservableObject {
         completeCategories().compactMap { ModuleCategory(rawValue: $0) }
     }
     func moveCategory(_ raw: String, up: Bool) {
-        var arr = completeCategories()
+        let system = ModuleCategory.system.rawValue
+        var arr = completeCategories().filter { $0 != system }
         guard let i = arr.firstIndex(of: raw) else { return }
         let j = up ? i - 1 : i + 1
         guard arr.indices.contains(j) else { return }
         arr.swapAt(i, j)
-        categoryOrder = arr
+        categoryOrder = arr + [system]
     }
 
     private func save(_ key: String, _ v: [String]) { UserDefaults.standard.set(v, forKey: key) }

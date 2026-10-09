@@ -60,6 +60,14 @@ enum DesignSelfTest {
               d.stringArray(forKey: "categoryOrder") ?? [], ["Overview", "Research"])
         check("9b and is kept under its own key",
               d.stringArray(forKey: "sidebarGroupOrder") ?? [], ["Study", "Plan", "Capture", "Tools", "System"])
+        // Settings is pinned below the list, outside the order: a move never spends a click on it.
+        prefs.categoryOrder = ["Plan", "Capture", "Study", "System", "Tools"]
+        prefs.moveCategory("Study", up: false)
+        check("9c a group moves past System", prefs.categoryOrder, ["Plan", "Capture", "Tools", "Study", "System"])
+        prefs.custom = ["today", "notes", "settings", "study"] + ModuleRegistry.all.map(\.id).filter { !["today", "notes", "settings", "study"].contains($0) }
+        prefs.move("notes", up: false)
+        check("9d a module moves past Settings", Array(prefs.custom.prefix(3)), ["today", "study", "notes"])
+        check("9e Settings stays last", prefs.custom.last, "settings")
 
         // A course card's one fact. Thursday 2026-10-08, 12:15.
         let now = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 12, minute: 15))!

@@ -1057,10 +1057,10 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 struct ModuleManagerSection: View {
     @ObservedObject var prefs: ModulePrefs
 
+    /// Every module but Settings, which is pinned below the list and gets a row of its own.
     private var rows: [ModuleInfo] {
-        prefs.order == .custom
-            ? prefs.orderedIDs().compactMap { ModuleRegistry.info($0) }
-            : ModuleRegistry.all
+        (prefs.order == .custom ? prefs.orderedIDs().compactMap { ModuleRegistry.info($0) } : ModuleRegistry.all)
+            .filter { $0.id != ModulePrefs.pinned }
     }
 
     var body: some View {
@@ -1076,7 +1076,7 @@ struct ModuleManagerSection: View {
                 Spacer()
             }
             if prefs.order == .category {
-                let cats = prefs.orderedCategories()
+                let cats = prefs.orderedCategories().filter { $0 != .system }
                 ForEach(Array(cats.enumerated()), id: \.element) { i, cat in
                     HStack(spacing: 8) {
                         HStack(spacing: 2) {
@@ -1116,6 +1116,19 @@ struct ModuleManagerSection: View {
                             get: { prefs.isVisible(m.id) },
                             set: { _ in prefs.toggleHidden(m.id) })).labelsHidden()
                     }
+                }
+            }
+            if let settings = ModuleRegistry.info(ModulePrefs.pinned) {
+                HStack(spacing: 8) {
+                    // Nothing to move or star: hidden stand-ins keep its icon in the column above.
+                    if prefs.order == .custom {
+                        HStack(spacing: 2) { Image(systemName: "chevron.up"); Image(systemName: "chevron.down") }.font(.caption2).hidden()
+                    }
+                    Image(systemName: "star").hidden()
+                    Image(systemName: settings.symbol).frame(width: 18).foregroundStyle(.tint)
+                    Text(settings.title)
+                    Spacer()
+                    Text("Pinned at the bottom").font(.caption2).foregroundStyle(.tertiary)
                 }
             }
         }
