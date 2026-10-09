@@ -51,21 +51,29 @@ struct FlashcardsView: View {
     @State private var newDeck = ""
     @State private var making: MakeCardsView.Request?
     @State private var path: [Deck] = []
-    @State private var search = ""
+    /// The toolbar field: two letters or more search every card; decks narrow by name and course.
+    @Environment(\.listFilter) private var filter
+    @State private var selectedDeck: UUID?
     @State private var editing: Flashcard?
     /// Every card, across decks, whose front, back or tags say it.
     private var found: [Flashcard] {
-        let q = search.trimmingCharacters(in: .whitespaces)
+        let q = filter.trimmed
         guard q.count >= 2 else { return [] }
         return state.data.flashcards.filter {
             Cloze.answer($0.front).localizedCaseInsensitiveContains(q) || $0.back.localizedCaseInsensitiveContains(q)
                 || $0.tags.contains { $0.localizedCaseInsensitiveContains(q) }
         }
     }
-    /// The course being worked in first, then the rest as they were.
+    /// The course being worked in first, then the rest as they were — narrowed by the filter.
     private var decks: [Deck] {
         let c = state.likelyCourseID
-        return state.data.decks.filter { c != nil && $0.courseID == c } + state.data.decks.filter { c == nil || $0.courseID != c }
+        let ordered = state.data.decks.filter { c != nil && $0.courseID == c } + state.data.decks.filter { c == nil || $0.courseID != c }
+        return Self.decksMatching(ordered, filter: filter)
+    }
+
+    /// Decks whose name has the text, in the token's course. Pure.
+    static func decksMatching(_ decks: [Deck], filter: ListFilter) -> [Deck] {
+        decks.filter { filter.matches(courseID: $0.courseID, fields: [$0.name]) }
     }
 
     @State private var reviewingAll = false
@@ -113,11 +121,8 @@ struct FlashcardsView: View {
                             .textFieldStyle(.roundedBorder)
                         Button("Add", action: addDeck).disabled(newDeck.isEmpty)
                     }.padding(10)
-                    if !state.data.flashcards.isEmpty {
-                        SearchField(text: $search, prompt: "Search every card").padding(.horizontal, 10).padding(.bottom, 8)
-                    }
                     Divider()
-                    if search.trimmingCharacters(in: .whitespaces).count >= 2 {
+                    if filter.trimmed.count >= 2 {
                         searchResults
                     } else if state.data.decks.isEmpty {
                         // Most students arrive here with notes and no cards: that's the way in.
@@ -128,13 +133,31 @@ struct FlashcardsView: View {
                                    actionTitle: state.data.notes.isEmpty ? nil : "Make cards from your notes",
                                    action: state.data.notes.isEmpty ? nil : { making = .init() })
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(decks) { deck in
-                                    NavigationLink(value: deck) { deckRow(deck) }.buttonStyle(.plain)
-                                }
-                            }.padding(10)
+                        FilterStatus(shown: decks.count, total: state.data.decks.count, noun: "decks")
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(spacing: 0) {
+                                    ForEach(decks) { deck in
+                                        NavigationLink(value: deck) { deckRow(deck) }.buttonStyle(.plain)
+                                            .kbSelected(deck.id == selectedDeck)
+                                            .itemContextMenu(.deck(deck.id), state: state)
+                                            .id(deck.id)
+                                    }
+                                }.padding(10)
+                            }
+                            // ↩ opens a deck, Space reviews it; decks are never removed from the keyboard.
+                            .keyboardListNav(ids: decks.map(\.id), selection: $selectedDeck,
+                                             onActivate: { id in if let d = decks.first(where: { $0.id == id }) { path = [d] } },
+                                             onPrimary: { id in
+                                                 guard let d = decks.first(where: { $0.id == id }) else { return }
+                                                 state.pendingReview = true; path = [d]
+                                             },
+                                             onEscape: { selectedDeck = nil })
+                            .onChange(of: selectedDeck) { _, id in
+                                if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
+                            }
                         }
+                        .preference(key: SelectionKey.self, value: selectedDeck.map(ItemRef.deck))
                     }
                 }
             }
@@ -159,7 +182,7 @@ struct FlashcardsView: View {
     @ViewBuilder private var searchResults: some View {
         let cards = found
         if cards.isEmpty {
-            EmptyState(symbol: "magnifyingglass", title: "No card says “\(search.trimmingCharacters(in: .whitespaces))”",
+            EmptyState(symbol: "magnifyingglass", title: "No card says “\(filter.trimmed)”",
                        subtitle: "Fronts, backs and tags of every deck are searched.")
         } else {
             ScrollView {

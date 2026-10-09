@@ -221,6 +221,9 @@ enum DesignSelfTest {
         check("as1 an assignment by its course code", AssignmentsView.matches(lab, filter: ListFilter(text: "cwr32"), courses: cs), true)
         check("as2 by title, in its course", AssignmentsView.matches(lab, filter: ListFilter(text: "lab", course: .course(cwr.id)), courses: cs), true)
         check("as3 not in another course", AssignmentsView.matches(lab, filter: ListFilter(course: .course(phy.id)), courses: cs), false)
+        let dk1 = Deck(name: "Gauss's law", courseID: phy.id), dk2 = Deck(name: "Weirs", courseID: cwr.id)
+        check("fc1 decks by name", FlashcardsView.decksMatching([dk1, dk2], filter: ListFilter(text: "weir")).map(\.name), ["Weirs"])
+        check("fc2 decks by course", FlashcardsView.decksMatching([dk1, dk2], filter: ListFilter(course: .course(phy.id))).map(\.name), ["Gauss's law"])
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])
