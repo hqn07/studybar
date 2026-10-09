@@ -17,12 +17,13 @@ struct NotesView: View {
     @State private var editing: OpenNote?       // narrow/popover: pushed note
     @State private var selection: UUID?         // wide window: selected note in the split
     @State private var newDraft: Note?          // wide window: a not-yet-saved new note
-    @State private var search = ""
+    /// The toolbar field's filter: a course token and text (batch 23 — the chip row and the
+    /// list's own search field were folded into it).
+    @Environment(\.listFilter) private var filter
     // Notes are taken on a date and looked for by that date, so "Date created" is the
     // default order. @AppStorage, not @State: the sort a user picks is a preference, and
     // it used to reset to "Last edited" on every launch.
     @AppStorage("notesSort") private var sort = NoteSort.created
-    @State private var scope: NoteScope = .all
 
     /// The split (list + editor) needs real width; below this we push one note at a time.
     private let splitMinWidth: CGFloat = 640
@@ -38,30 +39,29 @@ struct NotesView: View {
     @State private var restoredLastNote = false
     private static let listWidthRange: ClosedRange<CGFloat> = 200...460
 
-    /// Which course slice the list is showing. Tabs across the top switch it.
+    /// Which course slice the list is showing — the filter's course token.
     enum NoteScope: Hashable { case all, untagged, course(UUID) }
-
-    /// Courses that actually own a note, in the app's course order — the tab set.
-    private var coursesWithNotes: [Course] {
-        let used = Set(state.data.notes.compactMap(\.courseID))
-        return state.data.courses.filter { used.contains($0.id) }
+    private var scope: NoteScope {
+        switch filter.course {
+        case nil: .all
+        case .noCourse: .untagged
+        case .course(let id): .course(id)
+        }
     }
-    private var hasUntagged: Bool { state.data.notes.contains { $0.courseID == nil } }
-    /// Only worth showing tabs once notes span at least one course.
-    private var showTabs: Bool { !coursesWithNotes.isEmpty }
+
+    /// The notes a filter keeps: its course, then — while text is typed — fuzzy-matched and
+    /// ranked by relevance (which overrides the sort). Pure.
+    static func matching(_ notes: [Note], filter: ListFilter) -> [Note] {
+        let inCourse = notes.filter { filter.matchesCourse($0.courseID) }
+        let q = filter.trimmed
+        guard !q.isEmpty else { return inCourse }
+        return inCourse.compactMap { n in FuzzyMatch.best(q, [n.title, n.body] + n.tags).map { (n, $0) } }
+            .sorted { $0.1 > $1.1 }.map(\.0)
+    }
 
     private var notes: [Note] {
-        var list = state.data.notes
-        switch scope {
-        case .all: break
-        case .untagged: list = list.filter { $0.courseID == nil }
-        case .course(let id): list = list.filter { $0.courseID == id }
-        }
-        if !search.isEmpty {
-            // Fuzzy + relevance-ranked while searching (overrides the sort picker).
-            return list.compactMap { n in FuzzyMatch.best(search, [n.title, n.body] + n.tags).map { (n, $0) } }
-                .sorted { $0.1 > $1.1 }.map(\.0)
-        }
+        var list = Self.matching(state.data.notes, filter: filter)
+        if !filter.trimmed.isEmpty { return list }
         switch sort {
         case .updated: list.sort { $0.updatedAt > $1.updatedAt }
         case .created: list.sort { $0.createdAt > $1.createdAt }
@@ -76,7 +76,7 @@ struct NotesView: View {
     /// while searching or sorting by title, so the header never contradicts the order.
     private var notesSections: [(id: String, title: String?, notes: [Note])] {
         let all = notes
-        if !search.isEmpty { return [("all", nil, all)] }
+        if !filter.trimmed.isEmpty { return [("all", nil, all)] }
         let pinned = all.filter(\.pinned)
         let rest = all.filter { !$0.pinned }
         var out: [(String, String?, [Note])] = []
@@ -260,47 +260,46 @@ struct NotesView: View {
 
     // MARK: Narrow / popover — list that pushes one note
 
-    /// Course tabs — All · one per course with notes · Untagged. Filters the list so a
-    /// heavy notebook stays navigable. Hidden until at least one note is course-tagged.
-    @ViewBuilder private var courseTabBar: some View {
-        if showTabs {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    tabChip("All", scope: .all)
-                    ForEach(coursesWithNotes) { c in
-                        tabChip(c.code.isEmpty ? c.name : c.code, scope: .course(c.id), dot: c.color)
-                    }
-                    if hasUntagged { tabChip("Untagged", scope: .untagged) }
-                }
-                .padding(.horizontal, 8).padding(.vertical, 6)
-            }
-            Divider()
-        }
-    }
-
-    private func tabChip(_ label: String, scope s: NoteScope, dot: Color? = nil) -> some View {
-        Button { scope = s } label: {
-            Chip(label, .filter, selected: scope == s, dot: dot)
-        }.buttonStyle(.plain)
-    }
-
     private var stackBody: some View {
         VStack(spacing: 0) {
-            courseTabBar
-            if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
+            FilterStatus(shown: notes.count, total: state.data.notes.count, noun: "notes")
             if notes.isEmpty {
                 notesEmptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(notesSections, id: \.id) { sec in
-                            if let t = sec.title { sectionHeader(t) }
-                            ForEach(sec.notes) { n in NoteRow(note: n, showCreated: sort == .created) { editing = OpenNote(note: n, preview: true) } }
-                        }
-                    }.padding(10)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(notesSections, id: \.id) { sec in
+                                if let t = sec.title { sectionHeader(t) }
+                                ForEach(sec.notes) { n in
+                                    NoteRow(note: n, selected: n.id == selection, showCreated: sort == .created) { push(n.id) }
+                                        .id(n.id)
+                                }
+                            }
+                        }.padding(10)
+                    }
+                    .keyboardListNav(ids: notes.map(\.id), selection: $selection,
+                                     onActivate: { push($0) }, onRemove: { remove($0) }, onEscape: { selection = nil })
+                    .onChange(of: selection) { _, id in
+                        if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
+                    }
                 }
             }
         }
+        .preference(key: SelectionKey.self, value: selection.map(ItemRef.note))
+    }
+
+    /// The narrow layout opens a note by pushing it.
+    private func push(_ id: UUID) {
+        guard let n = state.data.notes.first(where: { $0.id == id }) else { return }
+        selection = id
+        editing = OpenNote(note: n, preview: true)
+    }
+
+    /// ⌫ in the list: to the Trash, with Undo.
+    private func remove(_ id: UUID) {
+        if newDraft?.id == id { newDraft = nil; return }
+        state.withUndo("Deleted note") { state.data.notes.removeAll { $0.id == id } }
     }
 
     // MARK: Wide window — master-detail split
@@ -323,12 +322,12 @@ struct NotesView: View {
             detailPane.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.snappy(duration: 0.22), value: hideList)
+        .preference(key: SelectionKey.self, value: selection.map(ItemRef.note))
     }
 
     private var listPane: some View {
         VStack(spacing: 0) {
-            courseTabBar
-            if state.data.notes.count > 4 { SearchField(text: $search).padding(8); Divider() }
+            FilterStatus(shown: notes.count, total: state.data.notes.count, noun: "notes")
             if notes.isEmpty {
                 notesEmptyState
             } else {
@@ -345,7 +344,7 @@ struct NotesView: View {
                         }.padding(8)
                     }
                     .keyboardListNav(ids: notes.map(\.id), selection: $selection,
-                                     onActivate: { select($0) }, onEscape: { selection = nil })
+                                     onActivate: { select($0) }, onRemove: { remove($0) }, onEscape: { selection = nil })
                     .onChange(of: selection) { _, id in
                         if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
                     }
@@ -367,12 +366,25 @@ struct NotesView: View {
         }
     }
 
-    private var notesEmptyState: some View {
-        EmptyState(symbol: "note.text",
-                   title: state.data.notes.isEmpty ? "No notes yet" : "No matches",
-                   subtitle: state.data.notes.isEmpty ? "Capture ideas, lecture notes and reminders. Markdown supported." : "Try a different search.",
-                   actionTitle: state.data.notes.isEmpty ? "New note" : "Clear search",
-                   action: { if state.data.notes.isEmpty { newNote(split: true) } else { search = "" } })
+    @ViewBuilder private var notesEmptyState: some View {
+        if state.data.notes.isEmpty {
+            EmptyState(symbol: "note.text", title: "No notes yet",
+                       subtitle: "Capture ideas, lecture notes and reminders. Markdown supported.",
+                       actionTitle: "New note", action: { newNote(split: true) })
+        } else if !filter.trimmed.isEmpty {
+            // The filter only looks at notes; the rest of StudyBar may still have it (⌘↩).
+            EmptyState(symbol: "magnifyingglass", title: "No notes match",
+                       subtitle: "Search everywhere looks in assignments, decks, books and files too.",
+                       actionTitle: "Search everywhere") {
+                let q = filter.trimmed
+                workspace?.filter = ListFilter()
+                state.globalSearch = q
+            }
+        } else {
+            EmptyState(symbol: "note.text", title: "No notes in this course",
+                       subtitle: "Clear the filter to see every note.",
+                       actionTitle: "Clear filter") { workspace?.filter = ListFilter() }
+        }
     }
 
     /// The note behind the current selection — a saved note, or the pending new draft.
@@ -399,12 +411,13 @@ struct NotesView: View {
         // A note the palette asked for: clear whatever filter would hide it, then open it.
         if let id = state.pendingOpenNote, let note = state.data.notes.first(where: { $0.id == id }) {
             state.pendingOpenNote = nil
-            search = ""
-            scope = .all
+            if Self.matching([note], filter: filter).isEmpty { workspace?.filter = ListFilter() }
             if split { selection = note.id } else { editing = OpenNote(note: note, preview: true) }
         }
     }
     private func newNote(split: Bool) {
+        // A new note must show in the list: drop typed text (the course token stays — the note joins it).
+        if !filter.trimmed.isEmpty { workspace?.filter.text = "" }
         var n = Note()
         if case .course(let id) = scope {
             n.courseID = id                                   // inherit the active course tab
@@ -419,6 +432,7 @@ struct NotesView: View {
 
     private func newFromTemplate(_ t: NoteTemplates.Template, split: Bool) {
         let attr = t.build()
+        if !filter.trimmed.isEmpty { workspace?.filter.text = "" }
         var n = Note(title: t.title)
         if case .course(let id) = scope { n.courseID = id }   // inherit the active course tab
         n.rich = attr.rtfdData(); n.body = attr.string
@@ -426,6 +440,12 @@ struct NotesView: View {
         if split { selection = n.id; newDraft = nil } else { editing = OpenNote(note: n, preview: false) }
     }
 
+}
+
+/// Whether an editor's save may add its note to the store: a new draft yes; a note that was
+/// stored when the editor opened and has since gone was deleted elsewhere — no. Pure.
+enum NoteSave {
+    static func mayInsert(wasStored: Bool) -> Bool { !wasStored }
 }
 
 /// Loads a screenshot attachment by filename.
@@ -462,11 +482,7 @@ struct NoteRow: View {
     private var spineColor: Color { state.course(note.courseID)?.color ?? .accentColor }
 
     var body: some View {
-        row.contextMenu {
-            let id = note.id
-            Button("Open in New Tab") { WindowManager.shared.newTab(moduleID: "notes") { $0.openNote = id } }
-            Button("Open in New Window") { WindowManager.shared.newWindow(moduleID: "notes") { $0.openNote = id } }
-        }
+        row.itemContextMenu(.note(note.id), state: state)
     }
 
     private var row: some View {
@@ -575,6 +591,9 @@ struct NoteEditor: View {
     @State private var slideCards: [Int: [Flashcard]] = [:]
     private var slideCardsKey: Int { state.data.flashcards.filter { $0.origin?.noteID == draft.id }.count }
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
+    /// Whether the note was in the store when this editor opened — if it then disappears, it was
+    /// deleted elsewhere (the list's ⌫, ⌘K), and the teardown autosave must not bring it back.
+    @State private var wasStored = false
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
     @State private var aiAction: NoteAI?
     /// The flashcards sheet, and what it starts from (this note, or a selection in it).
@@ -720,6 +739,7 @@ struct NoteEditor: View {
             editor.onFixWord = { picked in persist(); fixingWord = .init(find: picked, course: draft.courseID) }
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
+            wasStored = state.data.notes.contains { $0.id == draft.id }
             runPendingAction()
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
@@ -2240,8 +2260,11 @@ struct NoteEditor: View {
             state.data.notes.removeAll { $0.id == draft.id }   // discard blank
         } else if let i = state.data.notes.firstIndex(where: { $0.id == draft.id }) {
             state.data.notes[i] = draft
-        } else {
+        } else if NoteSave.mayInsert(wasStored: wasStored) {
             state.data.notes.append(draft)
+            wasStored = true
+        } else {
+            return   // deleted elsewhere while open
         }
         if !empty { NoteCards.sync(draft, state: state) }
     }

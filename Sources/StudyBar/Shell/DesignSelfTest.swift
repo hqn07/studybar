@@ -205,6 +205,18 @@ enum DesignSelfTest {
         check("i3 a gone item has none", ItemActions.actions(for: .note(UUID()), state: state).isEmpty, true)
         check("i4 recent keys round-trip", ItemRef(recentKey: ItemRef.deck(td.id).recentKey), .deck(td.id))
         check("i5 decks have no delete", ItemActions.actions(for: .deck(td.id), state: state).contains { $0.destructive }, false)
+        // Each list narrows by the toolbar filter.
+        let na = Note(title: "Gauss's law", body: "flux through a closed surface", courseID: phy.id)
+        let nb = Note(title: "Weirs and flumes", body: "measuring flow", courseID: cwr.id)
+        let nc = Note(title: "Loose thoughts", body: "")
+        func notesFor(_ f: ListFilter) -> [String] { NotesView.matching([na, nb, nc], filter: f).map(\.title) }
+        check("n1 notes by course", notesFor(ListFilter(course: .course(phy.id))), ["Gauss's law"])
+        check("n2 notes by text, fuzzy", notesFor(ListFilter(text: "weir")), ["Weirs and flumes"])
+        check("n3 notes with no course", notesFor(ListFilter(course: .noCourse)), ["Loose thoughts"])
+        check("n4 no filter keeps every note", notesFor(ListFilter()).count, 3)
+        // Deleting the open note from the list (⌫, ⌘K) must not be undone by its editor's save on close.
+        check("n5 an editor doesn't bring back a note deleted while it was open",
+              [NoteSave.mayInsert(wasStored: true), NoteSave.mayInsert(wasStored: false)], [false, true])
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])
