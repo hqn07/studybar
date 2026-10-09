@@ -231,6 +231,11 @@ enum DesignSelfTest {
         check("lk1 a link by its URL", LinksView.matches(usgs, filter: ListFilter(text: "usgs")), true)
         var later = ReadingListItem(title: "Open channel hydraulics", url: "https://example.edu/och"); later.courseID = cwr.id
         check("rl1 read later by course", ReadingListView.matches(later, filter: ListFilter(course: .course(cwr.id))), true)
+        var ref = Reference(title: "Open-channel hydraulics"); ref.authors = ["Chow, V. T."]; ref.courseID = cwr.id
+        check("ct1 a citation by its author", CitationsView.matches(ref, filter: ListFilter(text: "chow")), true)
+        check("ct2 in its course only", CitationsView.matches(ref, filter: ListFilter(course: .course(phy.id))), false)
+        let snip = Snippet(keyword: ";lab", title: "Lab header", body: "Name / Section / Date")
+        check("sn1 a snippet by its keyword, fuzzy", SnippetsView.matching([snip], filter: ListFilter(text: "lab")).count, 1)
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])

@@ -5,19 +5,25 @@ import SwiftUI
 struct SnippetsView: View {
     @EnvironmentObject var state: AppState
     @State private var editing: Snippet?
-    @State private var search = ""
+    @Environment(\.listFilter) private var filter
+    @State private var selectedSnippet: UUID?
     @State private var byUse = false
     @State private var selectedCategory: String? = nil     // nil = All
 
     private static func cat(_ s: Snippet) -> String { s.category.isEmpty ? "General" : s.category }
 
+    /// Snippets the toolbar text matches, fuzzy and ranked; snippets have no course, so a token
+    /// doesn't narrow them. Pure.
+    static func matching(_ list: [Snippet], filter: ListFilter) -> [Snippet] {
+        let q = filter.trimmed
+        guard !q.isEmpty else { return list }
+        return list.compactMap { s in FuzzyMatch.best(q, [s.title, s.keyword, s.body, s.category]).map { (s, $0) } }
+            .sorted { $0.1 > $1.1 }.map(\.0)
+    }
+
     private var searched: [Snippet] {
         let list = state.data.snippets
-        if !search.isEmpty {
-            // Fuzzy + relevance-ranked while searching.
-            return list.compactMap { s in FuzzyMatch.best(search, [s.title, s.keyword, s.body, s.category]).map { (s, $0) } }
-                .sorted { $0.1 > $1.1 }.map(\.0)
-        }
+        if !filter.trimmed.isEmpty { return Self.matching(list, filter: filter) }
         return byUse ? list.sorted { $0.uses > $1.uses } : list
     }
     /// Category names present, sorted (General last).
@@ -46,15 +52,17 @@ struct SnippetsView: View {
                 Button { addSamples() } label: { Label("Add sample snippets", systemImage: "sparkles") }
             }) {
                 VStack(spacing: 0) {
-                    if state.data.snippets.count > 4 { SearchField(text: $search).padding(8); Divider() }
+                    FilterStatus(shown: searched.count, total: state.data.snippets.count, noun: "snippets")
                     if categories.count > 1 { categoryChips; Divider() }
 
                     if searched.isEmpty { emptyState } else { snippetList }
                 }
             }
             .navigationDestination(item: $editing) { SnippetEditor(snippet: $0).moduleColumn(DS.Width.form) }
+            .preference(key: SelectionKey.self, value: selectedSnippet.map(ItemRef.snippet))
+            .onChange(of: state.pendingEdit) { _, _ in consumeEdit() }
         }
-        .onAppear(perform: migrateCategories)
+        .onAppear { migrateCategories(); consumeEdit() }
     }
 
     /// Backfill categories on the built-in sample snippets that predate categories,
@@ -96,7 +104,7 @@ struct SnippetsView: View {
         return categories.filter { !items(in: $0).isEmpty }
     }
     /// Reorder is only meaningful on the natural order — not while searching or sorted-by-use.
-    private var reorderable: Bool { search.isEmpty && !byUse }
+    private var reorderable: Bool { filter.trimmed.isEmpty && !byUse }
 
     /// One plain List: light section labels + hairline-separated rows, drag to reorder
     /// within a category. Chips narrow it to a single section.
@@ -106,6 +114,8 @@ struct SnippetsView: View {
                 Section {
                     ForEach(items(in: c)) { s in
                         SnippetRow(snippet: s) { editing = s }
+                            .kbSelected(s.id == selectedSnippet, radius: DS.Radius.control)
+                            .itemContextMenu(.snippet(s.id), state: state)
                             .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 8))
                             .listRowBackground(Color.clear)
                     }
@@ -120,6 +130,18 @@ struct SnippetsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        // ↩ edits, Space copies (placeholders filled), ⌫ deletes (Undo, Trash).
+        .keyboardListNav(ids: visibleCategories.flatMap { items(in: $0).map(\.id) }, selection: $selectedSnippet,
+                         onActivate: { id in editing = state.data.snippets.first { $0.id == id } },
+                         onPrimary: { ItemActions.copySnippet($0, state: state) },
+                         onRemove: { id in state.withUndo("Deleted snippet") { state.data.snippets.removeAll { $0.id == id } } },
+                         onEscape: { selectedSnippet = nil })
+    }
+
+    private func consumeEdit() {
+        guard case .snippet(let id) = state.pendingEdit else { return }
+        state.pendingEdit = nil
+        editing = state.data.snippets.first { $0.id == id }
     }
 
     /// Reorder within a category, written back into `state.data.snippets` in place so the

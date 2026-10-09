@@ -8,21 +8,19 @@ struct CitationsView: View {
     @State private var fetching = false
     @State private var error = ""
     @State private var notice = ""
-    @State private var search = ""
+    @Environment(\.listFilter) private var filter
+    @State private var selectedRef: UUID?
     @State private var searchResults: [Reference] = []
 
     private var style: CiteStyle { CiteStyle(rawValue: styleRaw) ?? .apa }
 
     private var references: [Reference] {
-        var list = state.data.references
-        if !search.isEmpty {
-            list = list.filter {
-                $0.title.localizedCaseInsensitiveContains(search) ||
-                $0.authors.joined(separator: " ").localizedCaseInsensitiveContains(search) ||
-                $0.container.localizedCaseInsensitiveContains(search)
-            }
-        }
-        return list.sorted { $0.addedAt > $1.addedAt }
+        state.data.references.filter { Self.matches($0, filter: filter) }.sorted { $0.addedAt > $1.addedAt }
+    }
+
+    /// The toolbar filter on a citation: title, authors or container, in the token's course. Pure.
+    static func matches(_ r: Reference, filter: ListFilter) -> Bool {
+        filter.matches(courseID: r.courseID, fields: [r.title, r.authors.joined(separator: " "), r.container])
     }
 
     var body: some View {
@@ -40,10 +38,10 @@ struct CitationsView: View {
             }) {
                 VStack(spacing: 0) {
                     grabBar
-                    if state.data.references.count > 4 && searchResults.isEmpty {
-                        SearchField(text: $search).padding(.horizontal, 10).padding(.bottom, 6)
-                    }
                     Divider()
+                    if searchResults.isEmpty {
+                        FilterStatus(shown: references.count, total: state.data.references.count, noun: "citations")
+                    }
                     if !searchResults.isEmpty {
                         resultsPanel
                     } else if references.isEmpty {
@@ -54,23 +52,46 @@ struct CitationsView: View {
                         ScrollView {
                             LazyVStack(spacing: 0) {
                                 ForEach(references) { r in
-                                    ReferenceRow(reference: r, style: style) { editing = r }
+                                    ReferenceRow(reference: r, style: style, selected: r.id == selectedRef) { editing = r }
+                                        .kbSelected(r.id == selectedRef, radius: DS.Radius.control)
+                                        .itemContextMenu(.citation(r.id), state: state)
                                 }
                             }.padding(10)
                         }
+                        // ↩ edits, Space copies the citation, ⌫ deletes it (Undo, Trash).
+                        .keyboardListNav(ids: references.map(\.id), selection: $selectedRef,
+                                         onActivate: { id in editing = references.first { $0.id == id } },
+                                         onPrimary: { id in
+                                             if let r = references.first(where: { $0.id == id }) {
+                                                 NSPasteboard.general.clearContents()
+                                                 NSPasteboard.general.setString(ItemActions.citation(r), forType: .string)
+                                             }
+                                         },
+                                         onRemove: { id in state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == id } } },
+                                         onEscape: { selectedRef = nil })
                         exportBar
                     }
                 }
             }
             .navigationDestination(item: $editing) { ReferenceEditor(reference: $0).moduleColumn(DS.Width.form) }
+            .preference(key: SelectionKey.self, value: selectedRef.map(ItemRef.citation))
+            .onAppear(perform: consumeEdit)
+            .onChange(of: state.pendingEdit) { _, _ in consumeEdit() }
         }
+    }
+
+    private func consumeEdit() {
+        guard case .citation(let id) = state.pendingEdit else { return }
+        state.pendingEdit = nil
+        editing = state.data.references.first { $0.id == id }
     }
 
     private var grabBar: some View {
         VStack(spacing: 4) {
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search by title, or paste a DOI / URL / ISBN…", text: $grabText, onCommit: grab)
+                // Online lookup, not the list's filter (that's the toolbar field).
+                Image(systemName: "globe").foregroundStyle(.secondary)
+                TextField("Find a source online — a title, DOI, URL or ISBN…", text: $grabText, onCommit: grab)
                     .textFieldStyle(.plain)
                 // Straight from the clipboard, so a pasted RIS record keeps the lines it needs.
                 Button { if let s = NSPasteboard.general.string(forType: .string), !importText(s) { grabText = s; grab() } } label: {
@@ -232,7 +253,12 @@ struct ReferenceRow: View {
     @EnvironmentObject var state: AppState
     let reference: Reference
     let style: CiteStyle
+    var selected = false
     let onEdit: () -> Void
+
+    init(reference: Reference, style: CiteStyle, selected: Bool = false, onEdit: @escaping () -> Void) {
+        self.reference = reference; self.style = style; self.selected = selected; self.onEdit = onEdit
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -249,16 +275,29 @@ struct ReferenceRow: View {
                     .buttonStyle(.borderless).help("Copy full \(style.rawValue) citation")
                 Button { copy(CitationFormatter.inText(reference)) } label: { Image(systemName: "text.quote").accessibilityLabel("Copy in-text citation") }
                     .buttonStyle(.borderless).help("Copy in-text \(CitationFormatter.inText(reference))")
-                Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit citation") }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary)
-                Button { state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == reference.id } } } label: {
-                    Image(systemName: "trash")
-                    .accessibilityLabel("Delete citation")
-                }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Delete — undo, or find it in the Trash")
+                RowActions {
+                    VStack(spacing: 6) {
+                        Button(action: onEdit) { Image(systemName: "pencil").accessibilityLabel("Edit citation") }
+                            .buttonStyle(.borderless).foregroundStyle(.secondary)
+                        Button { delete() } label: {
+                            Image(systemName: "trash")
+                            .accessibilityLabel("Delete citation")
+                        }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Delete — undo, or find it in the Trash")
+                    }
+                }
             }.font(.caption)
         }
         .padding(DS.Space.m)
+        .rowActionsHost(selected: selected)
+        .accessibilityActions {
+            Button("Edit citation", action: onEdit)
+            Button("Delete citation") { delete() }
+        }
         .sbRowSeparator(leading: DS.Space.m)
+    }
+
+    private func delete() {
+        state.withUndo("Deleted citation") { state.data.references.removeAll { $0.id == reference.id } }
     }
 
     // Strip markdown emphasis markers for plain display/copy.
