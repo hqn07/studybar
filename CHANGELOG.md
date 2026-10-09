@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.9.0] — 2026-10-08
 
 - **A wide window uses its width** — every module's title bar now runs the full width of the window, and lists and dashboards widen with it up to a comfortable column instead of sitting in a narrow strip. Courses adds a column as the window grows (four on a wide screen) and Insights puts its cards side by side. Notes, study guides and tutor answers keep a readable line length.
 - **A shorter, quieter sidebar** — modules sit in four groups — Plan, Capture, Study and Tools — with Settings at the bottom, and headers only where a group is big enough to need one. The short starter list has none at all.
