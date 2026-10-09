@@ -44,6 +44,8 @@ struct CitationsView: View {
                     }
                     if !searchResults.isEmpty {
                         resultsPanel
+                    } else if references.isEmpty && filter.isActive {
+                        FilteredEmpty(noun: "citations")
                     } else if references.isEmpty {
                         EmptyState(symbol: "quote.opening",
                                    title: state.data.references.isEmpty ? "No citations" : "No matches",

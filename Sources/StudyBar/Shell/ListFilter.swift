@@ -90,3 +90,28 @@ struct FilterStatus: View {
         }
     }
 }
+
+/// A filtered list with nothing left: says it's the filter (not an empty list), and offers the
+/// way on — Search everywhere for typed text, Clear for a course token alone.
+struct FilteredEmpty: View {
+    let noun: String
+    @EnvironmentObject var state: AppState
+    @Environment(\.listFilter) private var filter
+    @Environment(\.workspace) private var workspace
+
+    var body: some View {
+        if filter.trimmed.isEmpty {
+            EmptyState(symbol: "line.3.horizontal.decrease.circle", title: "No \(noun) in this course",
+                       subtitle: "Clear the filter to see them all.", actionTitle: "Clear filter") {
+                workspace?.filter = ListFilter()
+            }
+        } else {
+            EmptyState(symbol: "magnifyingglass", title: "No \(noun) match “\(filter.trimmed)”",
+                       subtitle: "Search everywhere looks through the rest of StudyBar too.", actionTitle: "Search everywhere") {
+                let q = filter.trimmed
+                workspace?.filter = ListFilter()
+                state.globalSearch = q
+            }
+        }
+    }
+}

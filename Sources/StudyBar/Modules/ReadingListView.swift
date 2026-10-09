@@ -38,7 +38,9 @@ struct ReadingListView: View {
                 }
                 Divider()
                 FilterStatus(shown: items.count, total: state.data.readingList.count, noun: "pages")
-                if items.isEmpty {
+                if items.isEmpty && filter.isActive {
+                    FilteredEmpty(noun: "pages")
+                } else if items.isEmpty {
                     EmptyState(symbol: "books.vertical", title: "Nothing saved",
                                subtitle: "Save articles and pages to read later. Use the Safari button to grab the current tab.")
                 } else {

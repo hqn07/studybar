@@ -8,7 +8,9 @@ import SwiftUI
 /// points it at whichever window was last in front.
 @MainActor
 final class WindowModel: ObservableObject {
-    @Published var moduleID: String
+    /// Changing module drops the filter here, before the new module's first render — cleared
+    /// later, the new list saw the old filter and skipped taking the keyboard.
+    @Published var moduleID: String { didSet { if moduleID != oldValue { filter = ListFilter() } } }
     /// The right half of a split: a module id, or `WindowModel.chat`. nil = no split.
     @Published var rightID: String?
     /// What the left pane has open, for the chat beside it.
@@ -22,8 +24,9 @@ final class WindowModel: ObservableObject {
     @Published var tabBar = false
     /// What the toolbar field narrows the left pane's list to; cleared when the module changes.
     @Published var filter = ListFilter()
-    /// A request for the filter field to take focus (/ and ⌘F in a list); the field clears it.
-    @Published var focusFilter = false
+    /// Bumped to put the keyboard in the filter field (/ and ⌘F in a list). A counter, not a
+    /// flag: a flag set while the field was hidden stayed set and no later request registered.
+    @Published var focusFilterRequest = 0
     /// Bumped to hand focus to the left pane's list (↩ in the field with no suggestion).
     @Published var listFocusRequest = 0
     /// The left pane list's selected row (`SelectionKey`) — what ⌘K offers actions for.

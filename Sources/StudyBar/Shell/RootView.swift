@@ -68,7 +68,6 @@ struct RootView: View {
             // strand a module with no rail, no header and no button to bring them back.
             .onChange(of: win.moduleID) { _, id in
                 if id != "notes" { state.focusMode = false }
-                win.filter = ListFilter()   // a filter belongs to the list it was typed over
             }
             // A token for a course that was just deleted would leave the list empty.
             .onChange(of: state.data.courses) { _, cs in

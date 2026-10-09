@@ -57,7 +57,7 @@ struct FilterField: View {
             // The first course is ready for ↩; with only "Search everywhere" left, ↩ goes to the list.
             highlight = suggestions.first.flatMap { if case .searchEverywhere = $0 { return nil } else { return 0 } }
         }
-        .onChange(of: win.focusFilter) { _, on in if on { focused = true; win.focusFilter = false } }
+        .onChange(of: win.focusFilterRequest) { _, _ in focused = true }
         .onChange(of: focused || win.filter.course != nil) { _, v in expanded = v }
         .onAppear { expanded = focused || win.filter.course != nil }
     }

@@ -188,6 +188,14 @@ enum DesignSelfTest {
         check("k1 Esc clears the filter first", ListKeys.escape(filterActive: true, hasSelection: true), .clearFilter)
         check("k2 then the selection", ListKeys.escape(filterActive: false, hasSelection: true), .clearSelection)
         check("k3 then nothing", ListKeys.escape(filterActive: false, hasSelection: false), .none)
+        let r1 = UUID(), r2 = UUID()
+        check("k5 a selection the filter hid acts as none", ListKeys.target(selection: UUID(), ids: [r1, r2]), nil)
+        check("k6 a visible one is the target", ListKeys.target(selection: r2, ids: [r1, r2]), r2)
+        check("k7 the list doesn't take the keys from a focused text field",
+              [ListKeys.shouldTakeFocus(leftPane: true, filterActive: false, textFieldFocused: true),
+               ListKeys.shouldTakeFocus(leftPane: true, filterActive: false, textFieldFocused: false),
+               ListKeys.shouldTakeFocus(leftPane: true, filterActive: true, textFieldFocused: false),
+               ListKeys.shouldTakeFocus(leftPane: false, filterActive: false, textFieldFocused: false)], [false, true, false, false])
         check("k4 ⌘1–9 follow the sidebar, favorites first, no Settings",
               SidebarLayout.shortcutOrder(visible: M(all), favorites: ["notes"], flat: false),
               ["notes", "today", "insights", "assignments", "schedule", "calendar", "board", "courses", "voice"])
@@ -204,6 +212,8 @@ enum DesignSelfTest {
               ["Mark done", "Snooze 1 day", "Snooze 1 week", "Add to today's plan", "Start focus", "Edit…", "Archive", "Delete"])
         check("i3 a gone item has none", ItemActions.actions(for: .note(UUID()), state: state).isEmpty, true)
         check("i4 recent keys round-trip", ItemRef(recentKey: ItemRef.deck(td.id).recentKey), .deck(td.id))
+        check("i6 a recent assignment opens, never toggles done", ItemActions.open(.assignment(ta.id), state: state)?.title, "Open")
+        check("i7 a recent deck opens rather than starting a review", ItemActions.open(.deck(td.id), state: state)?.title, "Open")
         check("i5 decks have no delete", ItemActions.actions(for: .deck(td.id), state: state).contains { $0.destructive }, false)
         // Each list narrows by the toolbar filter.
         let na = Note(title: "Gauss's law", body: "flux through a closed surface", courseID: phy.id)
@@ -215,8 +225,10 @@ enum DesignSelfTest {
         check("n3 notes with no course", notesFor(ListFilter(course: .noCourse)), ["Loose thoughts"])
         check("n4 no filter keeps every note", notesFor(ListFilter()).count, 3)
         // Deleting the open note from the list (⌫, ⌘K) must not be undone by its editor's save on close.
-        check("n5 an editor doesn't bring back a note deleted while it was open",
-              [NoteSave.mayInsert(wasStored: true), NoteSave.mayInsert(wasStored: false)], [false, true])
+        // Deleting the open note (⌫, ⌘K) puts it in the Trash: its editor must not bring it back — but a
+        // note that vanished because Undo rolled the store back is still the user's, and goes back in.
+        check("n5 an editor doesn't bring back a note in the Trash", NoteSave.mayInsert(id: tn.id, trashed: [tn.id]), false)
+        check("n6 but does put back a note Undo rolled away", NoteSave.mayInsert(id: tn.id, trashed: []), true)
         let lab = Assignment(title: "Lab report 4", courseID: cwr.id)
         check("as1 an assignment by its course code", AssignmentsView.matches(lab, filter: ListFilter(text: "cwr32"), courses: cs), true)
         check("as2 by title, in its course", AssignmentsView.matches(lab, filter: ListFilter(text: "lab", course: .course(cwr.id)), courses: cs), true)
@@ -244,6 +256,10 @@ enum DesignSelfTest {
               PaletteSections.emptyQuery(selection: [], recents: CommandPalette.recentActions(["note:\(UUID())"], state: state, commands: []),
                                          goTo: [], others: []).isEmpty, true)
         func act(_ t: String) -> CommandPalette.Action { .init(title: t, subtitle: "", symbol: "circle") {} }
+        let cmds = [act("Calculator"), act("Quit StudyBar")]
+        check("r6 only what can be shown again is remembered — never Quit",
+              [CommandPalette.recentEntry(for: act("Calculator"), commands: cmds), CommandPalette.recentEntry(for: act("Quit StudyBar"), commands: cmds),
+               CommandPalette.recentEntry(for: act("= 42"), commands: cmds)], ["cmd:Calculator", nil, nil])
         let sel = act("Quiz me"), rec = act("Week 7"), go = act("Today"), oth = act("New Note")
         check("r5 order: selection, recent, go to", PaletteSections.emptyQuery(selection: [sel], recents: [rec], goTo: [go], others: [oth]).map(\.title),
               ["Quiz me", "Week 7", "Today", "New Note"])

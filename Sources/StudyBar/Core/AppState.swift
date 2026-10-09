@@ -41,8 +41,9 @@ final class AppState: ObservableObject {
     /// Image cards to make from a picture that came from elsewhere — a screen grab, a slide, a
     /// board photo. Flashcards shows the editor.
     @Published var pendingImageCards: ImageCardsRequest?
-    /// With `pendingDeck`: start reviewing it once it's open (⌘K's Review).
-    @Published var pendingReview = false
+    /// The deck to start reviewing once it's open (⌘K's Review, Space on a deck). Its deck's
+    /// page takes it — by id, so a request can't start some other deck's review later.
+    @Published var pendingReview: UUID?
     /// A note action for the note's editor to run once the note is open (⌘K, a row's menu).
     @Published var pendingNoteAction: PendingNoteAction?
     /// An item whose editor its module should open (⌘K's and the row menus' Edit…).

@@ -150,7 +150,9 @@ struct AssignmentsView: View {
                         scopeMode.includes($0, hideBusywork: hideBusywork, showDone: showDone) }.count, noun: "assignments")
                     if legacyTodos > 0 { importBanner; Divider() }
                     if scopeMode != .archived, !stale.isEmpty { staleBanner; Divider() }
-                    if list.isEmpty {
+                    if list.isEmpty && filter.isActive {
+                        FilteredEmpty(noun: "assignments")   // not "Nothing due" — the filter is hiding them
+                    } else if list.isEmpty {
                         EmptyState(symbol: emptySymbol, title: emptyTitle, subtitle: emptySubtitle)
                     } else {
                         ScrollViewReader { proxy in

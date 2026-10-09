@@ -74,8 +74,7 @@ struct NotesView: View {
     /// The list broken into labelled sections: Pinned first, then soft date buckets (Today /
     /// This week / Earlier) on whichever date the sort uses. Flat (one unlabelled section)
     /// while searching or sorting by title, so the header never contradicts the order.
-    private var notesSections: [(id: String, title: String?, notes: [Note])] {
-        let all = notes
+    private func notesSections(_ all: [Note]) -> [(id: String, title: String?, notes: [Note])] {
         if !filter.trimmed.isEmpty { return [("all", nil, all)] }
         let pinned = all.filter(\.pinned)
         let rest = all.filter { !$0.pinned }
@@ -207,14 +206,15 @@ struct NotesView: View {
                 Button { newFromTemplate(t, split: split) } label: { Label(t.name, systemImage: t.symbol) }
             }
         }
-        if !notes.isEmpty {
+        let shown = notes.count   // once: each read re-runs the filter
+        if shown > 0 {
             Section("Export") {
-                if notes.count > 1 {
-                    Button { exportBinder() } label: { Label("These \(notes.count) notes as one PDF…", systemImage: "books.vertical") }
+                if shown > 1 {
+                    Button { exportBinder() } label: { Label("These \(shown) notes as one PDF…", systemImage: "books.vertical") }
                 }
                 if AIConfig.isReady(for: .ask) {
                     Button { audioReview() } label: {
-                        Label(notes.count == 1 ? "Audio review of this note…" : "Audio review of these \(notes.count) notes…", systemImage: "headphones")
+                        Label(shown == 1 ? "Audio review of this note…" : "Audio review of these \(shown) notes…", systemImage: "headphones")
                     }
                 }
             }
@@ -261,15 +261,17 @@ struct NotesView: View {
     // MARK: Narrow / popover — list that pushes one note
 
     private var stackBody: some View {
-        VStack(spacing: 0) {
-            FilterStatus(shown: notes.count, total: state.data.notes.count, noun: "notes")
-            if notes.isEmpty {
+        // The filtered list once per render: it fuzzy-matches every note body on each keystroke.
+        let list = notes
+        return VStack(spacing: 0) {
+            FilterStatus(shown: list.count, total: state.data.notes.count, noun: "notes")
+            if list.isEmpty {
                 notesEmptyState
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(notesSections, id: \.id) { sec in
+                            ForEach(notesSections(list), id: \.id) { sec in
                                 if let t = sec.title { sectionHeader(t) }
                                 ForEach(sec.notes) { n in
                                     NoteRow(note: n, selected: n.id == selection, showCreated: sort == .created) { push(n.id) }
@@ -278,7 +280,7 @@ struct NotesView: View {
                             }
                         }.padding(10)
                     }
-                    .keyboardListNav(ids: notes.map(\.id), selection: $selection,
+                    .keyboardListNav(ids: list.map(\.id), selection: $selection,
                                      onActivate: { push($0) }, onRemove: { remove($0) }, onEscape: { selection = nil })
                     .onChange(of: selection) { _, id in
                         if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
@@ -294,6 +296,7 @@ struct NotesView: View {
         guard let n = state.data.notes.first(where: { $0.id == id }) else { return }
         selection = id
         editing = OpenNote(note: n, preview: true)
+        PaletteRecents.record(ItemRef.note(id).recentKey)
     }
 
     /// ⌫ in the list: to the Trash, with Undo.
@@ -326,15 +329,17 @@ struct NotesView: View {
     }
 
     private var listPane: some View {
-        VStack(spacing: 0) {
-            FilterStatus(shown: notes.count, total: state.data.notes.count, noun: "notes")
-            if notes.isEmpty {
+        // The filtered list once per render: it fuzzy-matches every note body on each keystroke.
+        let list = notes
+        return VStack(spacing: 0) {
+            FilterStatus(shown: list.count, total: state.data.notes.count, noun: "notes")
+            if list.isEmpty {
                 notesEmptyState
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(notesSections, id: \.id) { sec in
+                            ForEach(notesSections(list), id: \.id) { sec in
                                 if let t = sec.title { sectionHeader(t) }
                                 ForEach(sec.notes) { n in
                                     NoteRow(note: n, selected: n.id == selection, showCreated: sort == .created) { select(n.id) }
@@ -343,7 +348,7 @@ struct NotesView: View {
                             }
                         }.padding(8)
                     }
-                    .keyboardListNav(ids: notes.map(\.id), selection: $selection,
+                    .keyboardListNav(ids: list.map(\.id), selection: $selection,
                                      onActivate: { select($0) }, onRemove: { remove($0) }, onEscape: { selection = nil })
                     .onChange(of: selection) { _, id in
                         if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
@@ -371,19 +376,8 @@ struct NotesView: View {
             EmptyState(symbol: "note.text", title: "No notes yet",
                        subtitle: "Capture ideas, lecture notes and reminders. Markdown supported.",
                        actionTitle: "New note", action: { newNote(split: true) })
-        } else if !filter.trimmed.isEmpty {
-            // The filter only looks at notes; the rest of StudyBar may still have it (⌘↩).
-            EmptyState(symbol: "magnifyingglass", title: "No notes match",
-                       subtitle: "Search everywhere looks in assignments, decks, books and files too.",
-                       actionTitle: "Search everywhere") {
-                let q = filter.trimmed
-                workspace?.filter = ListFilter()
-                state.globalSearch = q
-            }
         } else {
-            EmptyState(symbol: "note.text", title: "No notes in this course",
-                       subtitle: "Clear the filter to see every note.",
-                       actionTitle: "Clear filter") { workspace?.filter = ListFilter() }
+            FilteredEmpty(noun: "notes")
         }
     }
 
@@ -391,7 +385,11 @@ struct NotesView: View {
     private func noteForSelection(_ id: UUID) -> Note? {
         state.data.notes.first { $0.id == id } ?? (newDraft?.id == id ? newDraft : nil)
     }
-    private func select(_ id: UUID) { selection = id; newDraft = nil }
+    /// Opening a note (a click, ↩) — not j/k passing over it — is what ⌘K's Recent keeps.
+    private func select(_ id: UUID) {
+        selection = id; newDraft = nil
+        PaletteRecents.record(ItemRef.note(id).recentKey)
+    }
 
     // MARK: Actions (fork by surface width)
 
@@ -442,10 +440,11 @@ struct NotesView: View {
 
 }
 
-/// Whether an editor's save may add its note to the store: a new draft yes; a note that was
-/// stored when the editor opened and has since gone was deleted elsewhere — no. Pure.
+/// Whether an editor's save may add its note to the store. A note in the Trash was deleted
+/// (the list's ⌫, ⌘K) and stays deleted; one that is simply missing — a new draft, or a note
+/// Undo rolled the store back past — is the user's and goes (back) in. Pure.
 enum NoteSave {
-    static func mayInsert(wasStored: Bool) -> Bool { !wasStored }
+    static func mayInsert(id: UUID, trashed: Set<UUID>) -> Bool { !trashed.contains(id) }
 }
 
 /// Loads a screenshot attachment by filename.
@@ -591,9 +590,6 @@ struct NoteEditor: View {
     @State private var slideCards: [Int: [Flashcard]] = [:]
     private var slideCardsKey: Int { state.data.flashcards.filter { $0.origin?.noteID == draft.id }.count }
     @State private var deleted = false   // once deleted, the teardown autosave must not re-add it
-    /// Whether the note was in the store when this editor opened — if it then disappears, it was
-    /// deleted elsewhere (the list's ⌫, ⌘K), and the teardown autosave must not bring it back.
-    @State private var wasStored = false
     // Inline AI (Writing-Tools-style): result shown in a review card, accepted or discarded.
     @State private var aiAction: NoteAI?
     /// The flashcards sheet, and what it starts from (this note, or a selection in it).
@@ -739,14 +735,18 @@ struct NoteEditor: View {
             editor.onFixWord = { picked in persist(); fixingWord = .init(find: picked, course: draft.courseID) }
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
-            wasStored = state.data.notes.contains { $0.id == draft.id }
-            PaletteRecents.record(ItemRef.note(draft.id).recentKey)
             runPendingAction()
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }
         // Autosave metadata edits; body edits fire through editor.onEdit. onDisappear
         // flushes on teardown (e.g. switching modules from the sidebar).
         .onChange(of: state.pendingNoteAction) { _, _ in runPendingAction() }
+        // Trashed while open (⌘K's Move to Trash): close rather than show a note that won't save.
+        .onChange(of: trashedNoteIDs.contains(draft.id)) { _, trashed in
+            guard trashed, !state.data.notes.contains(where: { $0.id == draft.id }) else { return }
+            deleted = true
+            embedded ? onClose() : dismiss()
+        }
         .onChange(of: draft.title)         { _, _ in scheduleAutosave() }
         .onChange(of: tagText)             { _, _ in scheduleAutosave() }
         .onChange(of: draft.pinned)        { _, _ in scheduleAutosave() }
@@ -2261,14 +2261,15 @@ struct NoteEditor: View {
             state.data.notes.removeAll { $0.id == draft.id }   // discard blank
         } else if let i = state.data.notes.firstIndex(where: { $0.id == draft.id }) {
             state.data.notes[i] = draft
-        } else if NoteSave.mayInsert(wasStored: wasStored) {
+        } else if NoteSave.mayInsert(id: draft.id, trashed: trashedNoteIDs) {
             state.data.notes.append(draft)
-            wasStored = true
         } else {
             return   // deleted elsewhere while open
         }
         if !empty { NoteCards.sync(draft, state: state) }
     }
+    private var trashedNoteIDs: Set<UUID> { Set(state.data.trash?.filter { $0.collection == "notes" }.map(\.itemID) ?? []) }
+
     private func delete() {
         deleted = true
         saveTask?.cancel()

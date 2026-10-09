@@ -87,7 +87,9 @@ struct ReadingView: View {
                         }.pickerStyle(.segmented).labelsHidden().padding(10)
                         Divider()
                         FilterStatus(shown: items.count, total: state.data.reading.count, noun: "books")
-                        if items.isEmpty {
+                        if items.isEmpty && filter.isActive {
+                            FilteredEmpty(noun: "books")
+                        } else if items.isEmpty {
                             EmptyState(symbol: "books.vertical",
                                        title: state.data.reading.isEmpty ? "Your bookshelf is empty" : "Nothing on this shelf",
                                        subtitle: state.data.reading.isEmpty ? "Search for a book above to auto-fill cover, author and pages — or tap ＋ to add one manually." : "Try another shelf or search.")

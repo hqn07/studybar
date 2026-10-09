@@ -132,6 +132,8 @@ struct FlashcardsView: View {
                                        : "Make cards from the notes you already have: pick them, say how many, check the cards, add them.",
                                    actionTitle: state.data.notes.isEmpty ? nil : "Make cards from your notes",
                                    action: state.data.notes.isEmpty ? nil : { making = .init() })
+                    } else if filter.isActive && decks.isEmpty {
+                        FilteredEmpty(noun: "decks")
                     } else {
                         FilterStatus(shown: decks.count, total: state.data.decks.count, noun: "decks")
                         ScrollViewReader { proxy in
@@ -150,7 +152,7 @@ struct FlashcardsView: View {
                                              onActivate: { id in if let d = decks.first(where: { $0.id == id }) { path = [d] } },
                                              onPrimary: { id in
                                                  guard let d = decks.first(where: { $0.id == id }) else { return }
-                                                 state.pendingReview = true; path = [d]
+                                                 state.pendingReview = d.id; path = [d]
                                              },
                                              onEscape: { selectedDeck = nil })
                             .onChange(of: selectedDeck) { _, id in
@@ -297,10 +299,8 @@ struct DeckView: View {
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll).moduleColumn() }
         // ⌘K's Review on a deck: open it and start, as the Study button would.
-        .onAppear {
-            PaletteRecents.record(ItemRef.deck(deck.id).recentKey)
-            if state.pendingReview { state.pendingReview = false; practiceAll = due.isEmpty; studying = true }
-        }
+        .onAppear { PaletteRecents.record(ItemRef.deck(deck.id).recentKey); startPendingReview() }
+        .onChange(of: state.pendingReview) { _, _ in startPendingReview() }
         .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id).moduleColumn() }
         .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id).moduleColumn() }
         .navigationDestination(item: $editingCard) { CardEditor(card: $0).moduleColumn(DS.Width.form) }
@@ -435,6 +435,14 @@ struct DeckView: View {
         .contextMenu {
             Button(card.paused == true ? "Resume Card" : "Pause Card") { Flashcard.togglePaused(card.id, in: state) }
         }
+    }
+
+    /// ⌘K's Review or Space on this deck: start, as the Study button would.
+    private func startPendingReview() {
+        guard state.pendingReview == deck.id else { return }
+        state.pendingReview = nil
+        practiceAll = due.isEmpty
+        studying = true
     }
 
     @ViewBuilder private var studyButton: some View {

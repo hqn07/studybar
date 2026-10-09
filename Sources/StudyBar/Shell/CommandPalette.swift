@@ -86,7 +86,7 @@ struct CommandPalette: View {
         entries.compactMap { e in
             if let ref = ItemRef(recentKey: e) {
                 guard let title = ItemActions.title(of: ref, in: state.data),
-                      let open = ItemActions.actions(for: ref, state: state).first else { return nil }
+                      let open = ItemActions.open(ref, state: state) else { return nil }
                 let (kind, symbol) = recentLabel(ref)
                 return Action(title: title, subtitle: kind, symbol: symbol, section: "Recent", recentKey: e, run: open.run)
             }
@@ -160,7 +160,10 @@ struct CommandPalette: View {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else {
             return PaletteSections.emptyQuery(selection: selectionActions,
-                                              recents: Self.recentActions(PaletteRecents.current, state: state, commands: actions),
+                                              recents: Self.recentActions(PaletteRecents.current, state: state, commands: actions).map { a in
+                                                  Action(title: a.title, subtitle: a.subtitle, symbol: a.symbol, section: a.section,
+                                                         shortcut: a.shortcut, recentKey: a.recentKey) { isPresented = false; a.run() }
+                                              },
                                               goTo: moduleJumps, others: quickActions.map { a in
                                                   var a = a; a.section = "Actions"; return a
                                               })
@@ -291,8 +294,16 @@ struct CommandPalette: View {
     }
     /// Run a row and remember it: the item it acts on, or the command itself.
     private func run(_ a: Action) {
-        PaletteRecents.record(a.recentKey ?? "cmd:\(a.title)")
+        if let e = Self.recentEntry(for: a, commands: actions) { PaletteRecents.record(e) }
         a.run()
+    }
+
+    /// What Recent keeps for a row: its item, or a command that can be offered again — not a
+    /// sum, an Ask, a search hit, and never Quit (⌘K then ↩ would quit). Pure.
+    static func recentEntry(for a: Action, commands: [Action]) -> String? {
+        if let k = a.recentKey { return k }
+        guard a.title != "Quit StudyBar", commands.contains(where: { $0.title == a.title }) else { return nil }
+        return "cmd:\(a.title)"
     }
     private func go(_ id: String) {
         state.selectedModuleID = id

@@ -69,13 +69,31 @@ enum ItemActions {
         }
     }
 
+    /// What opening an item from ⌘K's Recent does — always a plain open, never the kind's first
+    /// action (an assignment's first is Mark done, a deck's is Review). Nil when the item is gone.
+    static func open(_ ref: ItemRef, state: AppState) -> ItemAction? {
+        guard title(of: ref, in: state.data) != nil else { return nil }
+        let run: () -> Void
+        switch ref {
+        case .note(let id): run = { open(id, state) }
+        case .assignment, .citation, .snippet:
+            let module = { if case .assignment = ref { return "assignments" }; if case .citation = ref { return "citations" }; return "snippets" }()
+            run = { edit(ref, in: module, state) }
+        case .deck(let id): run = { state.pendingDeck = id; go("flashcards", state) }
+        case .book(let id): run = { state.pendingBook = .init(id: id, page: nil); go("reading", state) }
+        case .link(let id): run = { openURL(state.data.links.first { $0.id == id }?.url ?? "") }
+        case .readLater(let id): run = { openURL(state.data.readingList.first { $0.id == id }?.url ?? "") }
+        }
+        return ItemAction(title: "Open", systemImage: "arrow.up.forward.square", run: run)
+    }
+
     static func actions(for ref: ItemRef, state: AppState) -> [ItemAction] {
         guard title(of: ref, in: state.data) != nil else { return [] }
         switch ref {
         case .note(let id): return note(id, state)
         case .assignment(let id): return assignment(id, state)
         case .deck(let id): return [
-            ItemAction(title: "Review", systemImage: "play.fill") { state.pendingReview = true; state.pendingDeck = id; go("flashcards", state) },
+            ItemAction(title: "Review", systemImage: "play.fill") { state.pendingReview = id; state.pendingDeck = id; go("flashcards", state) },
             ItemAction(title: "Open", systemImage: "rectangle.on.rectangle.angled") { state.pendingDeck = id; go("flashcards", state) },
         ]
         case .book(let id): return book(id, state)

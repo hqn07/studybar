@@ -89,6 +89,8 @@ struct RSSView: View {
                                subtitle: "You may be offline, or the feed servers didn't respond. Check your connection and try again.")
                     Button("Retry") { Task { await refresh() } }.buttonStyle(.borderedProminent)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if visible.isEmpty && !loading && !filter.trimmed.isEmpty {
+                FilteredEmpty(noun: "articles")
             } else if visible.isEmpty && !loading {
                 EmptyState(symbol: unreadOnly ? "checkmark.circle" : "tray",
                            title: unreadOnly ? "All caught up" : "No recent items",

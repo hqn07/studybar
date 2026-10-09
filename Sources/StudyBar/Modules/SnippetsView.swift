@@ -55,7 +55,8 @@ struct SnippetsView: View {
                     FilterStatus(shown: searched.count, total: state.data.snippets.count, noun: "snippets")
                     if categories.count > 1 { categoryChips; Divider() }
 
-                    if searched.isEmpty { emptyState } else { snippetList }
+                    if searched.isEmpty && !filter.trimmed.isEmpty { FilteredEmpty(noun: "snippets") }
+                    else if searched.isEmpty { emptyState } else { snippetList }
                 }
             }
             .navigationDestination(item: $editing) { SnippetEditor(snippet: $0).moduleColumn(DS.Width.form) }

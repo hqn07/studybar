@@ -6,6 +6,18 @@ enum ListKeys {
     static func escape(filterActive: Bool, hasSelection: Bool) -> Escape {
         filterActive ? .clearFilter : (hasSelection ? .clearSelection : .none)
     }
+
+    /// The row keys act on: the selection only while it's in the list — a filter, a scope or
+    /// marking it done can hide it, and an invisible row must not be marked or removed. Pure.
+    static func target(selection: UUID?, ids: [UUID]) -> UUID? {
+        selection.flatMap { ids.contains($0) ? $0 : nil }
+    }
+
+    /// A list takes the keyboard on open only in the window's left pane, while no filter is
+    /// being typed and no text field (quick add, the note editor) already has it. Pure.
+    static func shouldTakeFocus(leftPane: Bool, filterActive: Bool, textFieldFocused: Bool) -> Bool {
+        leftPane && !filterActive && !textFieldFocused
+    }
 }
 
 /// Keyboard list navigation — the "pro Mac app" feel. Attach to a scroll container over a
@@ -39,15 +51,15 @@ struct KeyboardListNav: ViewModifier {
             .onKeyPress(.upArrow) { move(-1) }
             .onKeyPress(KeyEquivalent("k")) { move(-1) }
             .onKeyPress(.return) {
-                guard let s = selection else { return .ignored }
+                guard let s = target else { return .ignored }
                 onActivate(s); return .handled
             }
             .onKeyPress(.space) {
-                guard let s = selection else { return .ignored }
+                guard let s = target else { return .ignored }
                 (onPrimary ?? onActivate)(s); return .handled
             }
             .onKeyPress(.delete) {
-                guard let s = selection, let remove = onRemove, let i = ids.firstIndex(of: s) else { return .ignored }
+                guard let s = target, let remove = onRemove, let i = ids.firstIndex(of: s) else { return .ignored }
                 let next = i + 1 < ids.count ? ids[i + 1] : (i > 0 ? ids[i - 1] : nil)
                 remove(s)
                 selection = next
@@ -67,26 +79,34 @@ struct KeyboardListNav: ViewModifier {
             }
             // Deferred a turn, as the palette's field is: focused at once, the list isn't in
             // the window yet. Not while a filter is being typed — the field keeps the keys.
+            // After the module's own setup (quick add focusing for "New Task", a note opening to
+            // edit): a text field that has the keyboard by then keeps it.
             .onAppear {
-                guard focusRequest != nil, !filter.isActive else { return }
-                DispatchQueue.main.async { focused = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    let typing = NSApp.keyWindow?.firstResponder is NSTextView
+                    if ListKeys.shouldTakeFocus(leftPane: focusRequest != nil, filterActive: filter.isActive, textFieldFocused: typing) {
+                        focused = true
+                    }
+                }
             }
             .onChange(of: focusRequest) { _, r in
                 guard r != nil else { return }
                 focused = true
-                if selection == nil { selection = ids.first }
+                if target == nil { selection = ids.first }
             }
     }
 
+    private var target: UUID? { ListKeys.target(selection: selection, ids: ids) }
+
     private func toFilter() -> KeyPress.Result {
         guard let w = workspace, focusRequest != nil else { return .ignored }
-        w.focusFilter = true
+        w.focusFilterRequest += 1
         return .handled
     }
 
     private func move(_ delta: Int) -> KeyPress.Result {
         guard !ids.isEmpty else { return .ignored }
-        if let cur = selection, let i = ids.firstIndex(of: cur) {
+        if let cur = target, let i = ids.firstIndex(of: cur) {
             selection = ids[min(max(0, i + delta), ids.count - 1)]
         } else {
             selection = delta > 0 ? ids.first : ids.last

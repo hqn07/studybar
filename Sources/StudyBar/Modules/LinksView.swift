@@ -45,32 +45,34 @@ struct LinksView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 4)
                         }
                         Divider()
-                        ScrollView {
-                            if filter.isActive {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(filtered) { link in row(link) }
-                                }.padding(.vertical, 8)
-                            } else {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    ForEach(grouped, id: \.0) { name, items in
-                                        HStack {
-                                            SectionHeader(title: name, count: items.count)
-                                            Spacer()
-                                            if items.count > 1 {
-                                                Button { items.forEach { open($0.url) } } label: { Text("Open all").font(.caption2) }
-                                                    .buttonStyle(.borderless)
-                                            }
-                                        }.padding(.horizontal, 12).padding(.top, 4)
-                                        ForEach(items) { link in row(link) }
-                                    }
-                                }.padding(.vertical, 8)
+                        if filter.isActive && filtered.isEmpty { FilteredEmpty(noun: "links") } else {
+                            ScrollView {
+                                if filter.isActive {
+                                    LazyVStack(spacing: 0) {
+                                        ForEach(filtered) { link in row(link) }
+                                    }.padding(.vertical, 8)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ForEach(grouped, id: \.0) { name, items in
+                                            HStack {
+                                                SectionHeader(title: name, count: items.count)
+                                                Spacer()
+                                                if items.count > 1 {
+                                                    Button { items.forEach { open($0.url) } } label: { Text("Open all").font(.caption2) }
+                                                        .buttonStyle(.borderless)
+                                                }
+                                            }.padding(.horizontal, 12).padding(.top, 4)
+                                            ForEach(items) { link in row(link) }
+                                        }
+                                    }.padding(.vertical, 8)
+                                }
                             }
+                            // ↩ and Space open the link; ⌫ deletes it (Undo, Trash).
+                            .keyboardListNav(ids: rowIDs, selection: $selectedLink,
+                                             onActivate: { id in if let l = state.data.links.first(where: { $0.id == id }) { open(l.url) } },
+                                             onRemove: { id in state.withUndo("Deleted link") { state.data.links.removeAll { $0.id == id } } },
+                                             onEscape: { selectedLink = nil })
                         }
-                        // ↩ and Space open the link; ⌫ deletes it (Undo, Trash).
-                        .keyboardListNav(ids: rowIDs, selection: $selectedLink,
-                                         onActivate: { id in if let l = state.data.links.first(where: { $0.id == id }) { open(l.url) } },
-                                         onRemove: { id in state.withUndo("Deleted link") { state.data.links.removeAll { $0.id == id } } },
-                                         onEscape: { selectedLink = nil })
                     }
                 }
             }
