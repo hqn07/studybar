@@ -50,6 +50,8 @@ struct AssignmentsView: View {
     @State private var deduping = false
     @State private var quickAdd = ""
     @State private var selectedID: UUID?
+    @Environment(\.listFilter) private var filter
+    @Environment(\.workspace) private var workspace
     @FocusState private var quickFocused: Bool
     @AppStorage("assignmentSort") private var sort = AssignmentSort.due.rawValue
     @AppStorage("assignmentScope") private var scope = AssignmentScope.week.rawValue
@@ -79,8 +81,20 @@ struct AssignmentsView: View {
         }.count
     }
 
+    /// The toolbar filter on one assignment: its course token, and the text against its title
+    /// and its course's code. Pure.
+    static func matches(_ a: Assignment, filter: ListFilter, courses: [Course]) -> Bool {
+        let code = courses.first { $0.id == a.courseID }?.code ?? ""
+        return filter.matches(courseID: a.courseID, fields: [a.title, code])
+    }
+
     private var list: [Assignment] {
-        let base = state.data.assignments.filter { scopeMode.includes($0, hideBusywork: hideBusywork, showDone: showDone) }
+        // The scope is the one rule for lists and their numbers; the toolbar filter narrows the
+        // list on top of it, and the numbers stay what the scopes hold.
+        let base = state.data.assignments.filter {
+            scopeMode.includes($0, hideBusywork: hideBusywork, showDone: showDone)
+                && Self.matches($0, filter: filter, courses: state.data.courses)
+        }
         switch sortMode {
         case .due:
             return base.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
@@ -132,6 +146,8 @@ struct AssignmentsView: View {
                 VStack(spacing: 0) {
                     quickAddBar
                     scopeBar
+                    FilterStatus(shown: list.count, total: state.data.assignments.filter {
+                        scopeMode.includes($0, hideBusywork: hideBusywork, showDone: showDone) }.count, noun: "assignments")
                     if legacyTodos > 0 { importBanner; Divider() }
                     if scopeMode != .archived, !stale.isEmpty { staleBanner; Divider() }
                     if list.isEmpty {
@@ -141,7 +157,7 @@ struct AssignmentsView: View {
                             ScrollView {
                                 LazyVStack(spacing: 0) {
                                     ForEach(list) { a in
-                                        AssignmentRow(assignment: a) { editing = a }
+                                        AssignmentRow(assignment: a, selected: a.id == selectedID) { editing = a }
                                             .kbSelected(a.id == selectedID)
                                             .id(a.id)
                                             .transition(.move(edge: .leading).combined(with: .opacity))
@@ -151,6 +167,8 @@ struct AssignmentsView: View {
                             }
                             .keyboardListNav(ids: list.map(\.id), selection: $selectedID,
                                              onActivate: { id in editing = list.first { $0.id == id } },
+                                             onPrimary: { ItemActions.toggleDone($0, state: state) },
+                                             onRemove: { ItemActions.setArchived($0, true, state: state) },
                                              onEscape: { selectedID = nil })
                             .onChange(of: selectedID) { _, id in
                                 if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) } }
@@ -163,8 +181,10 @@ struct AssignmentsView: View {
             .navigationDestination(isPresented: $classifying) { ClassifyView().moduleColumn() }
             .navigationDestination(isPresented: $deduping) { DuplicateReviewView().moduleColumn() }
             .navigationDestination(isPresented: $triaging) { TriageReviewView().moduleColumn() }
+            .preference(key: SelectionKey.self, value: selectedID.map(ItemRef.assignment))
             .onAppear(perform: consumePending)
             .onChange(of: state.pendingNew) { _, _ in consumePending() }
+            .onChange(of: state.pendingEdit) { _, _ in consumePending() }
         }
     }
 
@@ -289,6 +309,7 @@ struct AssignmentsView: View {
     private func addQuick() {
         let t = quickAdd.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
+        workspace?.filter = ListFilter()   // what was just added must be in the list
         state.data.assignments.append(Assignment(task: t))
         quickAdd = ""
         quickFocused = true
@@ -318,6 +339,10 @@ struct AssignmentsView: View {
 
     private func consumePending() {
         if state.pendingNew == "assignments" { state.pendingNew = nil; quickFocused = true }
+        if case .assignment(let id) = state.pendingEdit {
+            state.pendingEdit = nil
+            editing = state.data.assignments.first { $0.id == id }
+        }
     }
     /// Open deadlines as a calendar file. Add hands it to Calendar, which asks which calendar to
     /// put them in; Save is for Google Calendar or Outlook.
@@ -343,6 +368,7 @@ struct AssignmentsView: View {
     }
 
     private func newAssignment() {
+        workspace?.filter = ListFilter()
         editing = Assignment(title: "", due: Calendar.current.date(byAdding: .day, value: 1, to: .now))
     }
 }
@@ -350,7 +376,12 @@ struct AssignmentsView: View {
 struct AssignmentRow: View {
     @EnvironmentObject var state: AppState
     let assignment: Assignment
+    var selected = false
     let onEdit: () -> Void
+
+    init(assignment: Assignment, selected: Bool = false, onEdit: @escaping () -> Void) {
+        self.assignment = assignment; self.selected = selected; self.onEdit = onEdit
+    }
 
     private var done: Bool { assignment.status == .done }
 
@@ -392,38 +423,27 @@ struct AssignmentRow: View {
 
             statusChip
             dueText
-            if !assignment.link.isEmpty {
-                Button { open(assignment.link) } label: { Image(systemName: "arrow.up.right.square") }
-                    .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
-                    .accessibilityLabel("Open link")
+            RowActions {
+                if !assignment.link.isEmpty {
+                    Button { open(assignment.link) } label: { Image(systemName: "arrow.up.right.square") }
+                        .buttonStyle(.borderless).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel("Open link")
+                }
+                Button { onEdit() } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    .accessibilityLabel("Edit assignment")
             }
-            Button { onEdit() } label: { Image(systemName: "pencil") }
-                .buttonStyle(.borderless).foregroundStyle(.secondary)
-                .accessibilityLabel("Edit assignment")
         }
         .padding(DS.Space.m)
-        .sbRowSeparator(leading: DS.Space.m)
-        .contextMenu {
-            Button { toggleDone() } label: {
-                Label(done ? "Mark not done" : "Mark done", systemImage: done ? "arrow.uturn.backward" : "checkmark")
-            }
-            if !done, assignment.due != nil {
-                Button { AppActions.snoozeAssignment(id: assignment.id, days: 1) } label: { Label("Snooze 1 day", systemImage: "clock") }
-                Button { AppActions.snoozeAssignment(id: assignment.id, days: 7) } label: { Label("Snooze 1 week", systemImage: "clock") }
-            }
-            Button { onEdit() } label: { Label("Edit…", systemImage: "pencil") }
-            Button { setArchived(!assignment.isArchived) } label: {
-                Label(assignment.isArchived ? "Restore" : "Archive",
-                      systemImage: assignment.isArchived ? "arrow.uturn.backward" : "archivebox")
-            }
-            Divider()
-            Button(role: .destructive) {
-                state.withUndo("Deleted assignment") { state.data.assignments.removeAll { $0.id == assignment.id } }
-            } label: { Label("Delete", systemImage: "trash") }
+        .rowActionsHost(selected: selected)
+        // Hidden until hover, the buttons stay reachable for VoiceOver as the row's actions.
+        .accessibilityActions {
+            if !assignment.link.isEmpty { Button("Open link") { open(assignment.link) } }
+            Button("Edit assignment") { onEdit() }
         }
+        .sbRowSeparator(leading: DS.Space.m)
+        .itemContextMenu(.assignment(assignment.id), state: state)
     }
-
-    private func setArchived(_ on: Bool) { ItemActions.setArchived(assignment.id, on, state: state) }
 
     @ViewBuilder private var statusChip: some View {
         if !done {
