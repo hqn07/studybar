@@ -154,6 +154,17 @@ enum DesignSelfTest {
         check("s4 all keeps housekeeping", scope(.all), ["late", "roll call", "soon", "loose", "far"])
         check("s5 archived", scope(.archived), ["shelved"])
         check("s6 Today's banner counts what Overdue lists", TodayBrief.overdue(pile, hideBusywork: true).map(\.title), ["late"])
+        // The badge: overdue or due within three calendar days, counted against one boundary.
+        let cal = Calendar.current, today = cal.startOfDay(for: now)
+        func at(_ days: Int, _ h: Int, _ m: Int) -> Date { cal.date(byAdding: DateComponents(day: days, hour: h, minute: m), to: today)! }
+        var badgeWork = [Assignment(title: "late", due: at(-2, 9, 0)), Assignment(title: "tonight", due: at(0, 23, 59)),
+                         Assignment(title: "day 3", due: at(3, 23, 59)), Assignment(title: "day 4", due: at(4, 0, 1)),
+                         Assignment(title: "no date"), Assignment(title: "shelved", due: at(1, 9, 0))]
+        badgeWork[5].archived = true
+        check("b1 the badge counts overdue through day 3", AppState.dueSoon(badgeWork, now: now), 3)
+        check("b2 and agrees with daysUntilDue", AppState.dueSoon(badgeWork, now: now),
+              badgeWork.filter { $0.isOpen && ($0.daysUntilDue(asOf: now) ?? 99) <= 3 }.count)
+
         let hero = work("hero", due: 0), other = work("other", due: 0), gone = work("gone", due: 0, archived: true)
         check("s7 Today's agenda leaves out the hero and archived work",
               TodayBrief.dueToday([hero, other, gone], hero: hero.id).map(\.title), ["other"])

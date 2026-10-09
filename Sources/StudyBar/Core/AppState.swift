@@ -677,11 +677,15 @@ final class AppState: ObservableObject {
     }
 
     /// Count for the menu bar badge: overdue + due within 3 days.
-    var dueSoonCount: Int {
-        data.assignments.filter { a in
-            guard a.isOpen, let d = a.daysUntilDue else { return false }
-            return d <= 3
-        }.count
+    var dueSoonCount: Int { Self.dueSoon(data.assignments, now: .now) }
+
+    /// Open work overdue or due within three calendar days. Read by the menu-bar title every
+    /// second and by the sidebar on every module switch, so it compares each due date with one
+    /// boundary — the start of day 4 — instead of three calendar calls per assignment. Pure.
+    static func dueSoon(_ assignments: [Assignment], now: Date) -> Int {
+        let cal = Calendar.current
+        guard let limit = cal.date(byAdding: .day, value: 4, to: cal.startOfDay(for: now)) else { return 0 }
+        return assignments.filter { a in a.isOpen && (a.due.map { $0 < limit } ?? false) }.count
     }
 
     /// Next class today that hasn't ended yet, with minutes until it starts.
