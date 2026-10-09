@@ -191,6 +191,14 @@ struct RootView: View {
             Button("") { win.rightID = win.rightID == WindowModel.chat ? nil : WindowModel.chat }
                 .keyboardShortcut("j", modifiers: .command).opacity(0).accessibilityHidden(true)
         }
+        if surface == .window {
+            // ⌘1–⌘9: the sidebar's first nine rows, as Safari's tabs.
+            ForEach(Array(SidebarLayout.shortcutOrder(prefs: state.modulePrefs).enumerated()), id: \.offset) { i, id in
+                Button("") { state.globalSearch = ""; win.moduleID = id }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                    .opacity(0).accessibilityHidden(true)
+            }
+        }
         // ⌘⇧F is what iA Writer, Bear and Ulysses all use for this.
         Button("") { withAnimation(.easeInOut(duration: 0.2)) { state.focusMode.toggle() } }
             .keyboardShortcut("f", modifiers: [.command, .shift]).opacity(0).accessibilityHidden(true)
@@ -606,13 +614,7 @@ struct SidebarView: View {
         .help("New tab, new window, quit")
     }
 
-    /// The shown modules in display order: by group in category order, or the flat order.
-    private var visibleModules: [ModuleInfo] {
-        let ids = prefs.order == .category
-            ? prefs.orderedCategories().flatMap { cat in ModuleRegistry.all.filter { $0.category == cat }.map(\.id) }
-            : prefs.orderedIDs()
-        return ids.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
-    }
+    private var visibleModules: [ModuleInfo] { SidebarLayout.visible(prefs: prefs) }
 
     @ViewBuilder private func section(_ s: SidebarSection, isFirst: Bool) -> some View {
         if collapsed {

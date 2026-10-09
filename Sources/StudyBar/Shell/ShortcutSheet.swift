@@ -23,6 +23,16 @@ struct ShortcutSheet: View {
             ("⌘Z", "Undo the last change"),
             ("⌘/", "This list"),
         ]),
+        .init(title: "Lists", items: [
+            ("↑ ↓  j k", "Move through a list"),
+            ("↩", "Open"),
+            ("Space", "The row's main thing — mark done, review, open, copy"),
+            ("⌫", "Remove, with Undo"),
+            ("/  ⌘F", "Filter the list"),
+            ("⌘↩", "Search everywhere for what you typed"),
+            ("Esc", "Clear the filter, then the selection"),
+            ("⌘1 – ⌘9", "Open the first nine modules in the sidebar"),
+        ]),
         .init(title: "Window", items: [
             ("⌘O", "Open the workspace window from the popover"),
             ("⌘M", "Minimize"),

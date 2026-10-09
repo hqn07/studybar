@@ -35,4 +35,22 @@ enum SidebarLayout {
         }
         return out
     }
+
+    /// The modules ⌘1–⌘9 open: the sidebar's rows top to bottom — favorites first, Settings
+    /// (pinned below the list) left out — at most nine. Pure.
+    static func shortcutOrder(visible: [ModuleInfo], favorites: [String], flat: Bool) -> [String] {
+        Array(sections(visible: visible, favorites: favorites, flat: flat).flatMap(\.ids).prefix(9))
+    }
+
+    /// The shown modules in display order: by group in category order, or the flat order.
+    @MainActor static func visible(prefs: ModulePrefs) -> [ModuleInfo] {
+        let ids = prefs.order == .category
+            ? prefs.orderedCategories().flatMap { cat in ModuleRegistry.all.filter { $0.category == cat }.map(\.id) }
+            : prefs.orderedIDs()
+        return ids.compactMap { ModuleRegistry.info($0) }.filter { prefs.isVisible($0.id) }
+    }
+
+    @MainActor static func shortcutOrder(prefs: ModulePrefs) -> [String] {
+        shortcutOrder(visible: visible(prefs: prefs), favorites: prefs.favorites, flat: prefs.order != .category)
+    }
 }

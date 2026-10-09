@@ -184,6 +184,13 @@ enum DesignSelfTest {
         check("f6 empty text suggests nothing", ListFilter.suggestions(for: "  ", courses: cs), [])
         check("f7 a deleted course's token is dropped", f.pruned(courses: [cwr]).course, nil)
         check("f8 no course", ListFilter.suggestions(for: "no c", courses: cs), [.noCourse, .searchEverywhere("no c")])
+        // Keys in a list: Esc unwinds the filter first; ⌘1–9 follow the sidebar.
+        check("k1 Esc clears the filter first", ListKeys.escape(filterActive: true, hasSelection: true), .clearFilter)
+        check("k2 then the selection", ListKeys.escape(filterActive: false, hasSelection: true), .clearSelection)
+        check("k3 then nothing", ListKeys.escape(filterActive: false, hasSelection: false), .none)
+        check("k4 ⌘1–9 follow the sidebar, favorites first, no Settings",
+              SidebarLayout.shortcutOrder(visible: M(all), favorites: ["notes"], flat: false),
+              ["notes", "today", "insights", "assignments", "schedule", "calendar", "board", "courses", "voice"])
         check("f9 the field widens while it's in use, not in a narrow window",
               [RootView.searchWidth(narrow: false, expanded: false), RootView.searchWidth(narrow: false, expanded: true),
                RootView.searchWidth(narrow: true, expanded: true)], [180, 280, 120])

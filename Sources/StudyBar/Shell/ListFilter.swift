@@ -57,10 +57,12 @@ extension EnvironmentValues {
     }
 }
 
-private struct ListFocusRequestKey: EnvironmentKey { static let defaultValue = 0 }
+private struct ListFocusRequestKey: EnvironmentKey { static let defaultValue: Int? = nil }
 extension EnvironmentValues {
-    /// Changes when the window wants its left pane's list to take the keyboard.
-    var listFocusRequest: Int {
+    /// Set only in the window's left pane, where a list takes the keyboard (ModulePane hides
+    /// `isPrimaryPane` from its content, so this is how a list knows); changes when the window
+    /// asks the list for focus again. Nil in the right pane and the popover.
+    var listFocusRequest: Int? {
         get { self[ListFocusRequestKey.self] }
         set { self[ListFocusRequestKey.self] = newValue }
     }
