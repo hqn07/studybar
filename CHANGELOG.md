@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.9.1] — 2026-10-09
 
 - **Faster between screens** — opening Notes with a term of lecture notes took about half a second; it now takes under a tenth. Board, Today and the rest open faster too: each note's preview is worked out once instead of on every redraw, dates are formatted without rebuilding a formatter each time, Today picks its top item once instead of once per assignment, and Board only builds the cards you can see.
 
