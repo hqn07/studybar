@@ -48,10 +48,11 @@ struct TodayView: View {
     private func inSession(_ c: ClassSession) -> Bool { c.startMinutes <= nowMinutes && c.endMinutes >= nowMinutes }
 
     private var next7: [Assignment] {
-        state.data.assignments
+        let hero = focus?.id   // once: read inside the filter, it re-ranked every assignment per assignment
+        return state.data.assignments
             .filter(\.isOpen)
             .filter { if let d = $0.daysUntilDue { return d >= 0 && d <= 7 } else { return false } }
-            .filter { $0.id != focus?.id }
+            .filter { $0.id != hero }
             .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
 

@@ -37,7 +37,8 @@ enum TodayFocus {
     static func top(_ data: AppData) -> Assignment? {
         data.assignments
             .filter { $0.isOpen && ($0.daysUntilDue ?? 999) <= 21 }
-            .max { importance($0) < importance($1) }
+            .map { ($0, importance($0)) }   // scored once each, not twice per comparison
+            .max { $0.1 < $1.1 }?.0
     }
 
     /// Deterministic one-liner for the hero — used offline and as the AI fallback.

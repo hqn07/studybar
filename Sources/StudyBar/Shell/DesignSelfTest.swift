@@ -169,6 +169,13 @@ enum DesignSelfTest {
         check("s7 Today's agenda leaves out the hero and archived work",
               TodayBrief.dueToday([hero, other, gone], hero: hero.id).map(\.title), ["other"])
 
+        // Today's hero: the heavy deliverable a few days out beats the quick quiz due tomorrow.
+        var heroData = AppData()
+        heroData.assignments = [Assignment(title: "Quiz 3", due: Date().addingTimeInterval(1 * 86_400)),
+                                Assignment(title: "Lab report 4", due: Date().addingTimeInterval(5 * 86_400)),
+                                Assignment(title: "Old essay", due: Date().addingTimeInterval(40 * 86_400))]
+        check("h1 the hero is the heavy item due soon", TodayFocus.top(heroData)?.title, "Lab report 4")
+
         // Today's brief: four glance tiles, each left out when it has nothing to say.
         check("t1 all tiles", TodayBrief.tiles(nextClass: ("12:50", "PHY2049 · in 35 min"), week: 12, dueToday: 3, cardsDue: 24,
                                                focusSeconds: 4800).map(\.value),
