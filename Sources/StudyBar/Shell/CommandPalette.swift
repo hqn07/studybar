@@ -216,7 +216,7 @@ struct CommandPalette: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "command").foregroundStyle(.secondary)
-                TextField("Type a command or module…", text: $query)
+                TextField("Type a command, a note, a deck…", text: $query)
                     .textFieldStyle(.plain).font(.title3)
                     .focused($focused)
                     .onChange(of: query) { _, _ in selected = 0 }

@@ -3,6 +3,13 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **The search field filters the list you're on** — in Notes, Assignments, Flashcards, Reading, Library, Citations and Snippets, typing in the field at the top right narrows that list as you type. Type part of a course code or name and press ↩ to filter to that course; ⌘↩ searches everything instead. The course chips and the separate search boxes above the lists are gone.
+- **Lists work from the keyboard** — open a list and use ↑↓ (or j/k) to move, ↩ to open, Space to do the obvious thing (mark an assignment done, review a deck, open a link, copy a citation or snippet), ⌫ to remove with Undo, / to filter and Esc to clear. ⌘1 to ⌘9 open the first nine screens in the sidebar.
+- **Quieter rows** — the edit and link buttons on a row show when you point at it or select it.
+- **⌘K acts on what's selected** — with a note, assignment, deck or other item selected, ⌘K offers its actions first (Make flashcards, Quiz me, Snooze, Review…), then what you used recently, then the screens with their shortcuts. The same actions are in each row's right-click menu.
+
 ## [2.9.1] — 2026-10-09
 
 - **Faster between screens** — opening Notes with a term of lecture notes took about half a second; it now takes under a tenth. Board, Today and the rest open faster too: each note's preview is worked out once instead of on every redraw, dates are formatted without rebuilding a formatter each time, Today picks its top item once instead of once per assignment, and Board only builds the cards you can see.

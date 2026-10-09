@@ -99,6 +99,22 @@ enum ModuleAudit {
             shoot(pushed(AssignmentEditor(assignment: a).moduleColumn(DS.Width.form), 1280), "pushed", "pushed-form-1280-dark.png",
                   CGSize(width: 1280, height: height), .darkAqua)
         }
+        // Batch 23: a list filtered from the toolbar, a row's actions when selected, ⌘K with a selection.
+        if let phy = state.data.courses.first(where: { $0.code == "PHY2049" }) {
+            let filtered = WindowModel(moduleID: "notes")
+            filtered.filter = ListFilter(text: "week", course: .course(phy.id))
+            shoot(RootView(surface: .window, win: filtered), "lists", "notes-filtered-1280-dark.png", size1280, .darkAqua)
+        }
+        if let a = state.data.assignments.first(where: { !$0.link.isEmpty }) ?? state.data.assignments.first {
+            shoot(VStack(spacing: 0) {
+                AssignmentRow(assignment: a, selected: true) {}
+                AssignmentRow(assignment: a, selected: false) {}
+            }.padding(DS.Space.m).frame(width: 900), "lists", "assignments-selected-dark.png", CGSize(width: 900, height: 140), .darkAqua)
+        }
+        if let n = state.data.notes.first {
+            shoot(CommandPalette(isPresented: .constant(true), standalone: true, selection: .note(n.id)),
+                  "lists", "palette-selection-dark.png", CGSize(width: 560, height: 420), .darkAqua)
+        }
         shoot(PlanDaySheet(date: Date()).environment(\.isPrimaryPane, true).environment(\.titlebarTrailing, 204),
               "pushed", "sheet-planday-dark.png", CGSize(width: 520, height: 480), .darkAqua)
 

@@ -358,7 +358,8 @@ struct RootView: View {
                 if !state.focusMode {
                     Group {
                         if filtering, let m = ModuleRegistry.info(win.moduleID) {
-                            FilterField(win: win, courses: state.data.courses, placeholder: "Filter \(m.title.lowercased())",
+                            FilterField(win: win, courses: state.data.courses,
+                                        placeholder: forced ? "Filter" : "Filter \(m.title.lowercased())",
                                         expanded: $filterExpanded)
                         } else {
                             SearchField(text: $state.globalSearch)
