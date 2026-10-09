@@ -233,6 +233,52 @@ extension View {
     func sbRowSeparator(leading: CGFloat = 0) -> some View { modifier(RowSeparator(leading: leading)) }
 }
 
+// MARK: - Row actions — a row's secondary buttons, on hover or selection
+
+/// When a row's secondary buttons (edit, open link…) show. Pure.
+enum RowActionsVisibility {
+    static func shown(hovering: Bool, selected: Bool) -> Bool { hovering || selected }
+}
+
+private struct RowActionsShownKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    /// Set by `rowActionsHost`; true outside one, so `RowActions` in a plain container shows.
+    var rowActionsShown: Bool {
+        get { self[RowActionsShownKey.self] }
+        set { self[RowActionsShownKey.self] = newValue }
+    }
+}
+
+private struct RowActionsHost: ViewModifier {
+    let selected: Bool
+    @State private var hovering = false
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering = $0 }
+            .environment(\.rowActionsShown, RowActionsVisibility.shown(hovering: hovering, selected: selected))
+    }
+}
+
+extension View {
+    /// A row whose `RowActions` appear only while it's hovered or keyboard-selected — the same
+    /// icons on every row read as noise. Give the row's context menu (and VoiceOver, through
+    /// `accessibilityActions`) the same actions.
+    func rowActionsHost(selected: Bool) -> some View { modifier(RowActionsHost(selected: selected)) }
+}
+
+/// The trailing secondary buttons of a row. Hidden, they keep their space so the row never shifts.
+struct RowActions<Content: View>: View {
+    @Environment(\.rowActionsShown) private var shown
+    private let content: Content
+    init(@ViewBuilder _ content: () -> Content) { self.content = content() }
+    var body: some View {
+        HStack(spacing: DS.Space.xs) { content }
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .animation(.easeOut(duration: 0.12), value: shown)
+    }
+}
+
 // MARK: - SectionHeader — collapsible group label
 
 /// The uppercase group label + count used above grouped lists (Snippets categories,

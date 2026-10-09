@@ -191,6 +191,9 @@ enum DesignSelfTest {
         check("k4 ⌘1–9 follow the sidebar, favorites first, no Settings",
               SidebarLayout.shortcutOrder(visible: M(all), favorites: ["notes"], flat: false),
               ["notes", "today", "insights", "assignments", "schedule", "calendar", "board", "courses", "voice"])
+        check("ra1 a row's actions show on hover or selection, else hide",
+              [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
+               RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])
         check("f9 the field widens while it's in use, not in a narrow window",
               [RootView.searchWidth(narrow: false, expanded: false), RootView.searchWidth(narrow: false, expanded: true),
                RootView.searchWidth(narrow: true, expanded: true)], [180, 280, 120])
