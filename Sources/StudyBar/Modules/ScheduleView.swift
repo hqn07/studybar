@@ -33,7 +33,7 @@ struct ScheduleModePicker: View {
             Text("Week").tag(ScheduleMode.week.rawValue)
             Text("Plan").tag(ScheduleMode.plan.rawValue)
         }
-        .pickerStyle(.segmented).labelsHidden().frame(width: 128).fixedSize()
+        .pickerStyle(.segmented).labelsHidden().fixedSize()
         .help("Week grid · time-block planner")
     }
 }

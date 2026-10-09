@@ -44,7 +44,7 @@ struct LibraryTabPicker: View {
         Picker("", selection: $tabRaw) {
             ForEach(LibraryTab.allCases) { Label($0.title, systemImage: $0.symbol).tag($0.rawValue) }
         }
-        .pickerStyle(.segmented).labelStyle(.iconOnly).frame(width: 158).fixedSize()
+        .pickerStyle(.segmented).labelStyle(.iconOnly).fixedSize()
         .help("Links · Read later · Files · Feeds")
     }
 }
