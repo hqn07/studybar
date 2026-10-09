@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.10.0] — 2026-10-09
 
 - **The search field filters the list you're on** — in Notes, Assignments, Flashcards, Reading, Library, Citations and Snippets, typing in the field at the top right narrows that list as you type. Type part of a course code or name and press ↩ to filter to that course; ⌘↩ searches everything instead. The course chips and the separate search boxes above the lists are gone.
 - **Lists work from the keyboard** — open a list and use ↑↓ (or j/k) to move, ↩ to open, Space to do the obvious thing (mark an assignment done, review a deck, open a link, copy a citation or snippet), ⌫ to remove with Undo, / to filter and Esc to clear. ⌘1 to ⌘9 open the first nine screens in the sidebar.
