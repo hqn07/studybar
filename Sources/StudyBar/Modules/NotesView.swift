@@ -1802,10 +1802,10 @@ struct NoteEditor: View {
             }
         } else {
             // Cap the writing column to the reading measure and center it: the text view insets
-            // its text 6 pt a side, so this gives the same line length as the reading view and
-            // switching with ⌘E doesn't reflow the note.
+            // its text 6 pt a side and the text container pads each line 5 pt more, so this gives
+            // the same line length as the reading view and switching with ⌘E doesn't reflow the note.
             RichTextEditor(initial: editor.snapshot ?? initialAttributed, controller: editor, focusOnAppear: startedEmpty)
-                .frame(maxWidth: DS.Width.prose + 12)
+                .frame(maxWidth: DS.Width.prose + 22)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 4).padding(.vertical, 2)
         }
