@@ -297,7 +297,10 @@ struct DeckView: View {
         .navigationTitle("").toolbar(.hidden, for: .windowToolbar).navigationBarBackButtonHidden()
         .navigationDestination(isPresented: $studying) { StudyView(deckID: deck.id, practiceAll: practiceAll).moduleColumn() }
         // ⌘K's Review on a deck: open it and start, as the Study button would.
-        .onAppear { if state.pendingReview { state.pendingReview = false; practiceAll = due.isEmpty; studying = true } }
+        .onAppear {
+            PaletteRecents.record(ItemRef.deck(deck.id).recentKey)
+            if state.pendingReview { state.pendingReview = false; practiceAll = due.isEmpty; studying = true }
+        }
         .navigationDestination(isPresented: $matching) { MatchView(deckID: deck.id).moduleColumn() }
         .navigationDestination(isPresented: $testing) { TestView(deckID: deck.id).moduleColumn() }
         .navigationDestination(item: $editingCard) { CardEditor(card: $0).moduleColumn(DS.Width.form) }

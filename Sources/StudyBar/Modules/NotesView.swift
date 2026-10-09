@@ -740,6 +740,7 @@ struct NoteEditor: View {
             showSlides = deck != nil
             if let c = draft.courseID { state.workingCourseID = c }
             wasStored = state.data.notes.contains { $0.id == draft.id }
+            PaletteRecents.record(ItemRef.note(draft.id).recentKey)
             runPendingAction()
             DispatchQueue.main.async { outlineHeadings = editor.headings() }
         }

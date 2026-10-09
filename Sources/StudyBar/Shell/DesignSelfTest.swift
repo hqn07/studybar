@@ -236,6 +236,17 @@ enum DesignSelfTest {
         check("ct2 in its course only", CitationsView.matches(ref, filter: ListFilter(course: .course(phy.id))), false)
         let snip = Snippet(keyword: ";lab", title: "Lab header", body: "Name / Section / Date")
         check("sn1 a snippet by its keyword, fuzzy", SnippetsView.matching([snip], filter: ListFilter(text: "lab")).count, 1)
+        // ⌘K: recents kept newest first, and the empty palette in its order.
+        check("r1 newest first", PaletteRecents.adding("note:B", to: ["note:A"]), ["note:B", "note:A"])
+        check("r2 deduped", PaletteRecents.adding("note:A", to: ["note:B", "note:A"]), ["note:A", "note:B"])
+        check("r3 capped at 8", PaletteRecents.adding("x", to: (0..<8).map { "n\($0)" }).count, 8)
+        check("r4 a gone item is dropped",
+              PaletteSections.emptyQuery(selection: [], recents: CommandPalette.recentActions(["note:\(UUID())"], state: state, commands: []),
+                                         goTo: [], others: []).isEmpty, true)
+        func act(_ t: String) -> CommandPalette.Action { .init(title: t, subtitle: "", symbol: "circle") {} }
+        let sel = act("Quiz me"), rec = act("Week 7"), go = act("Today"), oth = act("New Note")
+        check("r5 order: selection, recent, go to", PaletteSections.emptyQuery(selection: [sel], recents: [rec], goTo: [go], others: [oth]).map(\.title),
+              ["Quiz me", "Week 7", "Today", "New Note"])
         check("ra1 a row's actions show on hover or selection, else hide",
               [RowActionsVisibility.shown(hovering: false, selected: false), RowActionsVisibility.shown(hovering: true, selected: false),
                RowActionsVisibility.shown(hovering: false, selected: true)], [false, true, true])

@@ -5,6 +5,8 @@ struct CommandPalette: View {
     @EnvironmentObject var state: AppState
     @Binding var isPresented: Bool
     var standalone: Bool = false          // true = shown in its own floating panel
+    /// The window's selected row — its actions lead the palette. Nil in the floating panel.
+    var selection: ItemRef? = nil
     @State private var query = ""
     @State private var selected = 0
     @FocusState private var focused: Bool
@@ -14,23 +16,47 @@ struct CommandPalette: View {
         let title: String
         let subtitle: String
         let symbol: String
+        /// The header the row sits under in the empty palette ("Recent", "Go to", an item's title).
+        var section: String? = nil
+        /// A key that does the same, shown at the row's end.
+        var shortcut: String? = nil
+        /// What ⌘K remembers when this runs: the item's key; nil → `"cmd:<title>"`.
+        var recentKey: String? = nil
         let run: () -> Void
     }
 
-    private var actions: [Action] {
+    /// A global hotkey's keys, when the hotkeys are on.
+    private func hotkey(_ a: HotAction) -> String? {
+        UserDefaults.standard.bool(forKey: "globalHotkey") ? HotKeyStore.display(HotKeyStore.binding(a)) : nil
+    }
+
+    private var actions: [Action] { quickActions + moduleJumps }
+
+    /// Every module, the sidebar's first nine with ⌘1–⌘9.
+    private var moduleJumps: [Action] {
+        let order = SidebarLayout.shortcutOrder(prefs: state.modulePrefs)
+        let modules = order.compactMap { ModuleRegistry.info($0) } + ModuleRegistry.all.filter { !order.contains($0.id) }
+        return modules.map { m in
+            let i = order.firstIndex(of: m.id)
+            return Action(title: m.title, subtitle: "Go to · \(m.category.rawValue)", symbol: m.symbol, section: "Go to",
+                          shortcut: i.map { "⌘\($0 + 1)" }) { go(m.id) }
+        }
+    }
+
+    private var quickActions: [Action] {
         var out: [Action] = []
         // Quick actions
         out.append(.init(title: "New Note", subtitle: "Capture", symbol: "note.text") { newIn("notes") })
         out.append(.init(title: "New Assignment", subtitle: "Assignments", symbol: "checklist") { newIn("assignments") })
         out.append(.init(title: "New Task", subtitle: "Assignments", symbol: "checkmark.circle") { newIn("assignments") })
         out.append(.init(title: state.pomodoro.running ? "Pause Pomodoro" : "Start Pomodoro",
-                         subtitle: "Time & Focus", symbol: "timer") {
+                         subtitle: "Time & Focus", symbol: "timer", shortcut: hotkey(.pomodoro)) {
             state.pomodoro.toggle(); isPresented = false
         })
-        out.append(.init(title: "Calculator", subtitle: "Math · ⌃⌥C", symbol: "function") {
+        out.append(.init(title: "Calculator", subtitle: "Math", symbol: "function", shortcut: hotkey(.calculator)) {
             isPresented = false; CalculatorPanel.shared.show()
         })
-        out.append(.init(title: "Capture from Screen", subtitle: "Text · LaTeX · ask the tutor · ⌃⌥G", symbol: "text.viewfinder") {
+        out.append(.init(title: "Capture from Screen", subtitle: "Text · LaTeX · ask the tutor", symbol: "text.viewfinder", shortcut: hotkey(.capture)) {
             isPresented = false; ScreenGrab.start()
         })
         out.append(.init(title: "Open in Window", subtitle: "View", symbol: "macwindow") {
@@ -42,11 +68,44 @@ struct CommandPalette: View {
             })
         }
         out.append(.init(title: "Quit StudyBar", subtitle: "App", symbol: "power") { NSApp.terminate(nil) })
-        // Module jumps
-        for m in ModuleRegistry.all {
-            out.append(.init(title: m.title, subtitle: "Go to · \(m.category.rawValue)", symbol: m.symbol) { go(m.id) })
-        }
         return out
+    }
+
+    /// The selected item's actions — the same list as its row's context menu.
+    private var selectionActions: [Action] {
+        guard let ref = selection, let title = ItemActions.title(of: ref, in: state.data) else { return [] }
+        return ItemActions.actions(for: ref, state: state).map { a in
+            Action(title: a.title, subtitle: "", symbol: a.systemImage, section: title, shortcut: a.shortcut,
+                   recentKey: ref.recentKey) { isPresented = false; a.run() }
+        }
+    }
+
+    /// Recents as rows: an item opens (its first action), a command runs again; anything that
+    /// no longer exists is left out. Static so the self-test can check it.
+    @MainActor static func recentActions(_ entries: [String], state: AppState, commands: [Action]) -> [Action] {
+        entries.compactMap { e in
+            if let ref = ItemRef(recentKey: e) {
+                guard let title = ItemActions.title(of: ref, in: state.data),
+                      let open = ItemActions.actions(for: ref, state: state).first else { return nil }
+                let (kind, symbol) = recentLabel(ref)
+                return Action(title: title, subtitle: kind, symbol: symbol, section: "Recent", recentKey: e, run: open.run)
+            }
+            guard e.hasPrefix("cmd:"), let c = commands.first(where: { $0.title == String(e.dropFirst(4)) }) else { return nil }
+            return Action(title: c.title, subtitle: c.subtitle, symbol: c.symbol, section: "Recent", shortcut: c.shortcut, run: c.run)
+        }
+    }
+
+    private static func recentLabel(_ ref: ItemRef) -> (String, String) {
+        switch ref {
+        case .note: ("Note", "note.text")
+        case .assignment: ("Assignment", "checklist")
+        case .deck: ("Deck", "rectangle.on.rectangle.angled")
+        case .book: ("Book", "book")
+        case .link: ("Link", "link")
+        case .readLater: ("Read later", "books.vertical")
+        case .citation: ("Citation", "quote.opening")
+        case .snippet: ("Snippet", "text.badge.plus")
+        }
     }
 
     /// The student's own material, ranked — see `PaletteSearch`, which is where the ranking
@@ -69,7 +128,7 @@ struct CommandPalette: View {
         return hits.prefix(8).map { hit in
             switch hit.kind {
             case .note(let id):
-                return .init(title: hit.title, subtitle: hit.detail, symbol: "note.text") {
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "note.text", recentKey: ItemRef.note(id).recentKey) {
                     isPresented = false
                     WindowOpener.open?("main")
                     state.globalSearch = ""
@@ -79,12 +138,12 @@ struct CommandPalette: View {
             case .assignment:
                 return .init(title: hit.title, subtitle: hit.detail, symbol: "checklist") { go("assignments") }
             case .deck(let id):
-                return .init(title: hit.title, subtitle: hit.detail, symbol: "rectangle.on.rectangle.angled") {
+                return .init(title: hit.title, subtitle: hit.detail, symbol: "rectangle.on.rectangle.angled", recentKey: ItemRef.deck(id).recentKey) {
                     state.pendingDeck = id
                     go("flashcards")
                 }
             case .book(let id, let page):
-                return .init(title: hit.title, subtitle: hit.detail, symbol: page == nil ? "book" : "book.pages") {
+                return .init(title: hit.title, subtitle: hit.detail, symbol: page == nil ? "book" : "book.pages", recentKey: ItemRef.book(id).recentKey) {
                     state.pendingBook = .init(id: id, page: page)
                     go("reading")
                 }
@@ -99,8 +158,15 @@ struct CommandPalette: View {
 
     private var filtered: [Action] {
         let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return actions }
-        var out = contentMatches
+        guard !q.isEmpty else {
+            return PaletteSections.emptyQuery(selection: selectionActions,
+                                              recents: Self.recentActions(PaletteRecents.current, state: state, commands: actions),
+                                              goTo: moduleJumps, others: quickActions.map { a in
+                                                  var a = a; a.section = "Actions"; return a
+                                              })
+        }
+        var out = selectionActions.filter { $0.title.localizedCaseInsensitiveContains(q) }
+        out += contentMatches
         out += actions.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.subtitle.localizedCaseInsensitiveContains(q) }
         // Arithmetic answers itself, at the top, without opening anything. `looksCalculable`
         // requires an operator and a successful evaluation, so a note title or a course code
@@ -170,10 +236,19 @@ struct CommandPalette: View {
                         // rebuilt, and the extra `.id(i)` pinned rows to their index, so the lazy
                         // stack kept drawing the old rows: typing "3 ft in cm" gave the right
                         // number of rows under the wrong titles, and ↩ ran one you couldn't see.
-                        ForEach(Array(filtered.enumerated()), id: \.offset) { i, a in
-                            row(a, active: i == selected).onTapGesture { a.run() }
-                                .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
-                                .accessibilityAction { a.run() }
+                        let list = filtered
+                        ForEach(Array(list.enumerated()), id: \.offset) { i, a in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let sec = a.section, i == 0 || list[i - 1].section != sec {
+                                    Text(sec.uppercased()).font(.caption2.weight(.bold)).tracking(0.5)
+                                        .foregroundStyle(.secondary).lineLimit(1)
+                                        .padding(.horizontal, 10).padding(.top, i == 0 ? 2 : 8)
+                                        .accessibilityAddTraits(.isHeader)
+                                }
+                                row(a, active: i == selected).onTapGesture { run(a) }
+                                    .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
+                                    .accessibilityAction { run(a) }
+                            }
                         }
                     }.padding(6)
                 }
@@ -190,9 +265,14 @@ struct CommandPalette: View {
     private func row(_ a: Action, active: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: a.symbol).frame(width: 20).foregroundStyle(.tint)
-            Text(a.title).fontWeight(.medium)
+            Text(a.title).fontWeight(.medium).lineLimit(1)
             Spacer()
-            Text(a.subtitle).font(.caption).foregroundStyle(.secondary)
+            if !a.subtitle.isEmpty { Text(a.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            if let k = a.shortcut {
+                Text(k).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).strokeBorder(.separator))
+            }
         }
         .padding(.horizontal, 10).padding(.vertical, 7).contentShape(Rectangle())
         .background(active ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.clear),
@@ -205,8 +285,14 @@ struct CommandPalette: View {
         selected = (selected + d + n) % n
     }
     private func runSelected() {
-        guard filtered.indices.contains(selected) else { return }
-        filtered[selected].run()
+        let list = filtered
+        guard list.indices.contains(selected) else { return }
+        run(list[selected])
+    }
+    /// Run a row and remember it: the item it acts on, or the command itself.
+    private func run(_ a: Action) {
+        PaletteRecents.record(a.recentKey ?? "cmd:\(a.title)")
+        a.run()
     }
     private func go(_ id: String) {
         state.selectedModuleID = id

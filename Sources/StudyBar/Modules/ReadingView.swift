@@ -394,6 +394,7 @@ struct ReadingDetailView: View {
         .navigationDestination(isPresented: $readingPDF) { BookReader(itemID: itemID, startPage: readerStart) }
         // A search hit inside the book opens it at that page.
         .onAppear {
+            PaletteRecents.record(ItemRef.book(itemID).recentKey)
             if let p = state.pendingBook, p.id == itemID, let page = p.page { state.pendingBook = nil; readerStart = page; readingPDF = true }
         }
     }
