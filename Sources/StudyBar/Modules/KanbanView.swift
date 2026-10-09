@@ -35,8 +35,9 @@ struct KanbanView: View {
     }
 
     private func column(_ status: AssignmentStatus) -> some View {
-        DropColumn(status: status, count: items(status).count, add: { addCard(status) }) {
-            ForEach(items(status)) { a in card(a) }
+        let list = items(status)
+        return DropColumn(status: status, count: list.count, add: { addCard(status) }) {
+            ForEach(list) { a in card(a) }
         } onDropIDs: { ids in moveIDs(ids, to: status) }
     }
 
@@ -103,7 +104,7 @@ struct DropColumn<Content: View>: View {
                 Button(action: add) { Image(systemName: "plus").accessibilityLabel("Add an assignment") }.buttonStyle(.borderless).font(.caption)
             }.padding(.horizontal, 4)
             ScrollView {
-                VStack(spacing: 6) { content() }
+                LazyVStack(spacing: 6) { content() }   // a term's worth of cards: only the visible ones are built
             }
         }
         .frame(width: 210)

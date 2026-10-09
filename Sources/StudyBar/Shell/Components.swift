@@ -286,15 +286,17 @@ struct AssignmentPicker: View {
 }
 
 extension Date {
-    var relativeShort: String {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .short
-        return f.localizedString(for: self, relativeTo: .now)
-    }
-    var dayMonth: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        return f.string(from: self)
-    }
+    var relativeShort: String { Self.relativeFormatter.localizedString(for: self, relativeTo: .now) }
+    var dayMonth: String { Self.dayMonthFormatter.string(from: self) }
+
+    // Made once: every assignment row, board card and note row formats a date, and a formatter
+    // built per call was most of switching to Board (~180 cards).
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .short; return f
+    }()
+    private static let dayMonthFormatter: DateFormatter = {
+        let f = DateFormatter(); f.locale = .autoupdatingCurrent; f.dateFormat = "MMM d"; return f
+    }()
 }
 
 /// A vertical divider that resizes the pane on its left.
