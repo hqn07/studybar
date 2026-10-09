@@ -187,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--design-selftest") {
             exit(DesignSelfTest.run())
         }
+        if CommandLine.arguments.contains("--switch-bench") {
+            exit(SwitchBench.run(state: state))
+        }
         // `scripts/module-audit.sh` runs this from a test copy: every module, rendered.
         if let i = CommandLine.arguments.firstIndex(of: "--module-audit"), i + 1 < CommandLine.arguments.count {
             exit(ModuleAudit.run(state: state, out: CommandLine.arguments[i + 1]))
