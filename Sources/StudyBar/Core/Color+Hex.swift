@@ -40,12 +40,17 @@ enum Palette {
 /// A course's color as drawn: tuned for the mode it's in. The stored hex never changes, and the
 /// color pickers draw the tuned color too, so what you pick is what you see.
 enum CourseColor {
-    /// The course color for both modes, resolved at draw time.
+    /// The course color for both modes, resolved at draw time. Made once per hex: every row reads
+    /// it on every redraw, and one color object per hex also lets SwiftUI see it hasn't changed.
     static func color(hex: String) -> Color? {
+        if let hit = cache.object(forKey: hex as NSString) { return Color(nsColor: hit) }
         guard let base = NSColor(hexString: hex) else { return nil }
         let light = tuned(base, dark: false), dark = tuned(base, dark: true)
-        return Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light })
+        let both = NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light }
+        cache.setObject(both, forKey: hex as NSString)
+        return Color(nsColor: both)
     }
+    private static let cache = NSCache<NSString, NSColor>()
 
     /// Light mode: deepened, hue and saturation kept, until it reads on white (3:1, the bar for
     /// dots, bars and edges) — pale yellows and limes otherwise vanish. Dark mode: a touch less
