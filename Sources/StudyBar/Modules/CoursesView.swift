@@ -932,7 +932,7 @@ struct CourseEditor: View {
                 LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 7), spacing: 8) {
                     ForEach(Palette.swatches, id: \.self) { hex in
                         Button { draft.colorHex = hex } label: {
-                            Circle().fill(Color(hex: hex) ?? .gray)
+                            Circle().fill(CourseColor.color(hex: hex) ?? .gray)
                                 .frame(width: 24, height: 24)
                                 .overlay(Circle().stroke(.primary, lineWidth: draft.colorHex == hex ? 2 : 0))
                         }.buttonStyle(.plain)

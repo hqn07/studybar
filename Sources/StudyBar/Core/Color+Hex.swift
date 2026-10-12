@@ -36,3 +36,41 @@ enum Palette {
         "#6366F1", "#8B5CF6", "#A855F7", "#EC4899", "#F43F5E", "#64748B", "#52525B"
     ]
 }
+
+/// A course's color as drawn: tuned for the mode it's in. The stored hex never changes, and the
+/// color pickers draw the tuned color too, so what you pick is what you see.
+enum CourseColor {
+    /// The course color for both modes, resolved at draw time.
+    static func color(hex: String) -> Color? {
+        guard let base = NSColor(hexString: hex) else { return nil }
+        let light = tuned(base, dark: false), dark = tuned(base, dark: true)
+        return Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light })
+    }
+
+    /// Light mode: deepened, hue and saturation kept, until it reads on white (3:1, the bar for
+    /// dots, bars and edges) — pale yellows and limes otherwise vanish. Dark mode: a touch less
+    /// saturated, so bright swatches don't glow on a dark ground.
+    static func tuned(_ c: NSColor, dark: Bool) -> NSColor {
+        guard let s = c.usingColorSpace(.sRGB) else { return c }
+        var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        s.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+        if dark { return NSColor(colorSpace: .sRGB, hue: h, saturation: sat * 0.85, brightness: b, alpha: a) }
+        var out = s
+        while contrast(out, .white) < 3, b > 0.2 {
+            b -= 0.02
+            out = NSColor(colorSpace: .sRGB, hue: h, saturation: sat, brightness: b, alpha: a)
+        }
+        return out
+    }
+
+    /// WCAG contrast ratio between two colors (1…21).
+    static func contrast(_ a: NSColor, _ b: NSColor) -> Double {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+    static func luminance(_ c: NSColor) -> Double {
+        let s = c.usingColorSpace(.sRGB) ?? c
+        func lin(_ v: CGFloat) -> Double { let v = Double(v); return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(s.redComponent) + 0.7152 * lin(s.greenComponent) + 0.0722 * lin(s.blueComponent)
+    }
+}

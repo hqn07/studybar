@@ -65,7 +65,7 @@ struct OnboardingView: View {
                 Text("or add them by hand").font(.caption2).foregroundStyle(.tertiary)
             }
             HStack {
-                Circle().fill(Color(hex: colorHex) ?? .blue).frame(width: 16, height: 16)
+                Circle().fill(CourseColor.color(hex: colorHex) ?? .blue).frame(width: 16, height: 16)
                 TextField("Course name (e.g. Biology 101)", text: $courseName, onCommit: addCourse)
                     .textFieldStyle(.roundedBorder)
                 Button("Add", action: addCourse).disabled(courseName.isEmpty)
@@ -73,7 +73,7 @@ struct OnboardingView: View {
             LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 7), spacing: 6) {
                 ForEach(Palette.swatches.prefix(7), id: \.self) { hex in
                     Button { colorHex = hex } label: {
-                        Circle().fill(Color(hex: hex) ?? .gray).frame(width: 20, height: 20)
+                        Circle().fill(CourseColor.color(hex: hex) ?? .gray).frame(width: 20, height: 20)
                             .overlay(Circle().stroke(.primary, lineWidth: colorHex == hex ? 2 : 0))
                     }.buttonStyle(.plain)
                 }

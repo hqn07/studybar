@@ -22,7 +22,7 @@ struct Course: Identifiable, Codable, Hashable {
     var words: [String]? = nil      // terms the student corrected in a transcript, for recognition to expect; decode-safe
     var createdAt: Date = .now
 
-    var color: Color { Color(hex: colorHex) ?? .accentColor }
+    var color: Color { CourseColor.color(hex: colorHex) ?? .accentColor }
     var gradePoints: Double? { GradeScale.points(grade) }
 }
 

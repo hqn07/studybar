@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// `StudyBar --design-selftest`: the layout decisions that are logic rather than looks — which
 /// sidebar groups get a header, what a course card says. Looks are checked by the module audit.
@@ -295,6 +296,19 @@ enum DesignSelfTest {
         // Board: the columns share the width, and never shrink below a readable card.
         check("b1 a wide window splits evenly", KanbanView.columnWidth(available: 980, count: 3, spacing: 10), 320)
         check("b2 a narrow window keeps 220 and scrolls", KanbanView.columnWidth(available: 500, count: 3, spacing: 10), 220)
+
+        // Course colors: tuned for the mode they're drawn in; the stored hex never changes.
+        let white = NSColor.white, darkGround = NSColor(hexString: "1E1E1E")!
+        func tuned(_ hex: String, dark: Bool) -> NSColor { CourseColor.tuned(NSColor(hexString: hex)!, dark: dark) }
+        check("c1 every swatch reads on white in light mode",
+              Palette.swatches.filter { CourseColor.contrast(tuned($0, dark: false), white) < 3 }, [])
+        check("c2 every swatch reads on the dark window in dark mode",
+              Palette.swatches.filter { CourseColor.contrast(tuned($0, dark: true), darkGround) < 3 }, [])
+        check("c3 a color that already reads is left alone in light mode",
+              Color(nsColor: tuned("#0A84FF", dark: false)).hexString, "#0A84FF")
+        check("c4 dark mode is a touch softer",
+              tuned("#FFCC00", dark: true).usingColorSpace(.sRGB)!.saturationComponent
+                < NSColor(hexString: "#FFCC00")!.usingColorSpace(.sRGB)!.saturationComponent, true)
 
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
