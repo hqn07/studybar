@@ -3,7 +3,7 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [2.11.0] — 2026-10-12
 
 - **Board uses the whole window** — the three columns share the width instead of sitting in a strip on the left, and scroll sideways only when the window is too narrow for them. The grey panels behind the columns are gone; a column lights up when you drag a card over it.
 - **A course's color once** — a note in the list shows its course as a dot, not also a colored edge; a course card keeps its colored edge, with its code and grade in plain text; Insights' bars by course take each course's color instead of blue.
