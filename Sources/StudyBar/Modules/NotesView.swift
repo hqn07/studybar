@@ -478,7 +478,6 @@ struct NoteRow: View {
     }
 
     private var isEmpty: Bool { note.previewText.isEmpty }
-    private var spineColor: Color { state.course(note.courseID)?.color ?? .accentColor }
 
     var body: some View {
         row.itemContextMenu(.note(note.id), state: state)
@@ -487,8 +486,6 @@ struct NoteRow: View {
     private var row: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 0) {
-                // Course-color spine.
-                Rectangle().fill(spineColor.opacity(isEmpty ? 0.35 : 0.9)).frame(width: 3)
                 HStack(alignment: .top, spacing: 10) {
                     if let img = screenshotImage(note.imagePath) {
                         Image(nsImage: img).resizable().scaledToFill()
@@ -525,7 +522,6 @@ struct NoteRow: View {
                     RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(.tint.opacity(0.5), lineWidth: 1)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))   // clip the spine to the card corners
             .sbRowSeparator(leading: DS.Space.m)
         }.buttonStyle(.plain)
     }
@@ -534,7 +530,7 @@ struct NoteRow: View {
     private var metaLine: some View {
         HStack(spacing: 6) {
             if let c = state.course(note.courseID) {
-                Circle().fill(c.color).frame(width: 5, height: 5)
+                Circle().fill(c.color).frame(width: 7, height: 7)   // the course's one mark on the row
                 Text(c.code.isEmpty ? c.name : c.code).lineLimit(1)
                 Text("·")
             }

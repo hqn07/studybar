@@ -227,7 +227,7 @@ struct CoursesView: View {
                             Text(c.name.isEmpty ? "Untitled" : c.name).font(.callout).lineLimit(1)
                             if !c.code.isEmpty { Text(c.code).font(.caption2).foregroundStyle(.secondary) }
                             Spacer()
-                            if !c.grade.isEmpty { Text(c.grade).font(.callout.weight(.medium)).foregroundStyle(c.color) }
+                            if !c.grade.isEmpty { Text(c.grade).font(.callout.weight(.medium)) }
                         }.contentShape(Rectangle()).padding(.horizontal, DS.Space.l).padding(.vertical, DS.Space.s)
                     }.buttonStyle(.plain)
                 }
@@ -321,10 +321,10 @@ struct CourseCard: View {
                 // as one without — and no row at all when there's neither to show.
                 if !course.code.isEmpty || s.grade != nil {
                     HStack {
-                        if !course.code.isEmpty { Text(course.code).font(.caption.weight(.semibold)).foregroundStyle(course.color) }
+                        if !course.code.isEmpty { Text(course.code).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                         Spacer(minLength: DS.Space.xs)
                         if let g = s.grade {
-                            Text(g).font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(course.color)
+                            Text(g).font(.system(size: 22, weight: .semibold, design: .rounded))
                         }
                     }
                     .frame(height: 26)
@@ -469,13 +469,13 @@ struct CourseDetailView: View {
 
     private func headerCard(_ c: Course) -> some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 4).fill(c.color).frame(width: 6, height: 54)
+            Capsule().fill(c.color).frame(width: 6, height: 54)   // the course's one mark on the page
             VStack(alignment: .leading, spacing: 3) {
                 Text([c.code, c.instructor].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
                     if !c.room.isEmpty { Label(c.room, systemImage: "mappin.and.ellipse").font(.caption) }
-                    Label("\(c.credits, specifier: "%g") cr", systemImage: "number").font(.caption)
+                    Text("\(c.credits, specifier: "%g") cr").font(.caption)
                 }.foregroundStyle(.secondary)
             }
             Spacer()
@@ -485,12 +485,12 @@ struct CourseDetailView: View {
                 ForEach(GradeScale.letters, id: \.self) { g in Button(g) { setGrade(g) } }
             } label: {
                 VStack(spacing: 0) {
-                    Text(c.grade.isEmpty ? "—" : c.grade).font(.title2.bold()).foregroundStyle(c.color)
+                    Text(c.grade.isEmpty ? "—" : c.grade).font(.title2.bold())
                     Text("grade").font(.caption2).foregroundStyle(.secondary)
                 }
             }.menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(12).background(c.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .padding(DS.Space.l).background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
     }
 
     private func assignmentRow(_ a: Assignment) -> some View {

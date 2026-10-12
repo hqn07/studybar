@@ -129,7 +129,6 @@ struct InsightsView: View {
             ForEach(doneByCourse, id: \.courseID) { row in
                 HStack(spacing: DS.Space.m) {
                     if let c = state.course(row.courseID) {
-                        Circle().fill(c.color).frame(width: 7, height: 7)
                         Text(c.code.isEmpty ? c.name : c.code).font(.caption)
                     } else {
                         Text("No course").font(.caption).foregroundStyle(.secondary)
@@ -137,7 +136,7 @@ struct InsightsView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(.quaternary).frame(height: 6)
-                            Capsule().fill(.tint)
+                            Capsule().fill(state.course(row.courseID)?.color ?? .accentColor)   // the bar carries the course's color
                                 .frame(width: geo.size.width * CGFloat(row.count) / CGFloat(top), height: 6)
                         }.frame(maxHeight: .infinity, alignment: .center)
                     }.frame(height: 12)
@@ -275,7 +274,7 @@ struct InsightsView: View {
         .dsCard()
     }
 
-    // MARK: - Time by course (course color = identity, allowed)
+    // MARK: - Time by course (course color = identity, on the bar only)
 
     private var courseBars: some View {
         VStack(spacing: DS.Space.m) {
@@ -288,7 +287,6 @@ struct InsightsView: View {
                     let course = state.course(row.courseID)
                     VStack(alignment: .leading, spacing: DS.Space.xs) {
                         HStack(spacing: DS.Space.s) {
-                            Circle().fill(course?.color ?? .secondary).frame(width: 7, height: 7)
                             Text(course?.name ?? "Unassigned").font(.caption.weight(.medium)).lineLimit(1)
                             Spacer()
                             Text(timeStr(row.seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
