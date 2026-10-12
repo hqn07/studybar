@@ -328,8 +328,9 @@ struct TimeFocusView: View {
             .filter { Calendar.current.isDateInToday($0.date) }.reduce(0) { $0 + $1.seconds }
         return VStack(spacing: DS.Space.s) {
             HStack(spacing: DS.Space.xl) {
-                stat("\(p.completedFocus)", "sessions")
-                stat(timeStr(todaySeconds), "focused")
+                // Zeros are left out (DESIGN.md): no "0 sessions" before the first one.
+                if p.completedFocus > 0 { stat("\(p.completedFocus)", "sessions") }
+                if todaySeconds > 0 { stat(timeStr(todaySeconds), "focused") }
                 Spacer()
                 HStack(spacing: DS.Space.xs) {
                     Text("\(done)/\(dailyGoal)").font(.callout.bold().monospacedDigit())
