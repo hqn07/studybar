@@ -6,6 +6,12 @@ struct KanbanView: View {
 
     private let columns = AssignmentStatus.allCases
 
+    /// A column's width: an even share of the board, never narrower than a readable card
+    /// (below that the board scrolls sideways).
+    static func columnWidth(available: CGFloat, count: Int, spacing: CGFloat) -> CGFloat {
+        max(220, (available - spacing * CGFloat(count - 1)) / CGFloat(count))
+    }
+
     private func items(_ s: AssignmentStatus) -> [Assignment] {
         // Archived work is out of play — it shouldn't sit in a column waiting to be dragged.
         state.data.assignments.filter { $0.status == s && !$0.isArchived }
@@ -15,7 +21,7 @@ struct KanbanView: View {
     var body: some View {
         NavigationStack {
             ModulePane(title: "Board", controls: {
-                Button { state.selectedModuleID = "assignments" } label: { Image(systemName: "list.bullet").accessibilityLabel("List view") }
+                Button("List") { state.selectedModuleID = "assignments" }
                     .help("List view — same assignments")
                 Text("\(state.data.assignments.filter { !$0.isArchived }.count) tasks").font(.caption).foregroundStyle(.secondary)
             }) {
@@ -23,10 +29,14 @@ struct KanbanView: View {
                     EmptyState(symbol: "rectangle.split.3x1", title: "Board is empty",
                                subtitle: "Assignments appear here as cards. Drag them across columns, or tap ＋ in a column.")
                 } else {
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(columns, id: \.self) { col in column(col) }
-                        }.padding(10)
+                    // The columns share the board's width; below three readable columns it scrolls sideways.
+                    GeometryReader { g in
+                        let width = Self.columnWidth(available: g.size.width - 2 * DS.Space.m, count: columns.count, spacing: DS.Space.m)
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            HStack(alignment: .top, spacing: DS.Space.m) {
+                                ForEach(columns, id: \.self) { col in column(col).frame(width: width) }
+                            }.padding(DS.Space.m)
+                        }
                     }
                 }
             }
@@ -59,7 +69,7 @@ struct KanbanView: View {
             }
         }
         .padding(DS.Space.s + 1).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+        .background(.sbSurface, in: RoundedRectangle(cornerRadius: DS.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).stroke(.separator, lineWidth: 0.5))
         .contentShape(Rectangle())
         .onTapGesture { editing = a }
@@ -107,11 +117,13 @@ struct DropColumn<Content: View>: View {
                 LazyVStack(spacing: 6) { content() }   // a term's worth of cards: only the visible ones are built
             }
         }
-        .frame(width: 210)
-        .padding(8)
-        .background(targeted ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.sbSurface),
-                    in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint, lineWidth: targeted ? 1.5 : 0))
+        // No panel behind a column — the cards are the only boxes. A column shows itself only as
+        // a drop target, its corners concentric with the cards' (a 10 four points inside a 14).
+        .padding(DS.Space.xs)
+        .background(targeted ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: DS.Radius.modal))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.modal).stroke(.tint, lineWidth: targeted ? 1.5 : 0))
+        .contentShape(Rectangle())   // with no fill, the empty part of a column still takes a drop
         .dropDestination(for: String.self) { ids, _ in onDropIDs(ids); return true } isTargeted: { targeted = $0 }
     }
 }

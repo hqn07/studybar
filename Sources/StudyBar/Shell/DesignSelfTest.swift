@@ -292,6 +292,10 @@ enum DesignSelfTest {
         check("p3 not while planning", TodayBrief.canPlan(loading: true, hasDrafts: false, hasWork: true), false)
         check("p4 not with nothing to plan", TodayBrief.canPlan(loading: false, hasDrafts: false, hasWork: false), false)
 
+        // Board: the columns share the width, and never shrink below a readable card.
+        check("b1 a wide window splits evenly", KanbanView.columnWidth(available: 980, count: 3, spacing: 10), 320)
+        check("b2 a narrow window keeps 220 and scrolls", KanbanView.columnWidth(available: 500, count: 3, spacing: 10), 220)
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }
