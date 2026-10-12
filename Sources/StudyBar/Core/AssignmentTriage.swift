@@ -30,11 +30,6 @@ enum AssignmentTriage {
             case .admin:      "Housekeeping: syllabus quizzes, uploads, orientation"
             }
         }
-        var symbol: String {
-            switch self {
-            case .work: "book.closed"; case .attendance: "hand.raised"; case .admin: "tray"
-            }
-        }
     }
 
     struct Proposal: Identifiable, Equatable {

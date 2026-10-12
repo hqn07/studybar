@@ -35,22 +35,22 @@ struct InsightsView: View {
                     // Two columns once there's room for two charts side by side; one when narrow.
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: DS.Space.l, alignment: .top)],
                               alignment: .leading, spacing: DS.Space.xl) {
-                        section("Work finished", nil, "checkmark.circle") { completionsChart }
+                        section("Work finished", nil) { completionsChart }
                         if !doneByCourse.isEmpty {
-                            section("Finished this week by course", doneByCourse.count, "checklist") { doneCourseBars }
+                            section("Finished this week by course", doneByCourse.count) { doneCourseBars }
                         }
-                        section("What's ahead", nil, "tray.full") { workloadCard }
+                        section("What's ahead", nil) { workloadCard }
                         if tracksTime {
                             weeklyGoalCard
                             if !streakStats.allSatisfy(\.isEmpty) { glanceCard(GlanceRow(stats: streakStats)) }
-                            section("Study time, last 7 days", nil, "chart.bar.fill") { barChart }
-                            section("Time this week by course", byCourse.isEmpty ? nil : byCourse.count, "clock") { courseBars }
+                            section("Study time, last 7 days", nil) { barChart }
+                            section("Time this week by course", byCourse.isEmpty ? nil : byCourse.count) { courseBars }
                         }
                         if !state.data.flashcards.isEmpty {
-                            section("Flashcard retention", nil, "brain.head.profile") { retentionCard }
+                            section("Flashcard retention", nil) { retentionCard }
                         }
                         if !state.data.reading.isEmpty {
-                            section("Reading", nil, "book") { readingCard }
+                            section("Reading", nil) { readingCard }
                         }
                     }
                 }.padding(DS.Space.l)
@@ -195,7 +195,6 @@ struct InsightsView: View {
                     .accessibilityLabel("Change your weekly goal")
                 }.menuStyle(.borderlessButton).fixedSize().help("Change your weekly goal")
             } else {
-                Image(systemName: "target").font(.title2).foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Set a weekly study goal").font(.callout.weight(.semibold))
                     Text("Give your streak a number to beat").font(.caption).foregroundStyle(.secondary)
@@ -331,9 +330,9 @@ struct InsightsView: View {
 
     // MARK: - Helpers
 
-    @ViewBuilder private func section<C: View>(_ title: String, _ count: Int?, _ icon: String, @ViewBuilder _ c: () -> C) -> some View {
+    @ViewBuilder private func section<C: View>(_ title: String, _ count: Int?, @ViewBuilder _ c: () -> C) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: title, count: count, systemImage: icon)
+            SectionHeader(title: title, count: count)
             c()
         }
     }

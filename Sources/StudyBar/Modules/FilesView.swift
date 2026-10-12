@@ -73,7 +73,7 @@ struct FilesView: View {
                         }.padding(.top, 4)
                     } label: {
                         SectionHeader(title: g.isEmpty ? "Ungrouped" : g,
-                                      count: groups[g]?.count ?? 0, systemImage: "tag.fill")
+                                      count: groups[g]?.count ?? 0)
                     }
                 }
             }

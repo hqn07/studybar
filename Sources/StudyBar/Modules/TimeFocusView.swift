@@ -43,10 +43,8 @@ struct TimeFocusView: View {
 
     var body: some View {
         ModulePane(title: "Time & Focus", controls: {
-            Button { withAnimation { showHistory.toggle() } } label: {
-                Image(systemName: showHistory ? "chevron.left" : "clock.arrow.circlepath")
-                .accessibilityLabel(showHistory ? "Back to timer" : "Session history")
-            }.help(showHistory ? "Back to timer" : "Session history")
+            Button(showHistory ? "Timer" : "History") { withAnimation { showHistory.toggle() } }
+                .help(showHistory ? "Back to timer" : "Session history")
             AmbientButton()
         }) {
             if showHistory {
@@ -98,12 +96,6 @@ struct TimeFocusView: View {
         }
         .pickerStyle(.segmented).frame(maxWidth: 320)
 
-        if mode == .stopwatch {
-            Image(systemName: "stopwatch").font(.system(size: 30)).foregroundStyle(.tint).padding(.top, DS.Space.s)
-        } else {
-            Image(systemName: mode == .pomodoro ? "timer" : "hourglass")
-                .font(.system(size: 30)).foregroundStyle(.tint).padding(.top, DS.Space.s)
-        }
 
         VStack(spacing: DS.Space.s) {
             TextField(mode == .stopwatch ? "Label (optional)" : "What are you working on?", text: $task)

@@ -217,7 +217,6 @@ struct FlashcardsView: View {
 
     private func deckRow(_ deck: Deck) -> some View {
         HStack(spacing: DS.Space.l) {
-            Image(systemName: "rectangle.stack").foregroundStyle(.tint).font(.title3)
             VStack(alignment: .leading, spacing: 2) {
                 Text(deck.name.isEmpty ? "Untitled deck" : deck.name).fontWeight(.medium)
                 HStack(spacing: DS.Space.s) {

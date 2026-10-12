@@ -282,15 +282,14 @@ struct RowActions<Content: View>: View {
 // MARK: - SectionHeader — collapsible group label
 
 /// The uppercase group label + count used above grouped lists (Snippets categories,
-/// Files groups, board columns). Pair with a `DisclosureGroup` for collapsibility.
+/// Files groups, board columns). Pair with a `DisclosureGroup` for collapsibility. No icon:
+/// the label is the word, and an icon beside every label is decoration (DESIGN.md, review list).
 struct SectionHeader: View {
     let title: String
     var count: Int? = nil
-    var systemImage: String? = nil
 
     var body: some View {
         HStack(spacing: DS.Space.s) {
-            if let systemImage { Image(systemName: systemImage).font(.caption2).foregroundStyle(.tint) }
             Text(title.uppercased())
                 .font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
             if let count {

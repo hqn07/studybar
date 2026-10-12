@@ -88,12 +88,12 @@ struct TodayView: View {
                     planSection
                     wrapUpSection
                     if !todayClasses.isEmpty {
-                        section("Today", todayClasses.count, "clock") {
+                        section("Today", todayClasses.count) {
                             ForEach(todayClasses) { classRow($0) }
                         }
                     }
                     if !next7.isEmpty {
-                        section("Next 7 days", next7.count, "calendar") {
+                        section("Next 7 days", next7.count) {
                             ForEach(next7) { assignmentRow($0) }
                         }
                     }
@@ -123,7 +123,7 @@ struct TodayView: View {
                 // The day by time: classes (the past ones faded), then what's due today.
                 VStack(alignment: .leading, spacing: 0) {
                     if !todayClasses.isEmpty || !dueToday.isEmpty {
-                        section("Today", todayClasses.count + dueToday.count, "clock") {
+                        section("Today", todayClasses.count + dueToday.count) {
                             ForEach(todayClasses) { c in classRow(c).opacity(c.endMinutes < nowMinutes ? 0.45 : 1) }
                             ForEach(dueToday) { assignmentRow($0) }
                         }
@@ -133,7 +133,7 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !later.isEmpty {
                         // Six rows keep the brief to one screen; the rest are a click away.
-                        section("Next 7 days", later.count, "calendar") {
+                        section("Next 7 days", later.count) {
                             ForEach(later.prefix(6)) { assignmentRow($0) }
                             if later.count > 6 {
                                 Button {
@@ -220,7 +220,7 @@ struct TodayView: View {
         let dueLabel = a.isOverdue ? "\(-days)d overdue" : (days == 0 ? "Due today" : days == 1 ? "Tomorrow" : (a.due?.dayMonth ?? ""))
         let dueStatus: Chip.Status = a.isOverdue ? .now : (days <= 3 ? .week : .neutral)
         return VStack(alignment: .leading, spacing: DS.Space.s) {
-            Label("One thing worth a head start", systemImage: "sparkles")
+            Text("One thing worth a head start")
                 .font(.caption2.weight(.bold)).textCase(.uppercase).foregroundStyle(.tint)
             Button { state.selectedModuleID = "assignments" } label: {
                 Text(a.title.isEmpty ? "Untitled" : a.title)
@@ -319,7 +319,7 @@ struct TodayView: View {
         let maxV = CGFloat(max(1, load.max() ?? 1))
         let cal = Calendar.current
         return VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: "This week", systemImage: "chart.bar")
+            SectionHeader(title: "This week")
             HStack(alignment: .bottom, spacing: DS.Space.s) {
                 ForEach(0..<7, id: \.self) { i in
                     let day = cal.date(byAdding: .day, value: i, to: cal.startOfDay(for: .now)) ?? .now
@@ -480,7 +480,7 @@ struct TodayView: View {
         if planLoading || !planDrafts.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 HStack {
-                    SectionHeader(title: "Today's plan", count: planDrafts.count, systemImage: "sparkles")
+                    SectionHeader(title: "Today's plan", count: planDrafts.count)
                     Spacer()
                     if !planDrafts.isEmpty && !planLoading {
                         Button("Add all") { acceptAllPlan() }.buttonStyle(.borderless).font(.caption.bold())
@@ -575,7 +575,7 @@ struct TodayView: View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 HStack {
-                    SectionHeader(title: "Wrap up today", count: items.count, systemImage: "moon.stars")
+                    SectionHeader(title: "Wrap up today", count: items.count)
                     Spacer()
                     Button("Move all to tomorrow") { withAnimation { items.forEach(rollForward) } }
                         .buttonStyle(.borderless).font(.caption.bold())
@@ -644,9 +644,9 @@ struct TodayView: View {
         .accessibilityLabel("\(streak) day study streak")
     }
 
-    @ViewBuilder private func section<C: View>(_ title: String, _ count: Int, _ icon: String, @ViewBuilder _ c: () -> C) -> some View {
+    @ViewBuilder private func section<C: View>(_ title: String, _ count: Int, @ViewBuilder _ c: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: title, count: count, systemImage: icon).padding(.bottom, DS.Space.s)
+            SectionHeader(title: title, count: count).padding(.bottom, DS.Space.s)
             c()   // plain rows: a hairline apart, not a gap
         }
     }

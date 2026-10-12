@@ -860,7 +860,6 @@ struct SettingsView: View {
     @ViewBuilder private var openSourceSections: some View {
         Section {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "shippingbox").font(.title3).foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("StudyBar is built on free, open-source software.").font(.callout.weight(.medium))
                     Text("\(Dependencies.all.count) components, all under permissive licenses (\(Dependencies.licenses.joined(separator: ", "))). Everything runs on-device — nothing here phones home.")

@@ -53,8 +53,7 @@ struct TriageReviewView: View {
                         ForEach(grouped, id: \.kind) { group in
                             VStack(alignment: .leading, spacing: DS.Space.s) {
                                 HStack(spacing: DS.Space.s) {
-                                    SectionHeader(title: group.kind.label, count: group.items.count,
-                                                  systemImage: group.kind.symbol)
+                                    SectionHeader(title: group.kind.label, count: group.items.count)
                                     Spacer()
                                     Button(group.items.allSatisfy(\.accepted) ? "Skip all" : "Accept all") {
                                         toggleGroup(group.kind)

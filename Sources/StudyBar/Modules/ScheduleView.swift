@@ -187,7 +187,6 @@ struct WeekGridView: View {
 
     private func nextBanner(_ s: ClassSession) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "clock.badge").font(.title3).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Next: \(title(s))").font(.callout.weight(.semibold))
                 Text("\(s.startString) – \(s.endString)\(s.room.isEmpty ? "" : " · \(s.room)")")

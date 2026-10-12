@@ -91,7 +91,7 @@ struct MathFinanceView: View {
 
     private var scheduleTable: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: "Amortization", count: model.schedule.count, systemImage: "tablecells")
+            SectionHeader(title: "Amortization", count: model.schedule.count)
             HStack(spacing: 0) {
                 Text("#").frame(width: 34, alignment: .trailing)
                 Text("Payment").frame(maxWidth: .infinity, alignment: .trailing)

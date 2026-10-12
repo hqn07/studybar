@@ -1821,7 +1821,7 @@ struct NoteEditor: View {
                 Divider()
                 VStack(spacing: 0) {
                     HStack(spacing: 6) {
-                        SectionHeader(title: "Live preview", systemImage: "function")
+                        SectionHeader(title: "Live preview")
                         Spacer()
                     }.padding(.horizontal, 12).padding(.top, 6)
                     ScrollView {

@@ -21,7 +21,7 @@ struct MathToolsView: View {
 
     private var uncertainty: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: "Uncertainty", systemImage: "plusminus")
+            SectionHeader(title: "Uncertainty")
             Text("Every measurement's uncertainty, carried through the formula in quadrature.")
                 .font(.caption2).foregroundStyle(.secondary)
 
@@ -85,7 +85,7 @@ struct MathToolsView: View {
 
     private var linearSystem: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            SectionHeader(title: "Linear system", systemImage: "square.grid.3x3")
+            SectionHeader(title: "Linear system")
             Text("One row per line. Put the right-hand side after a “|” to solve A x = b.")
                 .font(.caption2).foregroundStyle(.secondary)
 
