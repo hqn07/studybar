@@ -26,7 +26,7 @@ it matters (see *Surfaces*):
 - **Radius** — `control 6` (pills/buttons) · `card 10` (rows/panels) · `modal 14` (overlays). Nothing else.
 - **Space** — base-4 step: `xs 4 · s 6 · m 8 · l 12 · xl 16`.
 - **Width** — `content 1200` caps a module's lists and dashboards on a wide window · `prose 680` is the reading measure for running text (notes, tutor answers, study guides, articles; the note editor's text matches it) · `form 760` is for question-and-answer layouts (quizzes, progress, glossary). Lists and grids are fluid up to `content`; only prose keeps a measure.
-- **Color** — one accent (`.tint`; the system accent, or a theme preset — see *Customization*). Semantic colors are **state only**: `.dsNow` (red) · `.dsWeek` (orange) · `.dsDone` (teal). Never use them as decoration.
+- **Color** — one accent (`.tint`; the system accent, or a theme preset — see *Customization*). Semantic colors are **state only**: `.dsNow` (red) · `.dsWeek` (orange) · `.dsDone` (teal). Never use them as decoration. A **course color** is identity, drawn through `Course.color` / `CourseColor.color(hex:)`, which tunes it for the mode: deepened in light until it reads on white (3:1), a touch less saturated in dark. The stored hex never changes, and the pickers draw the tuned color. A course's color appears **once** per row or card — a dot, an edge or a bar, never two of them, and never on its code or grade text.
 - **Type** — one 3-role scale: `title3/semibold` module titles · `callout/medium` row titles · `caption` secondary/preview · `caption2 mono` labels & keywords. Plus `Font.dsGlance` (26 pt rounded semibold) for a number worth seeing at a glance.
 
 ## Components
@@ -38,7 +38,7 @@ Compose these — do not hand-roll a new chip/row/radius/spacing.
 - **`ModulePane(title:primary:controls:more:)`** — a module's header. One labeled `primary` action (the module's create action, titled "New", or its plain verb where "New" means nothing: Review, Plan my day, Paste); `controls` only for view switchers that must stay in sight (segmented pickers, tab pickers) and badges that appear when there's work; everything else in `more`, the ⋯ menu right after the title, titled with what it does.
 - **`GlanceFilter(items:)`** — a module's scopes as large counts you click ("14 this week · 2 overdue · 34 all") — the summary and the filter in one strip; a scope with nothing in it is left out unless selected. **A number you click is the list you land on:** a count, the list it opens, and any other screen's number that opens it (Today's tile and overdue warning) are drawn from one rule — for assignments, `AssignmentScope.includes` — and a link into a scoped list sets that scope.
 - **Lists you drive (batch 23).** In a list module (`ModuleInfo.filters`: Notes, Assignments, Flashcards, Reading, Library, Citations, Snippets) the toolbar field is `FilterField`: it filters the left pane's list through `\.listFilter` (`ListFilter` — one course token AND the text), suggests course tokens, and ⌘↩ searches everywhere; a list shows `FilterStatus` ("3 of 58 notes · Clear · Esc") and has no search field of its own. Lists use `keyboardListNav(ids:selection:onActivate:onPrimary:onRemove:onEscape:)`: in the window's left pane they take the keyboard on open (↑↓ j k, ↩ open, Space the row's main thing, ⌫ remove with Undo, / and ⌘F to the filter, Esc clears the filter then the selection); ⌘1–⌘9 open the sidebar's first nine rows. A row's secondary buttons go in `RowActions` under `.rowActionsHost(selected:)` — shown on hover or keyboard selection, space kept, and given to VoiceOver with `accessibilityActions`. **One action list per kind** (`ItemActions.actions(for: ItemRef, state:)`) feeds the row's context menu (`.itemContextMenu`) and ⌘K, whose empty state leads with the selected item's actions (`SelectionKey`), then Recent (`PaletteRecents`), then Go to with ⌘1–⌘9; removal always goes through `withUndo`, and decks are never removed from a key or ⌘K.
-- **`SectionHeader(title:count:systemImage:)`** — uppercase group label + count; pair with `DisclosureGroup` for collapsible groups.
+- **`SectionHeader(title:count:)`** — uppercase group label + count; pair with `DisclosureGroup` for collapsible groups. It has no icon: the label is the word.
 - **`.dsCard()`** — standard panel surface (card radius + secondary background).
 - **`GlanceRow(stats:emptyText:)`** of **`GlanceStat(value:label:isEmpty:)`** — numbers that matter, value over label in `dsGlance`, no tile around them. **Zeros are hidden:** mark a zero or missing value `isEmpty` and it's left out rather than drawn as "0" or "—"; when every stat is empty the row says so in one line (`emptyText`) or draws nothing.
 - **`ConfirmCard`** (existing) — every inline confirm/prompt. No sheets/alerts/color panels (they dismiss the popover).
@@ -51,9 +51,22 @@ Compose these — do not hand-roll a new chip/row/radius/spacing.
 2. **One accent, semantic state.** Tint = interactive/selected. Red/amber/teal = status only.
 3. **Summary before detail.** Lead with what needs attention (due chip, count, next-up).
 4. **Inline in the popover; native in the window.** In the **popover**, never modal — push with `NavigationStack`, confirm with `ConfirmCard`, no sheets/alerts/`NSColorPanel` (they dismiss it). In the **window**, standard app affordances (sheets, alerts, panels) are fine; still prefer inline when it's calmer.
-5. **Three radii, one grid.** 6 / 10 / 14; spacing on the base-4 scale; nothing off-grid.
-6. **Native materials & motion.** System vibrancy, SF Symbols at one weight, one spring for reveals (folds, flips).
+5. **Three radii, one grid.** 6 / 10 / 14; spacing on the base-4 scale; nothing off-grid. A filled shape closer than 8 pt to the edge of the shape it sits in is concentric with it: a 6 four points inside a 10, or a 10 four points inside a 14. Further in, it keeps its own radius. Rather than nest boxes, take the outer fill away (Board's columns are a heading and cards, and light up only as a drop target).
+6. **Native materials & motion.** System vibrancy, SF Symbols at one weight and the size of the text beside them, one spring for reveals (folds, flips). An icon earns its place by doing something or meaning something: none beside a section label, none repeated on every row of a list, none decorating a banner; a word where the symbol isn't universal ("List", "History"). The ✨ stays — it marks AI.
 7. **Earn the empty state.** Real `EmptyState` with a next action — never a blank pane.
+
+## Review checklist
+
+Before a screen ships — new or changed — check it against these:
+
+1. One labeled primary action in the header; the rest in ⋯.
+2. No zero tiles: a number with nothing to say is left out ("0 sessions" isn't shown).
+3. No box inside a box; nested shapes near an edge are concentric (rule 5).
+4. The header spans the pane; lists and grids fill the column, prose keeps its measure.
+5. Tokens only — radii, spacing, type and colors from `DS`; the lint ceiling doesn't rise.
+6. A course's color once per row or card.
+7. No decorative icons (rule 6).
+8. Rendered at 560 and 1280 pt in light and dark (`scripts/module-audit.sh`) and looked at, on data as long as a real term's.
 
 ## The window's frame
 

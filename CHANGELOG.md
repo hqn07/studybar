@@ -3,6 +3,15 @@
 All notable changes to StudyBar. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Board uses the whole window** — the three columns share the width instead of sitting in a strip on the left, and scroll sideways only when the window is too narrow for them. The grey panels behind the columns are gone; a column lights up when you drag a card over it.
+- **A course's color once** — a note in the list shows its course as a dot, not also a colored edge; a course card keeps its colored edge, with its code and grade in plain text; Insights' bars by course take each course's color instead of blue.
+- **Course colors that stay readable** — in light mode, pale colors such as yellow and lime are drawn a little deeper so they show up against white; in dark mode, bright colors are a touch softer. Your chosen colors aren't changed, and the color picker shows them as they'll appear.
+- **Fewer icons** — section labels (Today, Next 7 days, Work finished…) no longer carry an icon, decks in Flashcards lose the identical icon on every row, and the big timer picture in Time & Focus is gone. Board's list button now says *List*, and Time & Focus's clock button says *History*.
+- **Fixed: a note's title shown twice** — a note that begins with its title as a heading showed that title again as the first line of its preview in the Notes list.
+- **No "0 sessions"** — Time & Focus leaves out its session and focus-time numbers until there's something to count.
+
 ## [2.10.0] — 2026-10-09
 
 - **The search field filters the list you're on** — in Notes, Assignments, Flashcards, Reading, Library, Citations and Snippets, typing in the field at the top right narrows that list as you type. Type part of a course code or name and press ↩ to filter to that course; ⌘↩ searches everything instead. The course chips and the separate search boxes above the lists are gone.
