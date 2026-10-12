@@ -310,6 +310,15 @@ enum DesignSelfTest {
               tuned("#FFCC00", dark: true).usingColorSpace(.sRGB)!.saturationComponent
                 < NSColor(hexString: "#FFCC00")!.usingColorSpace(.sRGB)!.saturationComponent, true)
 
+        // A note row doesn't say its title twice when the note opens with it as a heading.
+        check("n1 a heading that repeats the title is skipped",
+              Note(title: "Week 7 — Magnetic force", body: "# Week 7 — Magnetic force\nIn short: a field pushes on a moving charge.").rowPreview,
+              "In short: a field pushes on a moving charge.")
+        check("n2 an untitled note's first line is its title, so the preview starts after it",
+              Note(body: "Open channel flow\nManning's equation").rowPreview, "Manning's equation")
+        check("n3 a different first line is kept",
+              Note(title: "Weirs", body: "Measuring flow\nby a known shape").rowPreview, "Measuring flow\nby a known shape")
+
         print(failures == 0 ? "All passed." : "\(failures) failed.")
         return Int32(failures)
     }

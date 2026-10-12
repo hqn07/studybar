@@ -504,8 +504,8 @@ struct NoteRow: View {
                                     .background(.sbSurface2, in: Capsule())
                             }
                         }
-                        if !isEmpty {
-                            Text(note.previewText)
+                        if !note.rowPreview.isEmpty {
+                            Text(note.rowPreview)
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         metaLine

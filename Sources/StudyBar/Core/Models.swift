@@ -114,6 +114,15 @@ extension Note {
         if !title.isEmpty { return title }
         return previewText.split(separator: "\n").first.map(String.init) ?? "Untitled"
     }
+    /// The text under a list row's title — without a first line that only repeats it (a note that
+    /// opens with its title as a heading, or an untitled note whose first line is the title).
+    var rowPreview: String {
+        let text = previewText
+        let end = text.firstIndex(of: "\n") ?? text.endIndex
+        guard text[..<end].trimmingCharacters(in: .whitespaces)
+                .caseInsensitiveCompare(listTitle.trimmingCharacters(in: .whitespaces)) == .orderedSame else { return text }
+        return text[end...].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     /// Word count of the cleaned text (for the editor's metadata line).
     var wordCount: Int { cleaned.words }
 }
