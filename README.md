@@ -82,7 +82,7 @@ organization — everything hangs off your **Courses**.
 
 - **Overview** — Today (AI-ranked next-up, streak, due-today, natural-language quick-add, **Plan my day** — propose→accept study blocks) · Insights (7-day chart, time by course, flashcard retention).
 - **Assignments** — due countdowns, checklists, recurring, notifications with Complete/Snooze, AI urgency ranking, and **AI "break into steps."**
-- **Notes** — a real Markdown editor (slash menu, tables, checklists, native LaTeX, `[[wikilinks]]` + backlinks, templates) with inline **✨ AI** to summarize / rewrite / proofread. I'll suggest that you use AI from OpenAI, Claude, or Deepseek. In terms of cost, I been using Chatgpt-Luna. 
+- **Notes** — a real Markdown editor (slash menu, tables, checklists, native LaTeX, `[[wikilinks]]` + backlinks, templates) with inline **✨ AI** to summarize / rewrite / proofread. I'll suggest that you use AI from OpenAI, Claude, or Deepseek. In terms of cost versus performance, I suggest ChatGPT_Luna. $5 should be plenty if your AI usage is light. 
 - **Voice Note** — on-device transcription (Apple Speech live, or Whisper) with crash-safe autosave.
 - **Flashcards** — FSRS scheduling, cloze, match & test modes, **Anki `.apkg`/CSV import & export**, and **AI card generation** from your own material.
 - **Reading** — track books, chapters, highlights — and **attach a PDF to search inside it and ask questions answered from the actual pages, with citations** (on-device; OCR for scanned PDFs).
